@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS signals (
 
     interpreted_by       TEXT NOT NULL CHECK (interpreted_by IN ('REGEX', 'AI')),
 
+    -- Lotaje asignado a la señal (sección 5). Valor fijo temporal
+    -- (0.01) hasta que exista el cálculo real de capital/slots
+    -- (CLAUDE.md, MVP actual).
+    lot_assigned         REAL NOT NULL DEFAULT 0.01,
+
     -- Estado del ciclo de vida (sección 10)
     status                TEXT NOT NULL CHECK (status IN (
         'PENDING_CONFIRMATION',
