@@ -41,7 +41,7 @@ services:
       - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
       - TELEGRAM_PHONE=${TELEGRAM_PHONE}
       - TELEGRAM_GROUP_ID=${TELEGRAM_GROUP_ID}
-      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/telegram-signal
+      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/kronos-telethon-signal
     volumes:
       - telethon_session:/app/session
     depends_on:
