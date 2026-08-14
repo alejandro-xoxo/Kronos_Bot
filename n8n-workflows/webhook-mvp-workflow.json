@@ -5,18 +5,17 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "kronos-telethon-signal",
-        "responseMode": "onReceived",
         "options": {
           "responseData": "{\"status\":\"received\"}"
         }
       },
-      "id": "1a1b1c1d-0001-4a1a-8a1a-000000000001",
+      "id": "f7d71ece-930a-4342-a823-d025309d9e90",
       "name": "Webhook Telethon",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        -560,
-        0
+        -2432,
+        384
       ],
       "webhookId": "kronos-telethon-signal"
     },
@@ -24,13 +23,13 @@
       "parameters": {
         "jsCode": "// Kronos Bot — Nodo Function (n8n): parser regex de señales nuevas\n// Fuente de reglas: PROTOCOLOS_KRONOS_BOT.md (secciones 4.1, 4.2, 4.3)\n//\n// Entrada esperada: el nodo Webhook de n8n anida el payload real\n// dentro de un campo \"body\" (item.json.body.text, item.json.body.\n// timestamp, etc.), no en el nivel raíz de item.json. Por eso se lee\n// todo desde `body` en vez de `payload` directo — de lo contrario\n// ningún mensaje matchea nunca (bug real detectado en producción).\n// Campos esperados dentro de body: message_id, chat_id, sender,\n// text, timestamp, reply_to_message_id\n//\n// Este nodo SOLO detecta y parsea señales nuevas de formato fijo.\n// No calcula lotaje, no inserta en la base de datos, no envía\n// notificaciones — eso lo hacen otros nodos del workflow.\n\nconst MAX_AGE_MINUTES = 5;\n\n// Formato fijo esperado:\n//   INSTRUMENTO BUY|SELL [LIMIT] PRECIO TP VALOR [TP VALOR ...] SL VALOR\n// El label \"TP\" se repite una vez por cada take profit, sin número pegado\n// (no existe \"TP1\"/\"TP2\" en los mensajes reales del grupo). Puede venir\n// en una sola línea o con saltos de línea entre campos — el código\n// colapsa los saltos de línea en espacios antes de aplicar el regex.\n// Ejemplos reales:\n//   \"XAUUSD BUY 4372  TP 4376  SL 4347\"\n//   \"XAUUSD SELL 4388\\nTP 4386\\nTP 4385\\nTP 4380\\nTP 4370\\nSL 4414\"\n// Sin ancla $ al final: los mensajes reales a veces traen texto\n// adicional después del SL (emojis, comentarios). \\b asegura que el\n// valor de SL termine en límite de palabra, sin exigir fin de string.\nconst SIGNAL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+(\\d+(?:\\.\\d+)?))?(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\s+SL:?\\s+(\\d+(?:\\.\\d+)?)\\b/i;\n\n// Regex secundario: mismo formato pero sin exigir SL. Se usa solo para\n// distinguir \"señal con SL faltante\" (sección 4.2 regla 5 — no se\n// inventa el SL, la señal no se ejecuta hasta tenerlo) de un mensaje\n// que directamente no es una señal nueva.\nconst SIGNAL_WITHOUT_SL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\b/i;\n\nfunction parseTimestamp(rawTimestamp) {\n  if (typeof rawTimestamp === 'number') {\n    // Segundos unix -> ms si el valor es demasiado pequeño para ser ms\n    return new Date(rawTimestamp < 1e12 ? rawTimestamp * 1000 : rawTimestamp);\n  }\n  return new Date(rawTimestamp);\n}\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  // El Webhook de n8n envuelve el payload real en `body`.\n  const body = item.json.body || item.json;\n  const rawText = (body.text || '').trim().replace(/\\s+/g, ' ');\n\n  const match = rawText.match(SIGNAL_REGEX);\n\n  if (!match) {\n    // No coincide con el formato completo de señal nueva. Puede ser\n    // una instrucción de seguimiento, un mensaje no relacionado, o\n    // una señal real con el SL faltante — se distinguen para no\n    // perder de vista este último caso (protocolo sección 4.2 regla 5).\n    const partialMatch = rawText.match(SIGNAL_WITHOUT_SL_REGEX);\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: partialMatch ? 'MISSING_SL' : 'NO_MATCH_FIXED_FORMAT',\n      },\n    });\n    continue;\n  }\n\n  const [, instrument, direction, limitFlag, entryPrice, tp1, tp2, sl] = match;\n\n  const signalDate = parseTimestamp(body.timestamp);\n  if (isNaN(signalDate.getTime())) {\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: 'INVALID_TIMESTAMP',\n      },\n    });\n    continue;\n  }\n\n  const ageMinutes = (Date.now() - signalDate.getTime()) / 60000;\n\n  if (ageMinutes > MAX_AGE_MINUTES) {\n    // Regla de antigüedad (sección 4.3): binaria, sin excepciones.\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'EXPIRED',\n        interpreted_by: 'REGEX',\n      },\n    });\n    continue;\n  }\n\n  results.push({\n    json: {\n      ...body,\n      matched: true,\n      status: 'PENDING_CONFIRMATION',\n      interpreted_by: 'REGEX',\n      instrument: instrument.toUpperCase(),\n      direction: direction.toUpperCase(),\n      execution_type: limitFlag ? 'LIMIT' : 'MARKET',\n      entry_price: parseFloat(entryPrice),\n      tp: parseFloat(tp1), // TP usado para ejecutar, según protocolo sección 4.2 regla 6\n      tp2: tp2 !== undefined ? parseFloat(tp2) : null, // solo informativo, no se usa para ejecutar\n      sl: parseFloat(sl),\n      raw_text: rawText,\n    },\n  });\n}\n\nreturn results;"
       },
-      "id": "1a1b1c1d-0002-4a1a-8a1a-000000000002",
+      "id": "f27bd27e-dee9-43ec-a430-7feeab94b31e",
       "name": "Parsear señal (regex)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -320,
-        0
+        -2192,
+        384
       ]
     },
     {
@@ -39,7 +38,8 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
@@ -66,80 +66,335 @@
         },
         "options": {}
       },
-      "id": "1a1b1c1d-0003-4a1a-8a1a-000000000003",
+      "id": "6e5eea28-70f8-47f7-9d7c-6a234aabadb2",
       "name": "¿Señal válida?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -80,
-        0
+        -1952,
+        384
       ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO signals (message_id, chat_id, sender, raw_text, signal_timestamp, reply_to_message_id, instrument, direction, execution_type, entry_price, sl, tp, interpreted_by, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);",
+        "query": "INSERT INTO signals (message_id, chat_id, sender, raw_text, signal_timestamp, reply_to_message_id, instrument, direction, execution_type, entry_price, sl, tp, interpreted_by, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id;",
         "options": {
           "queryReplacement": "={{ [$json.message_id, $json.chat_id, $json.sender, $json.raw_text, $json.timestamp, $json.reply_to_message_id, $json.instrument, $json.direction, $json.execution_type, $json.entry_price, $json.sl, $json.tp, $json.interpreted_by, $json.status] }}"
         }
       },
-      "id": "1a1b1c1d-0004-4a1a-8a1a-000000000004",
+      "id": "12cc7923-075d-4144-8f62-8de4e62fe1bd",
       "name": "Insertar señal (Postgres)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        180,
-        -80
+        -1696,
+        304
       ],
+      "notesInFlow": true,
       "credentials": {
         "postgres": {
           "id": "REPLACE_CON_TU_CREDENCIAL_POSTGRES",
           "name": "Kronos Postgres"
         }
       },
-      "notesInFlow": true,
       "notes": "Parámetros $1..$14 mapeados 1:1 en el mismo orden que las columnas del INSERT (ver columnas de la tabla signals en db/schema.sql). Credencial: host=postgres, port=5432, database/user/password según .env."
     },
     {
       "parameters": {
-        "resource": "message",
-        "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
         "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Parsear señal (regex)').item.json.instrument }}\nDirección: {{ $('Parsear señal (regex)').item.json.direction }}\nTipo: {{ $('Parsear señal (regex)').item.json.execution_type }}\nEntrada: {{ $('Parsear señal (regex)').item.json.entry_price }}\nTP: {{ $('Parsear señal (regex)').item.json.tp }}\nSL: {{ $('Parsear señal (regex)').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
-        "additionalFields": {
-          "reply_markup": "inlineKeyboard",
-          "inlineKeyboard": {
-            "rows": [
-              {
-                "row": {
-                  "buttons": [
-                    {
-                      "text": "✅ Confirmar",
-                      "additionalFields": {
-                        "callback_data": "=confirm:{{ $('Parsear señal (regex)').item.json.message_id }}"
-                      }
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "additionalFields": {
+                      "callback_data": "=confirm:{{ $json.id }}"
                     },
-                    {
-                      "text": "❌ Rechazar",
-                      "additionalFields": {
-                        "callback_data": "=reject:{{ $('Parsear señal (regex)').item.json.message_id }}"
-                      }
-                    }
-                  ]
-                }
+                    "text": "✅ Confirmar"
+                  },
+                  {
+                    "additionalFields": {
+                      "callback_data": "=reject:{{ $json.id }}"
+                    },
+                    "text": "❌ Rechazar"
+                  }
+                ]
               }
-            ]
-          },
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
           "parse_mode": "none"
         }
       },
-      "id": "1a1b1c1d-0005-4a1a-8a1a-000000000005",
+      "id": "d6926da1-b0d0-4ba8-93ce-e268cbdb0e6f",
       "name": "Notificar Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        440,
-        -80
+        -1440,
+        304
+      ],
+      "notesInFlow": true,
+      "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      },
+      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
+    },
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "9705a5a4-b00e-4d19-be1c-5d4f8cc77bea",
+      "name": "Trigger Callback Telegram",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1440,
+        704
+      ],
+      "webhookId": "kronos-telegram-callback-trigger",
+      "notesInFlow": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      },
+      "notes": "Recibe el callback_query cuando el usuario presiona Confirmar/Rechazar en la notificación. n8n registra el webhook automáticamente con la credencial del bot."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Nodo Function: parsear callback_query de los botones\n// Fase A (solo botones, sin EA/MT4 todavía)\nconst callbackQuery = $input.first().json.callback_query;\nconst [action, signalIdRaw] = (callbackQuery.data || '').split(':');\nreturn [{\n  json: {\n    action, // 'confirm' o 'reject'\n    signalId: parseInt(signalIdRaw, 10),\n    callbackQueryId: callbackQuery.id,\n  },\n}];"
+      },
+      "id": "63d58f09-1098-456b-b3ca-fb7b520e5d7f",
+      "name": "Parsear callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-confirm-reject",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "confirm",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d97957e1-2d85-4bf7-a25c-bf97c2e348e0",
+      "name": "¿Confirmar o rechazar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -992,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "486d0a2e-5dd1-48ef-9791-43c9017ac2f6",
+      "name": "Actualizar status: CONFIRMED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -784,
+        608
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_POSTGRES",
+          "name": "Kronos Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'REJECTED_BY_USER', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "71b6a6a1-bb0d-45f3-8df5-9bbb1cc52e12",
+      "name": "Actualizar status: REJECTED_BY_USER",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -784,
+        816
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_POSTGRES",
+          "name": "Kronos Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {},
+        "text": "Tu señal fue confirmada ✅"
+      },
+      "id": "9246bde6-2458-499d-a4e9-79ce26b5059e",
+      "name": "Responder callback: Confirmada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -340,
+        480
+      ],
+      "webhookId": "698f7aab-769d-4a4f-acda-6907949c6972",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {},
+        "text": "Tu señal fue rechazada ❌"
+      },
+      "id": "c8ecbb95-09ac-4b2f-bff4-1970461e3fe0",
+      "name": "Responder callback: Rechazada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -340,
+        688
+      ],
+      "webhookId": "b86332d9-8802-453b-8361-6a14ae4d10e4",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1a1b1c1d-000e-4a1a-8a1a-00000000000e",
+      "name": "¿Se confirmó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1a1b1c1d-000f-4a1a-8a1a-00000000000f",
+      "name": "¿Se rechazó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "text": "=Esta señal ya fue procesada antes. Estado actual: {{ $json.current_status }}",
+        "additionalFields": {
+          "showAlert": true
+        }
+      },
+      "id": "1a1b1c1d-0010-4a1a-8a1a-000000000010",
+      "name": "Responder callback: Ya procesada (confirmar)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -340,
+        640
       ],
       "credentials": {
         "telegramApi": {
@@ -147,29 +402,32 @@
           "name": "Kronos Telegram Bot"
         }
       },
-      "notesInFlow": true,
-      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
+      "webhookId": "c0a4e390-0e4d-4c62-9ba0-09a788e556c9"
     },
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "kronos-telegram-callback",
-        "responseMode": "onReceived",
-        "options": {
-          "responseData": "{\"status\":\"received\"}"
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "text": "=Esta señal ya fue procesada antes. Estado actual: {{ $json.current_status }}",
+        "additionalFields": {
+          "showAlert": true
         }
       },
-      "id": "1a1b1c1d-0006-4a1a-8a1a-000000000006",
-      "name": "Webhook Callback Telegram",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
+      "id": "1a1b1c1d-0011-4a1a-8a1a-000000000011",
+      "name": "Responder callback: Ya procesada (rechazar)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [
-        440,
-        160
+        -340,
+        848
       ],
-      "webhookId": "kronos-telegram-callback",
-      "notesInFlow": true,
-      "notes": "Recibe el callback_query cuando el usuario presiona Confirmar/Rechazar. Requiere configurar el bot de Telegram con setWebhook apuntando aquí, o un trigger de Telegram equivalente. Sin conectar todavía — la lógica de actualizar status y notificar al EA se implementa en el siguiente paso."
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      },
+      "webhookId": "ca0a4cf3-e303-4ed8-bd57-425e40105a7a"
     }
   ],
   "connections": {
@@ -203,8 +461,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     },
     "Insertar señal (Postgres)": {
@@ -212,6 +469,104 @@
         [
           {
             "node": "Notificar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Callback Telegram": {
+      "main": [
+        [
+          {
+            "node": "Parsear callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear callback": {
+      "main": [
+        [
+          {
+            "node": "¿Confirmar o rechazar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Confirmar o rechazar?": {
+      "main": [
+        [
+          {
+            "node": "Actualizar status: CONFIRMED",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar status: REJECTED_BY_USER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: CONFIRMED": {
+      "main": [
+        [
+          {
+            "node": "¿Se confirmó ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: REJECTED_BY_USER": {
+      "main": [
+        [
+          {
+            "node": "¿Se rechazó ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se confirmó ahora?": {
+      "main": [
+        [
+          {
+            "node": "Responder callback: Confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder callback: Ya procesada (confirmar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se rechazó ahora?": {
+      "main": [
+        [
+          {
+            "node": "Responder callback: Rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder callback: Ya procesada (rechazar)",
             "type": "main",
             "index": 0
           }
