@@ -56,29 +56,37 @@ es rentable en modo semi-automático.
    formato fijo de señal nueva: `INSTRUMENTO`, `BUY`/`SELL`,
    `[LIMIT]` opcional, `TP`, `SL`.
 3. Si coincide, extraer por regex: instrumento, dirección, tipo de
-   ejecución (market/limit), precio de entrada, SL, y **solo el
-   primer TP** si hay varios (según protocolo, sección 4.2 regla 6).
+   ejecución (market/limit), precio de entrada, SL, y **hasta 2 TP**
+   si la señal trae varios (según protocolo, sección 4.2 regla 6):
+   TP1 y TP2 generan cada uno una **sub-señal independiente**
+   (misma señal original, mismo instrumento/dirección/entrada/SL,
+   solo el TP difiere). TP3 en adelante se ignora — máximo 2
+   operaciones por señal. Si solo hay 1 TP, se genera una única
+   sub-señal (comportamiento sin cambios).
 4. Validar antigüedad: si `ahora - signal_timestamp > 5 minutos`,
-   descartar (status `EXPIRED`), sin excepciones.
-5. Si la señal es válida, insertar en `signals` con
-   `status = PENDING_CONFIRMATION`, `interpreted_by = 'REGEX'`.
-6. Enviar notificación a Telegram (chat privado del usuario) con los
-   datos de la señal.
+   descartar (status `EXPIRED`), sin excepciones. La validación de
+   antigüedad aplica igual a cada sub-señal.
+5. Por cada sub-señal válida, insertar una fila **independiente** en
+   `signals` con `status = PENDING_CONFIRMATION`,
+   `interpreted_by = 'REGEX'`, y su propio `signal_uid`.
+6. Enviar una notificación a Telegram **por cada sub-señal** (chat
+   privado del usuario), cada una con sus propios botones
+   Confirmar/Rechazar independientes — confirmar o rechazar una no
+   afecta a la otra.
 
 **Explícitamente fuera de este MVP** (no implementar todavía):
 - Interpretación por Gemini de instrucciones de seguimiento (mover
   SL, BE, cerrar) — es la siguiente fase.
-- Cálculo de lotaje por slots — puede dejarse como función aislada
-  y probada, pero no conectada al flujo de ejecución real todavía.
+- Cálculo de lotaje por slots (80/20) — puede dejarse como función
+  aislada y probada, pero no conectada al flujo de ejecución real
+  todavía. Ambas sub-señales de una misma señal usan el lotaje fijo
+  `0.01` sin ningún mecanismo de "competencia por slot" entre ellas.
 - Ejecución real en MT4 (el EA puente no existe aún).
-- Botones de confirmar/rechazar funcionales — puede empezar como
-  notificación informativa simple.
-- **Múltiples operaciones por múltiples TP.** El tutorial oficial del
-  grupo indica que si una señal trae 3 TP, se deben abrir 3
-  operaciones distintas (una por TP). Es una decisión consciente
-  del MVP tomar solo TP1 y descartar el resto, para reducir
-  complejidad inicial. Esto se revisita en una fase posterior
-  (no antes de validar el flujo base).
+- División de una señal en más de 2 sub-señales (TP3 en adelante) —
+  el tope es 2 por gestión de riesgo, aunque el tutorial oficial del
+  grupo indica abrir una operación por cada TP que traiga la señal.
+  Se revisita en una fase posterior, no antes de validar el flujo
+  de 2 sub-señales.
 
 ## Ejemplos reales de mensajes del grupo (para calibrar el regex)
 
