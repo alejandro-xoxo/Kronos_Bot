@@ -428,6 +428,54 @@
         }
       },
       "webhookId": "ca0a4cf3-e303-4ed8-bd57-425e40105a7a"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=✅ Señal #{{ $('Parsear callback').item.json.signalId }} confirmada. Se procederá con la ejecución.",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "1a1b1c1d-0012-4a1a-8a1a-000000000012",
+      "name": "Avisar en chat: Confirmada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -120,
+        480
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      },
+      "webhookId": "72561e4d-21ef-4f08-99dc-8241e7309fc6"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=❌ Señal #{{ $('Parsear callback').item.json.signalId }} rechazada. No se ejecutará.",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "1a1b1c1d-0013-4a1a-8a1a-000000000013",
+      "name": "Avisar en chat: Rechazada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -120,
+        688
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      },
+      "webhookId": "bec3f133-2da5-4bcf-92a8-2d35535a1560"
     }
   ],
   "connections": {
@@ -567,6 +615,28 @@
         [
           {
             "node": "Responder callback: Ya procesada (rechazar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder callback: Confirmada": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder callback: Rechazada": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Rechazada",
             "type": "main",
             "index": 0
           }
