@@ -10,12 +10,12 @@ CREATE TABLE IF NOT EXISTS signals (
     id                  SERIAL PRIMARY KEY,
 
     -- Datos de captura (sección 3.1)
-    message_id          INTEGER NOT NULL,
-    chat_id             INTEGER NOT NULL,
+    message_id          BIGINT NOT NULL,
+    chat_id             BIGINT NOT NULL,
     sender               TEXT,
     raw_text            TEXT NOT NULL,
     signal_timestamp    TIMESTAMP NOT NULL,
-    reply_to_message_id INTEGER,
+    reply_to_message_id BIGINT,
 
     -- Datos interpretados (sección 4.2)
     instrument          TEXT NOT NULL,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS signal_modifications (
     signal_id            INTEGER NOT NULL REFERENCES signals(id),
 
     -- Datos de captura del mensaje de seguimiento
-    message_id           INTEGER NOT NULL,
+    message_id           BIGINT NOT NULL,
     raw_text              TEXT NOT NULL,
 
     modification_type     TEXT NOT NULL CHECK (modification_type IN (
