@@ -3,3 +3,7 @@
 *.session-journal
 telethon-service/session/
 db/*.db
+mt4-bridge/orders/pending/*.json
+mt4-bridge/orders/results/*.json
+!mt4-bridge/orders/pending/.gitkeep
+!mt4-bridge/orders/results/.gitkeep
