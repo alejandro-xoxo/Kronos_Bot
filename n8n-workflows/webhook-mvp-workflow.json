@@ -1,5 +1,5 @@
 {
-  "name": "Kronos Bot - MVP Fase 3 (Webhook + Parser Regex + SQLite + Telegram)",
+  "name": "Kronos Bot - MVP Fase 3 (Webhook + Parser Regex + Postgres + Telegram)",
   "nodes": [
     {
       "parameters": {
@@ -78,27 +78,27 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO signals (message_id, chat_id, sender, raw_text, signal_timestamp, reply_to_message_id, instrument, direction, execution_type, entry_price, sl, tp, interpreted_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+        "query": "INSERT INTO signals (message_id, chat_id, sender, raw_text, signal_timestamp, reply_to_message_id, instrument, direction, execution_type, entry_price, sl, tp, interpreted_by, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);",
         "options": {
-          "queryParams": "={{ $json.message_id }},{{ $json.chat_id }},{{ $json.sender }},{{ $json.raw_text }},{{ $json.timestamp }},{{ $json.reply_to_message_id }},{{ $json.instrument }},{{ $json.direction }},{{ $json.execution_type }},{{ $json.entry_price }},{{ $json.sl }},{{ $json.tp }},{{ $json.interpreted_by }},{{ $json.status }}"
+          "queryReplacement": "={{ [$json.message_id, $json.chat_id, $json.sender, $json.raw_text, $json.timestamp, $json.reply_to_message_id, $json.instrument, $json.direction, $json.execution_type, $json.entry_price, $json.sl, $json.tp, $json.interpreted_by, $json.status] }}"
         }
       },
       "id": "1a1b1c1d-0004-4a1a-8a1a-000000000004",
-      "name": "Insertar señal (SQLite)",
-      "type": "n8n-nodes-base.sqlite",
-      "typeVersion": 2,
+      "name": "Insertar señal (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
       "position": [
         180,
         -80
       ],
       "credentials": {
-        "sqlite": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_SQLITE",
-          "name": "Kronos SQLite"
+        "postgres": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_POSTGRES",
+          "name": "Kronos Postgres"
         }
       },
       "notesInFlow": true,
-      "notes": "Configurar credencial SQLite apuntando al archivo de db/schema.sql ya inicializado."
+      "notes": "Parámetros $1..$14 mapeados 1:1 en el mismo orden que las columnas del INSERT (ver columnas de la tabla signals en db/schema.sql). Credencial: host=postgres, port=5432, database/user/password según .env."
     },
     {
       "parameters": {
@@ -106,31 +106,7 @@
         "operation": "sendMessage",
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
         "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Parsear señal (regex)').item.json.instrument }}\nDirección: {{ $('Parsear señal (regex)').item.json.direction }}\nTipo: {{ $('Parsear señal (regex)').item.json.execution_type }}\nEntrada: {{ $('Parsear señal (regex)').item.json.entry_price }}\nTP: {{ $('Parsear señal (regex)').item.json.tp }}\nSL: {{ $('Parsear señal (regex)').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
-        "additionalFields": {
-          "reply_markup": "inlineKeyboard",
-          "inlineKeyboard": {
-            "rows": [
-              {
-                "row": {
-                  "buttons": [
-                    {
-                      "text": "✅ Confirmar",
-                      "additionalFields": {
-                        "callback_data": "=confirm:{{ $('Parsear señal (regex)').item.json.message_id }}"
-                      }
-                    },
-                    {
-                      "text": "❌ Rechazar",
-                      "additionalFields": {
-                        "callback_data": "=reject:{{ $('Parsear señal (regex)').item.json.message_id }}"
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        }
+        "additionalFields": {}
       },
       "id": "1a1b1c1d-0005-4a1a-8a1a-000000000005",
       "name": "Notificar Telegram",
@@ -148,27 +124,6 @@
       },
       "notesInFlow": true,
       "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
-    },
-    {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "kronos-telegram-callback",
-        "responseMode": "onReceived",
-        "options": {
-          "responseData": "{\"status\":\"received\"}"
-        }
-      },
-      "id": "1a1b1c1d-0006-4a1a-8a1a-000000000006",
-      "name": "Webhook Callback Telegram",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        440,
-        160
-      ],
-      "webhookId": "kronos-telegram-callback",
-      "notesInFlow": true,
-      "notes": "Recibe el callback_query cuando el usuario presiona Confirmar/Rechazar. Requiere configurar el bot de Telegram con setWebhook apuntando aquí, o un trigger de Telegram equivalente. Sin conectar todavía — la lógica de actualizar status y notificar al EA se implementa en el siguiente paso."
     }
   ],
   "connections": {
@@ -198,7 +153,7 @@
       "main": [
         [
           {
-            "node": "Insertar señal (SQLite)",
+            "node": "Insertar señal (Postgres)",
             "type": "main",
             "index": 0
           }
@@ -206,7 +161,7 @@
         []
       ]
     },
-    "Insertar señal (SQLite)": {
+    "Insertar señal (Postgres)": {
       "main": [
         [
           {
