@@ -43,8 +43,11 @@ echo "-- Paso 2/4: creando prefijo de Wine dedicado en ${WINE_PREFIX_MT4} --"
 if [ -d "${WINE_PREFIX_MT4}" ]; then
     echo "El prefijo ${WINE_PREFIX_MT4} ya existe, se omite la creación."
 else
-    WINEPREFIX="${WINE_PREFIX_MT4}" WINEARCH=win32 wineboot --init
-    echo "Prefijo creado en ${WINE_PREFIX_MT4} (arquitectura win32, requerida por MT4)."
+    # Wine 7+ ya no soporta forzar WINEARCH=win32 en modo wow64 (arquitectura
+    # combinada 32/64 bits por defecto desde Wine 7). El prefijo por defecto
+    # corre MT4 (32 bits) sin necesidad de forzar la arquitectura.
+    WINEPREFIX="${WINE_PREFIX_MT4}" wineboot --init
+    echo "Prefijo creado en ${WINE_PREFIX_MT4}."
 fi
 echo
 
@@ -65,28 +68,39 @@ cat <<EOF
 
 Lo automatizable ya quedó listo. Faltan estos pasos manuales:
 
-1. Descargar el instalador de MT4 desde el sitio de VT Markets
-   (normalmente un .exe, ej. "vtmarkets4setup.exe"). Guárdalo en
-   cualquier carpeta temporal, ej. ~/Descargas.
+1. Descargar el instalador GENÉRICO de MetaTrader 4 desde el sitio
+   oficial: https://www.metatrader4.com/es/download
+   (NO existe un instalador separado de VT Markets — es el mismo
+   software genérico para cualquier bróker; la conexión a VT Markets
+   se hace después, desde dentro de la plataforma ya instalada).
+   Guárdalo en cualquier carpeta temporal, ej. ~/Descargas
+   (normalmente algo como "mt4setup.exe").
 
 2. Correr el instalador usando el prefijo de Wine dedicado (NO el
    prefijo por defecto), para no mezclarlo con otras apps de Wine:
 
-     WINEPREFIX="${WINE_PREFIX_MT4}" wine ~/Descargas/vtmarkets4setup.exe
+     WINEPREFIX="${WINE_PREFIX_MT4}" wine ~/Descargas/mt4setup.exe
 
 3. Seguir el instalador gráfico hasta el final (Next, Next, Finish).
    MT4 debería quedar instalado dentro de:
 
-     ${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/VT Markets MT4/
+     ${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/MetaTrader 4/
 
 4. Abrir MT4 con ese mismo prefijo:
 
-     WINEPREFIX="${WINE_PREFIX_MT4}" wine "${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/VT Markets MT4/terminal.exe"
+     WINEPREFIX="${WINE_PREFIX_MT4}" wine "${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/MetaTrader 4/terminal.exe"
 
-5. Loguearte con las credenciales de tu cuenta VT Markets (número de
-   cuenta, contraseña, servidor) — estas NO se automatizan ni se
-   guardan en ningún archivo del repo, se ingresan a mano en la
-   ventana de login de MT4.
+5. Recién AHORA, dentro de la plataforma ya instalada, conectarte al
+   servidor específico de VT Markets: en MT4 ir a
+   Archivo > Iniciar sesión en cuenta de trading (o la ventana de
+   login que aparece al abrir por primera vez) e ingresar:
+     - Número de cuenta
+     - Contraseña
+     - Servidor (el nombre exacto que te dio VT Markets, ej. algo
+       como "VTMarkets-Live" o "VTMarkets-Demo" — puede requerir
+       buscarlo en la lista de servidores si no aparece por defecto)
+   Estas credenciales NO se automatizan ni se guardan en ningún
+   archivo del repo, se ingresan a mano en la ventana de login.
 
 Una vez logueado y viendo precios en tiempo real en el terminal,
 MT4 está listo para el siguiente paso: instalar el EA puente
