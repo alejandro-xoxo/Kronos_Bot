@@ -111,16 +111,16 @@
               "row": {
                 "buttons": [
                   {
+                    "text": "✅ Confirmar",
                     "additionalFields": {
                       "callback_data": "=confirm:{{ $json.id }}"
-                    },
-                    "text": "✅ Confirmar"
+                    }
                   },
                   {
+                    "text": "❌ Rechazar",
                     "additionalFields": {
                       "callback_data": "=reject:{{ $json.id }}"
-                    },
-                    "text": "❌ Rechazar"
+                    }
                   }
                 ]
               }
@@ -235,7 +235,7 @@
       "typeVersion": 2.5,
       "position": [
         -784,
-        608
+        512
       ],
       "credentials": {
         "postgres": {
@@ -258,7 +258,7 @@
       "typeVersion": 2.5,
       "position": [
         -784,
-        816
+        864
       ],
       "credentials": {
         "postgres": {
@@ -271,16 +271,15 @@
       "parameters": {
         "resource": "callback",
         "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
-        "additionalFields": {},
-        "text": "Tu señal fue confirmada ✅"
+        "additionalFields": {}
       },
       "id": "9246bde6-2458-499d-a4e9-79ce26b5059e",
       "name": "Responder callback: Confirmada",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -340,
-        480
+        -336,
+        384
       ],
       "webhookId": "698f7aab-769d-4a4f-acda-6907949c6972",
       "credentials": {
@@ -294,16 +293,15 @@
       "parameters": {
         "resource": "callback",
         "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
-        "additionalFields": {},
-        "text": "Tu señal fue rechazada ❌"
+        "additionalFields": {}
       },
       "id": "c8ecbb95-09ac-4b2f-bff4-1970461e3fe0",
       "name": "Responder callback: Rechazada",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -340,
-        688
+        -336,
+        752
       ],
       "webhookId": "b86332d9-8802-453b-8361-6a14ae4d10e4",
       "credentials": {
@@ -312,122 +310,6 @@
           "name": "Kronos Telegram Bot"
         }
       }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "id": "cond-updated",
-              "leftValue": "={{ Number($json.updated_count) }}",
-              "rightValue": 1,
-              "operator": {
-                "type": "number",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "1a1b1c1d-000e-4a1a-8a1a-00000000000e",
-      "name": "¿Se confirmó ahora?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        -560,
-        560
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
-            {
-              "id": "cond-updated",
-              "leftValue": "={{ Number($json.updated_count) }}",
-              "rightValue": 1,
-              "operator": {
-                "type": "number",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "1a1b1c1d-000f-4a1a-8a1a-00000000000f",
-      "name": "¿Se rechazó ahora?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        -560,
-        768
-      ]
-    },
-    {
-      "parameters": {
-        "resource": "callback",
-        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
-        "text": "=Esta señal ya fue procesada antes. Estado actual: {{ $json.current_status }}",
-        "additionalFields": {
-          "showAlert": true
-        }
-      },
-      "id": "1a1b1c1d-0010-4a1a-8a1a-000000000010",
-      "name": "Responder callback: Ya procesada (confirmar)",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        -340,
-        640
-      ],
-      "credentials": {
-        "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
-        }
-      },
-      "webhookId": "c0a4e390-0e4d-4c62-9ba0-09a788e556c9"
-    },
-    {
-      "parameters": {
-        "resource": "callback",
-        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
-        "text": "=Esta señal ya fue procesada antes. Estado actual: {{ $json.current_status }}",
-        "additionalFields": {
-          "showAlert": true
-        }
-      },
-      "id": "1a1b1c1d-0011-4a1a-8a1a-000000000011",
-      "name": "Responder callback: Ya procesada (rechazar)",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        -340,
-        848
-      ],
-      "credentials": {
-        "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
-        }
-      },
-      "webhookId": "ca0a4cf3-e303-4ed8-bd57-425e40105a7a"
     },
     {
       "parameters": {
@@ -442,16 +324,16 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -120,
-        480
+        -80,
+        384
       ],
+      "webhookId": "5148d035-4bfe-4d10-b578-e57468c74e69",
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
           "name": "Kronos Telegram Bot"
         }
-      },
-      "webhookId": "72561e4d-21ef-4f08-99dc-8241e7309fc6"
+      }
     },
     {
       "parameters": {
@@ -466,16 +348,126 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -120,
-        688
+        -96,
+        752
       ],
+      "webhookId": "44603ea8-6600-4b56-9ebc-f99a04ddf707",
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
           "name": "Kronos Telegram Bot"
         }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      "webhookId": "bec3f133-2da5-4bcf-92a8-2d35535a1560"
+      "id": "2b2c2d2e-0001-4a1a-8a1a-000000000021",
+      "name": "¿Se confirmó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2b2c2d2e-0002-4a1a-8a1a-000000000022",
+      "name": "¿Se rechazó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "2b2c2d2e-0003-4a1a-8a1a-000000000023",
+      "name": "Responder callback: Ya procesada (confirmar)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -336,
+        560
+      ],
+      "webhookId": "a98bf3de-61c1-4345-95fb-473ddfaf17cd",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "2b2c2d2e-0004-4a1a-8a1a-000000000024",
+      "name": "Responder callback: Ya procesada (rechazar)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -336,
+        944
+      ],
+      "webhookId": "41c7fbac-b070-4359-8b16-efe262ac1b73",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
+          "name": "Kronos Telegram Bot"
+        }
+      }
     }
   ],
   "connections": {
@@ -585,6 +577,28 @@
         ]
       ]
     },
+    "Responder callback: Confirmada": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder callback: Rechazada": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "¿Se confirmó ahora?": {
       "main": [
         [
@@ -615,28 +629,6 @@
         [
           {
             "node": "Responder callback: Ya procesada (rechazar)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Responder callback: Confirmada": {
-      "main": [
-        [
-          {
-            "node": "Avisar en chat: Confirmada",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Responder callback: Rechazada": {
-      "main": [
-        [
-          {
-            "node": "Avisar en chat: Rechazada",
             "type": "main",
             "index": 0
           }
