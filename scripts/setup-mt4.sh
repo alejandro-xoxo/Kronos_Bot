@@ -43,8 +43,11 @@ echo "-- Paso 2/4: creando prefijo de Wine dedicado en ${WINE_PREFIX_MT4} --"
 if [ -d "${WINE_PREFIX_MT4}" ]; then
     echo "El prefijo ${WINE_PREFIX_MT4} ya existe, se omite la creación."
 else
-    WINEPREFIX="${WINE_PREFIX_MT4}" WINEARCH=win32 wineboot --init
-    echo "Prefijo creado en ${WINE_PREFIX_MT4} (arquitectura win32, requerida por MT4)."
+    # Wine 7+ ya no soporta forzar WINEARCH=win32 en modo wow64 (arquitectura
+    # combinada 32/64 bits por defecto desde Wine 7). El prefijo por defecto
+    # corre MT4 (32 bits) sin necesidad de forzar la arquitectura.
+    WINEPREFIX="${WINE_PREFIX_MT4}" wineboot --init
+    echo "Prefijo creado en ${WINE_PREFIX_MT4}."
 fi
 echo
 
