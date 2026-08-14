@@ -68,8 +68,15 @@ Mensaje nuevo recibido
 3. Si contiene `LIMIT` pero el precio actual ya alcanzó el nivel de entrada indicado → se ejecuta igualmente como mercado (usando los parámetros de la señal).
 4. Si contiene `LIMIT` y el precio no ha llegado al nivel → se crea orden pendiente.
 5. Si la señal no incluye SL → no se inventa; queda en espera de un mensaje posterior que lo indique. La señal **no se ejecuta** hasta tener SL, salvo que el sistema determine explícitamente lo contrario en una versión futura.
-6. Si la señal trae varios TP (TP1, TP2, TP3...) → **solo se usa TP1**. Los TP adicionales se ignoran en esta fase del proyecto (no se dividen en múltiples operaciones ni se hacen cierres parciales).
-   - **Nota:** el tutorial oficial del grupo indica que múltiples TP significan abrir múltiples operaciones (una por TP). Esta simplificación a "solo TP1" es una decisión consciente para el MVP, no un malentendido de la regla original. Se revisita en una fase posterior, una vez validado el flujo base.
+6. Si la señal trae varios TP (TP1, TP2, TP3...) → se generan **hasta 2 sub-señales independientes**, con un máximo de 2 operaciones por señal (gestión de riesgo):
+   - **Sub-señal A** → usa TP1 (el primer TP del mensaje).
+   - **Sub-señal B** → usa TP2 (el segundo TP), solo si la señal trae 2 o más TP.
+   - TP3, TP4, etc. → se siguen ignorando. El tope es 2 operaciones por señal, sin excepción.
+   - Si la señal solo trae 1 TP → se genera únicamente la sub-señal A (comportamiento sin cambios respecto a una señal de TP único).
+   - Ambas sub-señales comparten instrumento, dirección, tipo de ejecución, precio de entrada y SL — **solo el TP difiere entre ellas**.
+   - Cada sub-señal es un registro **independiente** en `signals` (una fila por sub-señal, no un campo adicional en la misma fila), con su propio `signal_uid`, y se valida, notifica y confirma/rechaza **por separado**: 2 notificaciones de Telegram distintas, cada una con sus propios botones Confirmar/Rechazar. Confirmar o rechazar una sub-señal no afecta a la otra.
+   - **Lotaje:** ambas sub-señales usan el valor fijo `0.01` (el mismo de cualquier señal en este MVP). No existe todavía ningún mecanismo de "competencia por slot" entre sub-señales de la misma señal — eso depende del cálculo de slots 80/20 (sección 5.3), que sigue sin conectarse al flujo de ejecución real. Se revisita cuando el cálculo de lotaje inteligente esté implementado y validado.
+   - **Nota:** el tutorial oficial del grupo indica que múltiples TP significan abrir múltiples operaciones (una por TP). Esta regla adopta ese comportamiento parcialmente — hasta 2 operaciones — como paso intermedio antes de soportar el máximo de TPs que traiga la señal, decisión tomada para mantener acotada la gestión de riesgo mientras el cálculo de lotaje real no está implementado.
 7. "BE" (Break Even), mencionado solo o en frases como "cerrar a BE" / "mover a BE", se interpreta **siempre como una modificación del Stop Loss** al precio de entrada de la operación. Nunca se aplica al Take Profit. Si el caller quiere modificar el TP, lo indica explícitamente con la palabra "TP" en el mensaje.
 8. No se inventan valores de ningún tipo (precios, SL, TP, lotaje) que no estén explícitamente presentes en el mensaje o derivados de una regla ya definida en este documento.
 
@@ -370,6 +377,8 @@ Notifica el resultado al usuario por Telegram
 
 ## 13. Fuera de alcance en esta fase (explícitamente no implementado)
 
-- División de una señal con múltiples TP en varias operaciones o cierres parciales — solo se usa TP1.
+- División de una señal con más de 2 TP en más de 2 operaciones — el tope es 2 sub-señales (TP1 y TP2), el resto se ignora (ver sección 4.2 regla 6).
+- Cierres parciales de una misma operación en base a múltiples TP — cada sub-señal es una operación completa independiente, no un cierre parcial de otra.
+- Cálculo de lotaje diferenciado por sub-señal (competencia por slot 80/20 entre sub-señales de la misma señal original) — ambas usan el lotaje fijo `0.01` hasta que el cálculo de slots esté conectado al flujo real.
 - Ejecución 100% automática de señales nuevas sin confirmación — planeado para una Fase 2 futura, una vez validado el sistema en modo semi-automático.
 - Migración a VPS Windows en la nube y modelos de IA de pago — evaluado solo después de validar rentabilidad en el entorno local/gratuito.
