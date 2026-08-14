@@ -1,23 +1,21 @@
--- Kronos Bot — Schema SQLite
+-- Kronos Bot — Schema PostgreSQL
 -- Fuente de verdad de las reglas: PROTOCOLOS_KRONOS_BOT.md
 -- Tablas: signals, signal_modifications, settings
-
-PRAGMA foreign_keys = ON;
 
 -- =========================================================
 -- Tabla: signals
 -- Señales nuevas capturadas desde Telegram (sección 3, 4, 7, 10)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS signals (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  SERIAL PRIMARY KEY,
 
     -- Datos de captura (sección 3.1)
-    message_id          INTEGER NOT NULL,
-    chat_id             INTEGER NOT NULL,
+    message_id          BIGINT NOT NULL,
+    chat_id             BIGINT NOT NULL,
     sender               TEXT,
     raw_text            TEXT NOT NULL,
-    signal_timestamp    DATETIME NOT NULL,
-    reply_to_message_id INTEGER,
+    signal_timestamp    TIMESTAMP NOT NULL,
+    reply_to_message_id BIGINT,
 
     -- Datos interpretados (sección 4.2)
     instrument          TEXT NOT NULL,
@@ -28,6 +26,11 @@ CREATE TABLE IF NOT EXISTS signals (
     tp                   REAL,
 
     interpreted_by       TEXT NOT NULL CHECK (interpreted_by IN ('REGEX', 'AI')),
+
+    -- Lotaje asignado a la señal (sección 5). Valor fijo temporal
+    -- (0.01) hasta que exista el cálculo real de capital/slots
+    -- (CLAUDE.md, MVP actual).
+    lot_assigned         REAL NOT NULL DEFAULT 0.01,
 
     -- Estado del ciclo de vida (sección 10)
     status                TEXT NOT NULL CHECK (status IN (
@@ -45,12 +48,12 @@ CREATE TABLE IF NOT EXISTS signals (
 
     -- Ejecución y cierre (sección 9)
     mt4_ticket            INTEGER,
-    close_timestamp        DATETIME,
+    close_timestamp        TIMESTAMP,
     close_price            REAL,
     profit_loss             REAL,
 
-    created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
@@ -63,12 +66,12 @@ CREATE INDEX IF NOT EXISTS idx_signals_mt4_ticket ON signals(mt4_ticket);
 -- Instrucciones de seguimiento sobre señales existentes (sección 4, 8)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS signal_modifications (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  SERIAL PRIMARY KEY,
 
     signal_id            INTEGER NOT NULL REFERENCES signals(id),
 
     -- Datos de captura del mensaje de seguimiento
-    message_id           INTEGER NOT NULL,
+    message_id           BIGINT NOT NULL,
     raw_text              TEXT NOT NULL,
 
     modification_type     TEXT NOT NULL CHECK (modification_type IN (
@@ -97,8 +100,8 @@ CREATE TABLE IF NOT EXISTS signal_modifications (
 
     applied_price            REAL,
 
-    created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_signal_modifications_signal_id ON signal_modifications(signal_id);
@@ -112,7 +115,7 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- operación normal.
 -- =========================================================
 CREATE TABLE IF NOT EXISTS settings (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
-    updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

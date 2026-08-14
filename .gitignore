@@ -2,3 +2,4 @@
 *.session
 *.session-journal
 telethon-service/session/
+db/*.db
