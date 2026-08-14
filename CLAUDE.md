@@ -163,17 +163,29 @@ Trabajar siempre sobre ramas, nunca commitear directo a `main`.
   `settings`) — schema implementado en `db/schema.sql`, montado como
   init script del contenedor de Postgres (`docker-entrypoint-initdb.d`)
   para que se auto-ejecute si el volumen se recrea desde cero.
-- ✅ Fase 3: webhook + parser regex en n8n (**el MVP actual**) —
-  **verificado end-to-end**: Telethon → webhook → parser regex →
-  inserción en Postgres → notificación informativa por Telegram.
-  Probado con una señal real del grupo (XAUUSD BUY). Pendiente
-  únicamente: botones de confirmar/rechazar todavía no son
-  funcionales (ver Fase 5).
-- 🔲 Fase 4: interpretación por Gemini de instrucciones de
-  seguimiento.
-- 🔲 Fase 5: botones de confirmar/rechazar funcionales — hoy la
-  notificación de Telegram es informativa, los botones existen en el
-  nodo pero no procesan el callback todavía.
-- 🔲 Fase 6: EA puente en MT4.
+- ✅ Fase 3: webhook + parser regex en n8n — **verificado end-to-end**:
+  Telethon → webhook → parser regex (hasta 2 sub-señales por múltiples
+  TP, protocolo sección 4.2 regla 6) → inserción en Postgres
+  (`signal_uid` por sub-señal) → notificación por Telegram con botones.
+- ✅ Fase 5: botones de confirmar/rechazar — **funcionales y
+  verificados**: callback vía `Trigger Callback Telegram`, `UPDATE`
+  idempotente (no reprocesa doble clic), mensaje de confirmación
+  visible en el chat además del toast. Se implementó antes que la
+  Fase 4 (Gemini), fuera de orden respecto a la numeración original,
+  porque era la pieza que faltaba para validar el flujo completo de
+  confirmación humana antes de tocar MT4.
+- 🔲 Fase 4: interpretación por Gemini de instrucciones de seguimiento
+  (mover SL, BE, cerrar) — no iniciada.
+- 🔶 Fase 6: EA puente en MT4 — **en progreso, ver detalle completo y
+  próximos pasos en `STATUS.md`.** Resumen: Wine + MT4 instalados,
+  formato de archivos y symlinks a `Common/Files` verificados, EA en
+  MQL4 escrito y revisado — falta compilar con MetaEditor (requiere
+  interfaz gráfica) y los nodos de n8n que escriben la orden y leen el
+  resultado (Etapas 4 y 5 de esta fase, no confundir con las Fases 4/5
+  de arriba).
 - 🔲 Fase 7: ciclo de cierre y registro en Google Sheets.
 - 🔲 Fase 8: pasar a ejecución 100% automática (futuro).
+
+**Estado técnico detallado y próximos pasos inmediatos: ver `STATUS.md`**
+(se actualiza en cada etapa, pensado para poder pegarse a una sesión
+nueva de Claude Code sin depender de memoria de conversación previa).
