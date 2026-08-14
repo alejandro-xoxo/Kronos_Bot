@@ -22,7 +22,7 @@ reinterpretarse libremente.
 - **Telethon** (Python, Docker) — microservicio que escucha el grupo de
   Telegram con la cuenta personal del usuario y reenvía cada mensaje a
   un webhook de n8n.
-- **SQLite** — base de datos de señales, modificaciones, y
+- **Postgres** — base de datos de señales, modificaciones, y
   configuración (`signals`, `signal_modifications`, `settings`).
 - **Gemini API** (capa gratuita) — interpreta instrucciones de
   seguimiento con redacción variable (mover SL, BE, cerrar). Las
@@ -149,15 +149,22 @@ Trabajar siempre sobre ramas, nunca commitear directo a `main`.
 
 - ✅ Fase 0: credenciales de Telegram, estructura de carpetas.
 - ✅ Fase 1: microservicio Telethon funcionando, capturando mensajes
-  del grupo y enviándolos al webhook de n8n (aunque el webhook
-  todavía no existe en n8n — próximo paso).
-- 🔲 Fase 2: base de datos SQLite (`signals`, `signal_modifications`,
-  `settings`) — diseño ya cerrado en `PROTOCOLOS_KRONOS_BOT.md`,
-  falta implementar el script SQL y el nodo en n8n.
-- 🔲 Fase 3: webhook + parser regex en n8n (**el MVP actual**).
+  del grupo y enviándolos al webhook de n8n.
+- ✅ Fase 2: base de datos Postgres (`signals`, `signal_modifications`,
+  `settings`) — schema implementado en `db/schema.sql`, montado como
+  init script del contenedor de Postgres (`docker-entrypoint-initdb.d`)
+  para que se auto-ejecute si el volumen se recrea desde cero.
+- ✅ Fase 3: webhook + parser regex en n8n (**el MVP actual**) —
+  **verificado end-to-end**: Telethon → webhook → parser regex →
+  inserción en Postgres → notificación informativa por Telegram.
+  Probado con una señal real del grupo (XAUUSD BUY). Pendiente
+  únicamente: botones de confirmar/rechazar todavía no son
+  funcionales (ver Fase 5).
 - 🔲 Fase 4: interpretación por Gemini de instrucciones de
   seguimiento.
-- 🔲 Fase 5: notificaciones de confirmación por Telegram.
+- 🔲 Fase 5: botones de confirmar/rechazar funcionales — hoy la
+  notificación de Telegram es informativa, los botones existen en el
+  nodo pero no procesan el callback todavía.
 - 🔲 Fase 6: EA puente en MT4.
 - 🔲 Fase 7: ciclo de cierre y registro en Google Sheets.
 - 🔲 Fase 8: pasar a ejecución 100% automática (futuro).
