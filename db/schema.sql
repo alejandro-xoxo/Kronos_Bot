@@ -9,6 +9,12 @@
 CREATE TABLE IF NOT EXISTS signals (
     id                  SERIAL PRIMARY KEY,
 
+    -- Identificador de sub-señal (sección 4.2 regla 6). Una señal con
+    -- 2 TP genera 2 filas independientes, cada una con su propio
+    -- signal_uid: "{message_id}-A" (TP1) y "{message_id}-B" (TP2).
+    -- Señales de un solo TP usan solo "{message_id}-A".
+    signal_uid          TEXT NOT NULL UNIQUE,
+
     -- Datos de captura (sección 3.1)
     message_id          BIGINT NOT NULL,
     chat_id             BIGINT NOT NULL,
