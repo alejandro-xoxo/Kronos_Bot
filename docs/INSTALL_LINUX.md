@@ -122,8 +122,12 @@ Qué hace:
    necesidad de forzar la arquitectura; forzar `win32` en Wine
    moderno falla con "WINEARCH is set to 'win32' but this is not
    supported in wow64 mode".
-3. Crea la estructura `mt4-bridge/orders/{pending,results}/` en la
-   raíz del repo (con `.gitkeep` para que git las trackee vacías).
+3. Prepara `mt4-bridge/orders/{pending,results}/` en la raíz del
+   repo: si MT4 todavía no corrió en esta máquina, deja carpetas
+   reales con `.gitkeep` (para que git las trackee vacías); si ya
+   encuentra `Common/Files` en el prefijo de Wine, las reemplaza por
+   symlinks hacia ahí (ver sección 8 — es lo mismo que antes había
+   que hacer a mano, ahora está automatizado y es idempotente).
 4. Imprime los pasos manuales pendientes (siguiente sección).
 
 ## 7. Instalar MT4 (instalador de VT Markets)
@@ -179,24 +183,28 @@ prefijo). Por eso `mt4-bridge/orders/pending/` y
 `mt4-bridge/orders/results/` del repo son, en cada máquina con MT4
 instalado, **symlinks locales** hacia esa carpeta real de Wine.
 
-Ubicar la ruta real (el ID de terminal es autogenerado, pero
-`Common/Files` es fijo, no depende de ese ID):
+**Este paso ahora está automatizado por `scripts/setup-mt4.sh`** (ya
+lo corriste en el paso 6) — no hace falta crear los symlinks a mano.
+Cada vez que corrés el script, la función `setup_bridge_dirs`:
 
-```bash
-find ~/.wine-mt4/drive_c/users -maxdepth 6 -type d -iname "MetaQuotes"
-```
+1. Busca `MetaQuotes/Terminal/Common` dentro del prefijo de Wine (el
+   ID de terminal es autogenerado, pero esa ruta es fija).
+2. Si la encuentra, crea `Common/Files/orders/{pending,results}` y
+   reemplaza `mt4-bridge/orders/{pending,results}` del repo por
+   symlinks hacia ahí — sea que esas carpetas fueran directorios
+   reales (clone nuevo con `.gitkeep`) o symlinks rotos/desactualizados
+   de una corrida anterior (prefijo recreado, etc.).
+3. Si todavía no existe (prefijo recién creado o MT4 nunca corrió en
+   esta máquina), no falla: avisa que los symlinks se crearán en una
+   corrida posterior, después de instalar y abrir MT4 al menos una vez
+   (ver paso 7).
 
-Esto da algo como:
-```
-~/.wine-mt4/drive_c/users/<usuario>/AppData/Roaming/MetaQuotes
-```
+Es idempotente — correrlo varias veces no rompe nada ni tira error de
+"ya existe"; si el symlink ya apunta al lugar correcto, lo deja como
+está.
 
-La carpeta que se usa es:
-```
-~/.wine-mt4/drive_c/users/<usuario>/AppData/Roaming/MetaQuotes/Terminal/Common/Files/
-```
-
-Crear la estructura y los symlinks:
+Si en algún momento necesitás hacerlo a mano igual, el equivalente
+manual es:
 
 ```bash
 COMMON_FILES=~/.wine-mt4/drive_c/users/<usuario>/AppData/Roaming/MetaQuotes/Terminal/Common/Files

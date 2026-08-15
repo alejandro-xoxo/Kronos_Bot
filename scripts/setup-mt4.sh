@@ -23,6 +23,69 @@ MT4_BRIDGE_DIR="${REPO_ROOT}/mt4-bridge"
 echo "== Kronos Bot — Setup MT4 (Fase 6, Linux/Arch) =="
 echo
 
+# Crea o repara el symlink mt4-bridge/orders/<name> -> <target>, de forma
+# idempotente:
+# - Si ya es un symlink que apunta exactamente a <target>, no toca nada.
+# - Si es un symlink roto o apuntando a un prefijo viejo, lo recrea.
+# - Si es una carpeta real (clone nuevo con .gitkeep, o resultado de un
+#   `mkdir -p` de una corrida anterior sin Wine), la reemplaza por el
+#   symlink — mismo procedimiento que estaba documentado a mano en
+#   docs/INSTALL_LINUX.md sección 8.
+link_bridge_dir() {
+    local name="$1" target="$2"
+    local link_path="${MT4_BRIDGE_DIR}/orders/${name}"
+
+    if [ -L "${link_path}" ]; then
+        if [ "$(readlink -- "${link_path}")" = "${target}" ]; then
+            echo "  ${name}: symlink ya apunta a ${target}, se omite."
+            return
+        fi
+        echo "  ${name}: symlink existente (roto o de un prefijo viejo) -> se recrea apuntando a ${target}"
+        rm -f -- "${link_path}"
+        ln -s -- "${target}" "${link_path}"
+    elif [ -d "${link_path}" ]; then
+        echo "  ${name}: reemplazando carpeta real por symlink hacia ${target}"
+        rm -rf -- "${link_path}"
+        ln -s -- "${target}" "${link_path}"
+    elif [ -e "${link_path}" ]; then
+        echo "ERROR: ${link_path} existe y no es ni carpeta ni symlink, revisar a mano." >&2
+        exit 1
+    else
+        ln -s -- "${target}" "${link_path}"
+    fi
+}
+
+# Decide entre carpetas reales (sin Wine/MT4 todavía) o symlinks hacia
+# Common/Files del prefijo de Wine (MT4 ya corrió al menos una vez).
+setup_bridge_dirs() {
+    local metaquotes_common common_files
+
+    mkdir -p "${MT4_BRIDGE_DIR}/orders"
+
+    metaquotes_common="$(find "${WINE_PREFIX_MT4}/drive_c/users" -maxdepth 6 -type d -ipath '*/MetaQuotes/Terminal/Common' 2>/dev/null | head -n1 || true)"
+
+    if [ -n "${metaquotes_common}" ]; then
+        common_files="${metaquotes_common}/Files"
+        echo "Prefijo de Wine con MT4 detectado. Common/Files en:"
+        echo "  ${common_files}"
+        mkdir -p "${common_files}/orders/pending" "${common_files}/orders/results"
+        link_bridge_dir "pending" "${common_files}/orders/pending"
+        link_bridge_dir "results" "${common_files}/orders/results"
+    elif [ -L "${MT4_BRIDGE_DIR}/orders/pending" ] || [ -L "${MT4_BRIDGE_DIR}/orders/results" ]; then
+        echo "AVISO: ya hay symlinks locales en mt4-bridge/orders/, pero todavía no se"
+        echo "encuentra la carpeta MetaQuotes/Terminal/Common en ${WINE_PREFIX_MT4}."
+        echo "Esto es normal si el prefijo de Wine se acaba de crear o si MT4 nunca"
+        echo "corrió en esta máquina. No se tocan los symlinks existentes — volvé a"
+        echo "correr este script después de instalar y abrir MT4 al menos una vez."
+    else
+        echo "MT4 todavía no está instalado en ${WINE_PREFIX_MT4} — se usan carpetas"
+        echo "reales con .gitkeep (estado normal de un clone nuevo sin Wine configurado)."
+        mkdir -p "${MT4_BRIDGE_DIR}/orders/pending" "${MT4_BRIDGE_DIR}/orders/results"
+        [ -e "${MT4_BRIDGE_DIR}/orders/pending/.gitkeep" ] || touch "${MT4_BRIDGE_DIR}/orders/pending/.gitkeep"
+        [ -e "${MT4_BRIDGE_DIR}/orders/results/.gitkeep" ] || touch "${MT4_BRIDGE_DIR}/orders/results/.gitkeep"
+    fi
+}
+
 if ! command -v pacman >/dev/null 2>&1; then
     echo "ERROR: este script requiere pacman (distro basada en Arch)." >&2
     echo "Para Windows, usa scripts/setup-mt4.ps1 en su lugar." >&2
@@ -51,15 +114,11 @@ else
 fi
 echo
 
-# 3. Crear carpeta mt4-bridge/ en la raíz del repo
-echo "-- Paso 3/4: creando estructura de mt4-bridge/ --"
-mkdir -p "${MT4_BRIDGE_DIR}/orders/pending"
-mkdir -p "${MT4_BRIDGE_DIR}/orders/results"
-if [ ! -f "${MT4_BRIDGE_DIR}/.gitkeep" ]; then
-    touch "${MT4_BRIDGE_DIR}/orders/pending/.gitkeep"
-    touch "${MT4_BRIDGE_DIR}/orders/results/.gitkeep"
-fi
-echo "Carpeta lista en ${MT4_BRIDGE_DIR} (orders/pending, orders/results)."
+# 3. Crear/reparar mt4-bridge/orders/{pending,results} — carpetas reales
+#    (clone nuevo sin Wine) o symlinks hacia Common/Files del prefijo de
+#    Wine (MT4 ya instalado y corrido al menos una vez en esta máquina).
+echo "-- Paso 3/4: preparando mt4-bridge/orders/{pending,results} --"
+setup_bridge_dirs
 echo
 
 # 4. Instrucciones manuales
