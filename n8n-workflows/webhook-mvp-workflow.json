@@ -94,8 +94,8 @@
       "notesInFlow": true,
       "credentials": {
         "postgres": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_POSTGRES",
-          "name": "Kronos Postgres"
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
         }
       },
       "notes": "Parámetros $1..$14 mapeados 1:1 en el mismo orden que las columnas del INSERT (ver columnas de la tabla signals en db/schema.sql). Credencial: host=postgres, port=5432, database/user/password según .env."
@@ -144,8 +144,8 @@
       "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
         }
       },
       "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
@@ -169,8 +169,8 @@
       "notesInFlow": true,
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
         }
       },
       "notes": "Recibe el callback_query cuando el usuario presiona Confirmar/Rechazar en la notificación. n8n registra el webhook automáticamente con la credencial del bot."
@@ -239,8 +239,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_POSTGRES",
-          "name": "Kronos Postgres"
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
         }
       }
     },
@@ -262,8 +262,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_POSTGRES",
-          "name": "Kronos Postgres"
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
         }
       }
     },
@@ -284,8 +284,8 @@
       "webhookId": "698f7aab-769d-4a4f-acda-6907949c6972",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
         }
       }
     },
@@ -306,8 +306,8 @@
       "webhookId": "b86332d9-8802-453b-8361-6a14ae4d10e4",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
         }
       }
     },
@@ -330,8 +330,8 @@
       "webhookId": "5148d035-4bfe-4d10-b578-e57468c74e69",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
         }
       }
     },
@@ -354,8 +354,8 @@
       "webhookId": "44603ea8-6600-4b56-9ebc-f99a04ddf707",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
         }
       }
     },
@@ -442,8 +442,8 @@
       "webhookId": "a98bf3de-61c1-4345-95fb-473ddfaf17cd",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
         }
       }
     },
@@ -464,10 +464,64 @@
       "webhookId": "41c7fbac-b070-4359-8b16-efe262ac1b73",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_CON_TU_CREDENCIAL_TELEGRAM",
-          "name": "Kronos Telegram Bot"
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, signal_uid, instrument, direction, execution_type, entry_price, sl, tp FROM signals WHERE id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "3c3d3e3f-0001-4a1a-8a1a-000000000031",
+      "name": "Obtener señal confirmada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -336,
+        160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Trae los campos que necesita la orden MT4 (FORMATO_ARCHIVOS.md) — el UPDATE de 'Actualizar status: CONFIRMED' solo devuelve updated_count/current_status, no la señal completa."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Etapa 4 (puente MT4): arma el JSON de orden pendiente\n// según el contrato exacto de mt4-bridge/FORMATO_ARCHIVOS.md.\n// Lotaje fijo 0.01 (MVP, sin cálculo de slots conectado todavía).\nconst row = $input.first().json;\n\nconst order = {\n  signal_id: row.id,\n  signal_uid: row.signal_uid,\n  instrument: row.instrument,\n  direction: row.direction,\n  execution_type: row.execution_type,\n  entry_price: Number(row.entry_price),\n  sl: Number(row.sl),\n  tp: Number(row.tp),\n  lot: 0.01,\n  created_at: new Date().toISOString(),\n};\n\nconst buffer = Buffer.from(JSON.stringify(order, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${row.id}.json`, 'application/json');\n\nreturn [{\n  json: order,\n  binary: { data: binary },\n}];"
+      },
+      "id": "3c3d3e3f-0002-4a1a-8a1a-000000000032",
+      "name": "Preparar orden pending (JSON)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $env.MT4_ORDERS_DIR }}/pending/{{ $json.signal_id }}.json",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "3c3d3e3f-0003-4a1a-8a1a-000000000033",
+      "name": "Escribir orden pending (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        176,
+        160
+      ],
+      "notes": "MT4_ORDERS_DIR (env) = /mt4-bridge/orders dentro del contenedor n8n, montado en docker-compose.yml desde MT4_ORDERS_HOST_PATH (ruta real de Common/Files/orders en el prefijo de Wine de esta máquina)."
     }
   ],
   "connections": {
@@ -606,6 +660,11 @@
             "node": "Responder callback: Confirmada",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Obtener señal confirmada",
+            "type": "main",
+            "index": 0
           }
         ],
         [
@@ -634,11 +693,87 @@
           }
         ]
       ]
+    },
+    "Obtener señal confirmada": {
+      "main": [
+        [
+          {
+            "node": "Preparar orden pending (JSON)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar orden pending (JSON)": {
+      "main": [
+        [
+          {
+            "node": "Escribir orden pending (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
   },
-  "pinData": {}
+  "pinData": {
+    "Trigger Callback Telegram": [
+      {
+        "json": {
+          "update_id": 80787673,
+          "callback_query": {
+            "id": "4594612309235556593",
+            "from": {
+              "id": 7512217485,
+              "is_bot": false,
+              "first_name": "Miguel",
+              "language_code": "es"
+            },
+            "message": {
+              "message_id": 1035,
+              "from": {
+                "id": 8693784344,
+                "is_bot": true,
+                "first_name": "XPrabX",
+                "username": "rexternew_bot"
+              },
+              "chat": {
+                "id": 7512217485,
+                "first_name": "Miguel",
+                "type": "private"
+              },
+              "date": 1786731207,
+              "text": "🆕 Nueva señal detectada\n\nInstrumento: XAUUSD\nDirección: BUY\nTipo: MARKET\nEntrada: 4350\nTP: 4354\nSL: 4315\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "✅ Confirmar",
+                      "callback_data": "confirm:11"
+                    },
+                    {
+                      "text": "❌ Rechazar",
+                      "callback_data": "reject:11"
+                    }
+                  ]
+                ]
+              }
+            },
+            "chat_instance": "8907440648560155515",
+            "data": "confirm:11"
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  }
 }
