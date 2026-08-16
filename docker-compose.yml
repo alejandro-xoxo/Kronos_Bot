@@ -16,8 +16,10 @@ services:
       - N8N_SECURE_COOKIE=false
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - TELEGRAM_USER_CHAT_ID=${TELEGRAM_USER_CHAT_ID}
+      - MT4_ORDERS_DIR=/mt4-bridge/orders
     volumes:
       - n8n_data:/home/node/.n8n
+      - ${MT4_ORDERS_HOST_PATH}:/mt4-bridge/orders
     networks:
       - trading_net
 
