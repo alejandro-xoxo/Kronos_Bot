@@ -194,17 +194,44 @@ Sub-etapas de esta fase, con estado individual:
   escritorio real). Tampoco se probó todavía contra el gráfico real de
   MT4.
 
-### 4 y 5 — Nodos de n8n para el puente con MT4 — 🔲 no iniciados
+### 4 y 5 — Nodos de n8n para el puente con MT4
 
-- **Etapa 4:** nodo en el workflow de n8n que, al confirmar una señal
-  (branch `CONFIRMED` del flujo de callback), escriba el archivo
-  `orders/pending/{signal_id}.json` con el formato ya definido.
-- **Etapa 5:** nodo (probablemente por polling con un Cron/Interval
-  trigger, ya que n8n no tiene forma nativa de "escuchar" cambios en el
-  filesystem) que lea `orders/results/{signal_id}.json`, actualice
-  `signals.mt4_ticket`/`status` en Postgres, notifique al usuario por
-  Telegram con el resultado real (ticket, precio de ejecución o motivo
-  de fallo), y borre el archivo de `results/` tras procesarlo.
+- **Etapa 4 — ✅ implementada, sin probar end-to-end todavía.** En la
+  rama `feature/n8n-mt4-order-bridge`:
+  - **Bloqueo de infraestructura resuelto:** n8n corre en Docker y no
+    tenía acceso al filesystem del host donde vive `mt4-bridge/orders/`
+    (symlinks a Wine). Se agregó a `docker-compose.yml` un bind mount
+    nuevo: `${MT4_ORDERS_HOST_PATH}:/mt4-bridge/orders` en el servicio
+    `n8n`, más `MT4_ORDERS_DIR=/mt4-bridge/orders` como env var interna.
+    `MT4_ORDERS_HOST_PATH` se agregó a `.env` (no versionado, específico
+    de esta máquina) apuntando directo a
+    `~/.wine-mt4/.../MetaQuotes/Terminal/Common/Files/orders` — se monta
+    el destino real, no el symlink del repo (Docker no puede resolver
+    symlinks que apuntan fuera del árbol montado). Verificado con una
+    escritura de prueba desde dentro del contenedor, visible del lado
+    de Wine.
+  - Tres nodos nuevos en el workflow, en la rama `CONFIRMED` del flujo
+    de callback (paralelo a `Responder callback: Confirmada`, no lo
+    reemplaza): **`Obtener señal confirmada`** (Postgres `SELECT`, ya
+    que el `UPDATE` de `Actualizar status: CONFIRMED` solo devuelve
+    `updated_count`/`current_status`, no la fila completa) →
+    **`Preparar orden pending (JSON)`** (Code, arma el JSON exacto de
+    `FORMATO_ARCHIVOS.md`, lotaje fijo `0.01`) → **`Escribir orden
+    pending (MT4)`** (`n8n-nodes-base.readWriteFile`, escribe en
+    `{{ $env.MT4_ORDERS_DIR }}/pending/{{ signal_id }}.json`).
+  - Ya subido vía API a la instancia real de n8n (workflow activo
+    `QxXebyoPgTGmGH2B`) y sincronizado de vuelta al JSON del repo.
+  - **Pendiente:** prueba end-to-end real (confirmar una señal de
+    verdad en Telegram y verificar que el EA la levanta y ejecuta) —
+    no se disparó todavía para no tocar la cuenta real sin que el
+    usuario lo decida explícitamente.
+- **Etapa 5 — 🔲 no iniciada.** Nodo (probablemente por polling con un
+  Cron/Interval trigger, ya que n8n no tiene forma nativa de "escuchar"
+  cambios en el filesystem) que lea `orders/results/{signal_id}.json`,
+  actualice `signals.mt4_ticket`/`status` en Postgres, notifique al
+  usuario por Telegram con el resultado real (ticket, precio de
+  ejecución o motivo de fallo), y borre el archivo de `results/` tras
+  procesarlo.
 
 ## Documentación de instalación — completa hasta esta etapa
 

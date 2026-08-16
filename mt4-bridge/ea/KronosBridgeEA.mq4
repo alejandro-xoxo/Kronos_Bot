@@ -17,6 +17,7 @@
 input int    InpPollIntervalSeconds = 2;          // Intervalo de polling de orders/pending/ (segundos)
 input int    InpSlippage            = 5;          // Slippage máximo en puntos
 input int    InpMagicNumber         = 20260814;   // Magic number para identificar órdenes de este EA
+input string InpSymbolSuffix        = "-VIP";     // Sufijo del símbolo real: "-VIP" (demo) / "-STD" (real, cuenta 23096429)
 
 //--- Rutas relativas a Common\Files (todas via FILE_COMMON)
 #define PENDING_DIR_PATTERN "orders\\pending\\*.json"
@@ -28,7 +29,7 @@ struct PendingOrder
 {
    int    signal_id;
    string signal_uid;
-   string instrument;
+   string instrument;      // instrumento tal como llega de n8n (ej. "XAUUSD")
    string direction;       // "BUY" | "SELL"
    string execution_type;  // "MARKET" | "LIMIT"
    double entry_price;
@@ -36,6 +37,24 @@ struct PendingOrder
    double tp;
    double lot;
 };
+
+//+------------------------------------------------------------------+
+//| Mapeo instrumento -> símbolo real del bróker. Solo los dos        |
+//| instrumentos que se operan hoy (XAUUSD, EURUSD) están permitidos  |
+//| — cualquier otro se rechaza explícitamente, sin intentar operar.  |
+//| El sufijo real (InpSymbolSuffix) depende del TIPO DE CUENTA, no   |
+//| del instrumento: "-VIP" en demo (911260411), "-STD" en real       |
+//| (23096429) — se cambia desde Properties > Inputs en MT4, sin      |
+//| recompilar.                                                       |
+//+------------------------------------------------------------------+
+bool ResolveBrokerSymbol(const string instrument, string &brokerSymbol)
+{
+   if(instrument != "XAUUSD" && instrument != "EURUSD")
+      return false;
+
+   brokerSymbol = instrument + InpSymbolSuffix;
+   return true;
+}
 
 //+------------------------------------------------------------------+
 //| OnInit / OnDeinit — arranca y detiene el polling por timer       |
@@ -152,18 +171,27 @@ void ProcessSingleFile(string fileName)
 bool ExecuteOrder(const PendingOrder &order, int &ticket, double &executedPrice,
                    int &errorCode, string &errorMessage)
 {
-   if(!SymbolSelect(order.instrument, true))
+   string brokerSymbol;
+   if(!ResolveBrokerSymbol(order.instrument, brokerSymbol))
    {
       errorCode    = -1;
-      errorMessage = "No se pudo seleccionar el símbolo " + order.instrument + " (revisar Market Watch / nombre exacto del bróker)";
+      errorMessage = "INSTRUMENT_NOT_SUPPORTED: " + order.instrument;
+      Print("Kronos EA: ", errorMessage);
+      return false;
+   }
+
+   if(!SymbolSelect(brokerSymbol, true))
+   {
+      errorCode    = -2;
+      errorMessage = "SYMBOL_NOT_FOUND: " + brokerSymbol;
       Print("Kronos EA: ", errorMessage);
       return false;
    }
 
    RefreshRates();
 
-   double ask = MarketInfo(order.instrument, MODE_ASK);
-   double bid = MarketInfo(order.instrument, MODE_BID);
+   double ask = MarketInfo(brokerSymbol, MODE_ASK);
+   double bid = MarketInfo(brokerSymbol, MODE_BID);
 
    int    cmd;
    double price;
@@ -212,7 +240,7 @@ bool ExecuteOrder(const PendingOrder &order, int &ticket, double &executedPrice,
    }
 
    ResetLastError();
-   ticket = OrderSend(order.instrument, cmd, order.lot, price, InpSlippage,
+   ticket = OrderSend(brokerSymbol, cmd, order.lot, price, InpSlippage,
                        order.sl, order.tp, "KronosBot:" + order.signal_uid,
                        InpMagicNumber, 0, clrNONE);
 
