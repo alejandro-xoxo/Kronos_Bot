@@ -86,6 +86,52 @@ setup_bridge_dirs() {
     fi
 }
 
+# Crea/repara un symlink en MQL4/Experts/ del terminal (NO Common,
+# eso es exclusivo de MT4, no compartido) apuntando al .mq4 del repo.
+# Dirección inversa a link_bridge_dir a propósito: acá el repo es la
+# fuente real (versionada en git), así que el symlink vive del lado
+# de Wine — evita tener que re-copiar el archivo cada vez que se edita
+# el EA, solo hay que recompilar en MetaEditor (F7).
+link_ea_to_experts() {
+    local terminal_experts source_ea link_path
+
+    source_ea="${MT4_BRIDGE_DIR}/ea/KronosBridgeEA.mq4"
+    if [ ! -f "${source_ea}" ]; then
+        echo "  AVISO: no se encontró ${source_ea}, se omite el symlink del EA."
+        return
+    fi
+
+    # Busca MQL4/Experts bajo cualquier carpeta de terminal QUE NO sea
+    # "Common" (Common no tiene MQL4/Experts propio, es solo Files/).
+    terminal_experts="$(find "${WINE_PREFIX_MT4}/drive_c/users" -maxdepth 8 -type d -ipath '*/MetaQuotes/Terminal/*/MQL4/Experts' ! -ipath '*/Terminal/Common/*' 2>/dev/null | head -n1 || true)"
+
+    if [ -z "${terminal_experts}" ]; then
+        echo "  MT4 todavía no está instalado/corrido en esta máquina — no se encontró"
+        echo "  MQL4/Experts. Se omite el symlink del EA (correr este script de nuevo"
+        echo "  después de instalar y abrir MT4 al menos una vez)."
+        return
+    fi
+
+    link_path="${terminal_experts}/KronosBridgeEA.mq4"
+
+    if [ -L "${link_path}" ]; then
+        if [ "$(readlink -- "${link_path}")" = "${source_ea}" ]; then
+            echo "  KronosBridgeEA.mq4: symlink ya apunta al repo, se omite."
+            return
+        fi
+        echo "  KronosBridgeEA.mq4: symlink existente apunta a otro lado -> se recrea."
+        rm -f -- "${link_path}"
+    elif [ -e "${link_path}" ]; then
+        echo "  KronosBridgeEA.mq4: ya existe un archivo real (no symlink) en Experts/,"
+        echo "  probablemente de una compilación manual previa -> se reemplaza por el symlink."
+        rm -f -- "${link_path}"
+    fi
+
+    ln -s -- "${source_ea}" "${link_path}"
+    echo "  KronosBridgeEA.mq4 enlazado en: ${terminal_experts}"
+    echo "  (abrir MetaEditor y compilar con F7 — el .ex4 resultante queda del lado de Wine, no se versiona)"
+}
+
 if ! command -v pacman >/dev/null 2>&1; then
     echo "ERROR: este script requiere pacman (distro basada en Arch)." >&2
     echo "Para Windows, usa scripts/setup-mt4.ps1 en su lugar." >&2
@@ -119,6 +165,9 @@ echo
 #    Wine (MT4 ya instalado y corrido al menos una vez en esta máquina).
 echo "-- Paso 3/4: preparando mt4-bridge/orders/{pending,results} --"
 setup_bridge_dirs
+echo
+echo "-- Paso 3.5/4: enlazando KronosBridgeEA.mq4 en MQL4/Experts/ --"
+link_ea_to_experts
 echo
 
 # 4. Instrucciones manuales
@@ -161,9 +210,16 @@ Lo automatizable ya quedó listo. Faltan estos pasos manuales:
    Estas credenciales NO se automatizan ni se guardan en ningún
    archivo del repo, se ingresan a mano en la ventana de login.
 
-Una vez logueado y viendo precios en tiempo real en el terminal,
-MT4 está listo para el siguiente paso: instalar el EA puente
-(Fase 6, pendiente — no implementado todavía).
+6. Este script ya dejó KronosBridgeEA.mq4 enlazado en MQL4/Experts/
+   (ver salida del Paso 3.5 arriba). Abrir MetaEditor (F4 desde MT4),
+   ubicarlo en Navigator > Experts, y compilar con F7. Si el script
+   corrió ANTES de instalar MT4 por primera vez, hay que volver a
+   correrlo una vez ya esté instalado y abierto al menos una vez —
+   recién ahí existe la carpeta MQL4/Experts para enlazar.
+
+Una vez logueado, viendo precios en tiempo real y con el EA
+compilado sin errores, MT4 está listo para arrastrar el EA al
+gráfico y activar AutoTrading.
 
 EOF
 
