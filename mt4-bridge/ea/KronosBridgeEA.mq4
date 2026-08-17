@@ -16,6 +16,11 @@
 #property description "También lee orders/config.json en cada ciclo (sufijo de símbolo"
 #property description "dinámico, sin recompilar) y escribe orders/status.json con las"
 #property description "posiciones abiertas de este EA (magic number) en cada ciclo."
+#property description ""
+#property description "orders/actions/*.json: comandos de break-even (SET_BE) y cierre"
+#property description "a mercado (CLOSE) sobre posiciones ya abiertas, generados desde"
+#property description "el dashboard web — solo actúa sobre tickets con el magic number"
+#property description "de este EA, nunca sobre operativa manual del usuario."
 
 //--- Parámetros configurables desde las propiedades del EA en MT4
 input int    InpPollIntervalSeconds = 2;          // Intervalo de polling de orders/pending/ (segundos)
@@ -29,6 +34,8 @@ input string InpSymbolSuffix        = "-VIP";     // Sufijo del símbolo real: "
 #define RESULTS_DIR_PREFIX  "orders\\results\\"
 #define CONFIG_FILE_PATH    "orders\\config.json"
 #define STATUS_FILE_PATH    "orders\\status.json"
+#define ACTIONS_DIR_PATTERN "orders\\actions\\*.json"
+#define ACTIONS_DIR_PREFIX  "orders\\actions\\"
 
 //--- Sufijo de símbolo efectivo: arranca con InpSymbolSuffix (fallback) y
 //    puede actualizarse en caliente vía orders/config.json (ver
@@ -107,6 +114,7 @@ void OnTimer()
 {
    UpdateSymbolSuffixFromConfig();
    ProcessPendingOrders();
+   ProcessPositionActions();
    WritePositionsStatus();
 }
 
@@ -344,6 +352,133 @@ void WriteResult(int signalId, bool success, int ticket, double executedPrice,
       Print("Kronos EA: resultado escrito en ", resultPath, " (success=", success, ")");
    else
       Print("Kronos EA: ERROR al escribir ", resultPath, " — revisar permisos de Common\\Files");
+}
+
+//+------------------------------------------------------------------+
+//| Recorre orders/actions/*.json — comandos de break-even/cierre    |
+//| sobre posiciones ya abiertas, generados desde el dashboard web.  |
+//+------------------------------------------------------------------+
+void ProcessPositionActions()
+{
+   string fileName;
+   long searchHandle = FileFindFirst(ACTIONS_DIR_PATTERN, fileName, FILE_COMMON);
+
+   if(searchHandle == INVALID_HANDLE)
+      return; // no hay comandos pendientes en este ciclo
+
+   do
+   {
+      ProcessSingleAction(fileName);
+   }
+   while(FileFindNext(searchHandle, fileName));
+
+   FileFindClose(searchHandle);
+}
+
+//+------------------------------------------------------------------+
+//| Procesa un único archivo de orders/actions/. Formato:            |
+//|   { "ticket": 202230990, "action": "SET_BE" | "CLOSE" }          |
+//| Solo actúa sobre tickets con el InpMagicNumber de este EA — nunca|
+//| toca operativa manual del usuario en la misma cuenta. El archivo |
+//| se borra siempre tras intentarlo (éxito o fallo), salvo que no   |
+//| se haya podido leer (escritura a medias del dashboard).          |
+//+------------------------------------------------------------------+
+void ProcessSingleAction(string fileName)
+{
+   string actionPath = ACTIONS_DIR_PREFIX + fileName;
+
+   string content;
+   if(!ReadEntireFile(actionPath, content))
+   {
+      Print("Kronos EA: no se pudo leer ", actionPath, " (vacío o en uso), se reintenta luego.");
+      return;
+   }
+
+   string ticketStr, action;
+   bool ok = JsonGetValue(content, "ticket", ticketStr) && JsonGetValue(content, "action", action);
+
+   if(!ok)
+   {
+      Print("Kronos EA: JSON inválido en ", actionPath, ", se descarta.");
+      FileDelete(actionPath, FILE_COMMON);
+      return;
+   }
+
+   int ticket = (int)StringToInteger(ticketStr);
+
+   if(ticket <= 0 || (action != "SET_BE" && action != "CLOSE"))
+   {
+      Print("Kronos EA: acción inválida en ", actionPath, " (ticket=", ticket,
+            ", action=", action, "), se descarta.");
+      FileDelete(actionPath, FILE_COMMON);
+      return;
+   }
+
+   if(!OrderSelect(ticket, SELECT_BY_TICKET))
+   {
+      Print("Kronos EA: ", actionPath, " — ticket ", ticket,
+            " no encontrado (¿ya cerrado?), se descarta.");
+      FileDelete(actionPath, FILE_COMMON);
+      return;
+   }
+
+   if(OrderMagicNumber() != InpMagicNumber)
+   {
+      Print("Kronos EA: ", actionPath, " — ticket ", ticket,
+            " no pertenece a este EA (magic distinto), se ignora por seguridad.");
+      FileDelete(actionPath, FILE_COMMON);
+      return;
+   }
+
+   if(action == "SET_BE")
+      ApplyBreakEven(ticket);
+   else // "CLOSE"
+      ApplyClose(ticket);
+
+   FileDelete(actionPath, FILE_COMMON);
+}
+
+//+------------------------------------------------------------------+
+//| Mueve el SL de una posición abierta a su precio de apertura      |
+//| (break-even) — mismo cálculo para BUY y SELL. Asume que el       |
+//| ticket ya está seleccionado (OrderSelect) por el llamador.       |
+//+------------------------------------------------------------------+
+void ApplyBreakEven(int ticket)
+{
+   double openPrice = OrderOpenPrice();
+
+   ResetLastError();
+   bool ok = OrderModify(ticket, openPrice, openPrice, OrderTakeProfit(), 0, clrNONE);
+
+   if(ok)
+      Print("Kronos EA: ticket ", ticket, " movido a break-even (SL=",
+            DoubleToString(openPrice, 5), ").");
+   else
+      Print("Kronos EA: ERROR al mover a break-even ticket ", ticket,
+            ", error ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
+//| Cierra a mercado una posición abierta. Asume que el ticket ya    |
+//| está seleccionado (OrderSelect) por el llamador.                 |
+//+------------------------------------------------------------------+
+void ApplyClose(int ticket)
+{
+   string symbol = OrderSymbol();
+   int    type   = OrderType();
+   double lots   = OrderLots();
+
+   RefreshRates();
+   double closePrice = (type == OP_BUY) ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK);
+
+   ResetLastError();
+   bool ok = OrderClose(ticket, lots, closePrice, InpSlippage, clrNONE);
+
+   if(ok)
+      Print("Kronos EA: ticket ", ticket, " cerrado a mercado, precio=",
+            DoubleToString(closePrice, 5));
+   else
+      Print("Kronos EA: ERROR al cerrar ticket ", ticket, ", error ", GetLastError());
 }
 
 //+------------------------------------------------------------------+

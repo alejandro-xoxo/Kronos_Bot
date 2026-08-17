@@ -32,7 +32,7 @@ async function loadPositions() {
 
     const positions = data.positions || [];
     if (positions.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="11" class="empty-msg">Sin posiciones abiertas.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="12" class="empty-msg">Sin posiciones abiertas.</td></tr>';
       return;
     }
 
@@ -51,11 +51,59 @@ async function loadPositions() {
           <td>${fmt(p.tp)}</td>
           <td class="${profitClass}">${fmt(p.profit)}</td>
           <td>${fmtDate(p.open_time)}</td>
+          <td>
+            <div class="position-actions">
+              <button class="btn-be" data-ticket="${p.ticket}" data-action="SET_BE">BE</button>
+              <button class="btn-close" data-ticket="${p.ticket}" data-action="CLOSE">Cerrar</button>
+              <span class="position-action-status" data-ticket="${p.ticket}"></span>
+            </div>
+          </td>
         </tr>`;
       })
       .join("");
+
+    bodyEl.querySelectorAll(".btn-be, .btn-close").forEach((btn) => {
+      btn.addEventListener("click", () => sendPositionAction(btn.dataset.ticket, btn.dataset.action, btn));
+    });
   } catch (err) {
     warningEl.innerHTML = '<div class="warning">Error consultando /api/positions.</div>';
+  }
+}
+
+async function sendPositionAction(ticket, action, btn) {
+  if (action === "CLOSE") {
+    const confirmed = confirm(`¿Cerrar a mercado el ticket ${ticket}? Esto es irreversible.`);
+    if (!confirmed) return;
+  }
+
+  const statusEl = document.querySelector(`.position-action-status[data-ticket="${ticket}"]`);
+  const row = btn.closest("tr");
+  row.querySelectorAll(".btn-be, .btn-close").forEach((b) => (b.disabled = true));
+  statusEl.textContent = action === "SET_BE" ? "Moviendo a BE..." : "Cerrando...";
+  statusEl.className = "position-action-status status-msg";
+
+  try {
+    const res = await fetch(`api/positions/${ticket}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      statusEl.textContent = data.error || "Error.";
+      statusEl.className = "position-action-status status-msg error";
+      row.querySelectorAll(".btn-be, .btn-close").forEach((b) => (b.disabled = false));
+      return;
+    }
+    statusEl.textContent = "Enviado al EA.";
+    statusEl.className = "position-action-status status-msg ok";
+    // El EA tarda hasta ~InpPollIntervalSeconds en procesarlo; el próximo
+    // poll de loadPositions (5s) ya debería reflejar el cambio.
+    setTimeout(loadPositions, 3000);
+  } catch (err) {
+    statusEl.textContent = "Error de red.";
+    statusEl.className = "position-action-status status-msg error";
+    row.querySelectorAll(".btn-be, .btn-close").forEach((b) => (b.disabled = false));
   }
 }
 
