@@ -5,7 +5,7 @@
 **Copia señales de trading de un grupo de Telegram a una cuenta real de MT4, con confirmación humana de por medio — para que operar a las 4 de la mañana sea un tap, no cinco minutos despierto tipeando precios en MetaTrader.**
 
 [![Estado](https://img.shields.io/badge/estado-v1%20MVP%20funcional-2ea44f)](docs/versions/v1.md)
-[![Ejecución real](https://img.shields.io/badge/ejecución-verificada%20en%20cuenta%20live-blue)](#-evidencia-real)
+[![Ejecución real](https://img.shields.io/badge/ejecución-verificada%20en%20cuenta%20live-blue)](docs/versions/v1.md#-evidencia-real)
 [![Licencia](https://img.shields.io/badge/uso-personal%20%2F%20portafolio-lightgrey)](#-licencia)
 ![Python](https://img.shields.io/badge/Python-Telethon-3776AB?logo=python&logoColor=white)
 ![n8n](https://img.shields.io/badge/n8n-orquestación-EA4B71?logo=n8n&logoColor=white)
@@ -23,15 +23,8 @@
 ## 📖 Índice
 
 - [El problema](#-el-problema)
-- [Cómo lo pensé — arquitectura y decisiones](#-cómo-lo-pensé--arquitectura-y-decisiones)
-- [Diagrama de flujo](#-diagrama-de-flujo)
-- [Retos técnicos](#-retos-técnicos)
-- [Stack](#-stack)
-- [Instalación](#-instalación)
-- [Configuración](#-configuración)
-- [Estructura de carpetas](#-estructura-de-carpetas)
-- [Estado actual y roadmap](#-estado-actual-y-roadmap)
-- [Aprendizajes](#-aprendizajes)
+- [Cómo funciona, en corto](#-cómo-funciona-en-corto)
+- [Versiones](#-versiones)
 - [Licencia](#-licencia)
 
 ---
@@ -44,225 +37,24 @@ Encontré un grupo de señales en Telegram que se veía sólido: buen historial,
 
 No tenía presupuesto para un VPS, ni para una API de IA paga, ni para pagarle a un servicio de copy-trading de terceros. Tenía mi laptop y ganas de aprender de verdad construyendo algo real — no otro boceto de portafolio, sino un problema mío que tenía que funcionar de verdad. Así nació Kronos Bot.
 
-La meta de fondo es que el copiado sea **100% automático**: que la señal se ejecute sola en mi cuenta mientras duermo. Pero un sistema que va a mover plata real no se suelta a ciegas desde el día uno — por eso esta v1 todavía me pide confirmar cada señal con un botón de Telegram antes de ejecutar. Es un paso intermedio deliberado: primero valido que cada pieza del sistema funciona sin sorpresas con un humano en el loop, después le suelto también la decisión.
+La meta de fondo es que el copiado sea **100% automático**: que la señal se ejecute sola en mi cuenta mientras duermo. Pero un sistema que va a mover plata real no se suelta a ciegas desde el día uno — por eso la primera versión todavía me pide confirmar cada señal con un botón de Telegram antes de ejecutar. Es un paso intermedio deliberado: primero valido que cada pieza del sistema funciona sin sorpresas con un humano en el loop, después le suelto también la decisión.
 
-## 🧠 Cómo lo pensé — arquitectura y decisiones
+## ⚙️ Cómo funciona, en corto
 
-Ninguna pieza de este stack fue "porque sí" o porque era la más de moda. Cada una resuelve una restricción concreta:
+Telegram (grupo) → Telethon captura el mensaje → n8n lo parsea e inserta en Postgres → me llega a mí un botón de Confirmar/Rechazar por Telegram → si confirmo, un Expert Advisor en MQL4 ejecuta la orden real en MT4 → el resultado (ticket real) vuelve por el mismo camino y me llega la confirmación.
 
-**Telethon (cuenta de usuario) en vez de un Bot API de Telegram.**
-No soy admin del grupo de señales, así que un bot de Telegram no puede leer sus mensajes — los bots solo ven lo que se les envía directo o en grupos donde son miembros con permisos. Necesitaba algo que leyera el chat como lo haría yo mismo desde mi celular: eso es exactamente lo que hace MTProto vía Telethon, autenticado con mi propia cuenta.
+El detalle de cada decisión de arquitectura, los retos técnicos que aparecieron con tráfico real, el diagrama completo, instalación y configuración están documentados por versión — ver abajo.
 
-**n8n como orquestador en vez de un backend propio desde cero.**
-Evalué escribir un backend a mano (FastAPI o similar) contra usar un orquestador visual. Elegí n8n porque el cuello de botella de este proyecto no es rendimiento, es **iteración de reglas de negocio** — el formato de las señales, las validaciones de antigüedad, los reintentos, el manejo de callbacks de Telegram cambiaron varias veces durante el desarrollo, y n8n me dejaba ajustar un nodo y reimportar sin tocar infraestructura. El costo que acepté: la lógica de parseo vive en un nodo `Code` (JavaScript) en vez de un módulo Python testeable con un framework de tests — un trade-off consciente de velocidad de iteración por sobre pureza de arquitectura, válido para v1.
+## 📦 Versiones
 
-**Postgres en vez de Google Sheets como base transaccional.**
-Sheets sigue en el proyecto, pero como registro de resultados legible para humanos, no como fuente de verdad. La razón es idempotencia: confirmar/rechazar una señal necesita una transacción atómica con estado (`PENDING_CONFIRMATION` → `CONFIRMED`/`REJECTED_BY_USER`) que no se rompa si el usuario hace doble clic o si dos webhooks llegan casi simultáneos. Eso es trivial con un `UPDATE ... WHERE status = 'X' RETURNING`, y frágil de garantizar contra una hoja de cálculo.
-
-**Regex para señales nuevas, Gemini reservado para instrucciones de seguimiento (todavía no conectado).**
-El grupo tiene un formato fijo para señales nuevas (`INSTRUMENTO BUY|SELL [LIMIT] PRECIO TP valor SL valor`) — parsearlo con IA sería pagar latencia y no-determinismo por algo que un regex resuelve en microsegundos y de forma 100% predecible. Donde sí planeo usar Gemini es en la fase siguiente, para instrucciones de seguimiento con redacción libre ("moví el SL a BE", "cerrá a 4374, +20 pips") — ahí el formato no es fijo y vale la pena la IA. **Esta pieza está diseñada pero no implementada todavía** (ver [roadmap](#-estado-actual-y-roadmap)).
-
-**Confirmación humana obligatoria en v1.**
-No es una limitación técnica, es una decisión de secuencia: antes de dejar que el sistema mueva dinero real sin supervisión, quería un tramo con un humano revisando que el parseo, el lotaje y la conexión con MT4 no fallaran. La automatización total es el objetivo declarado, no algo que descarté.
-
-**EA propio en MQL4 en vez de un copiador comercial.**
-Quería control total sobre el lotaje, el manejo de errores específicos del bróker (VT Markets), y la lógica de "ejecutar a mercado si el precio ya cruzó el nivel de entrada de una LIMIT" — nada de esto es configurable en los copiadores genéricos que evalué.
-
-**Todo corre local (HP EliteBook, CachyOS/Arch + Wine).**
-Cero costo de infraestructura mientras valido que el sistema es rentable en modo semi-automático. Un VPS se justifica después de tener el historial que lo respalde, no antes.
-
-## 🔀 Diagrama de flujo
-
-```mermaid
-flowchart LR
-    TG["Grupo de Telegram<br/>(España, 1:30-8:00 am)"] -->|MTProto, Telethon| TL[Microservicio Telethon]
-    TL -->|webhook| N8N[n8n]
-    N8N -->|regex| PARSE{"¿Formato fijo<br/>de señal nueva?"}
-    PARSE -->|sí| PG[(Postgres<br/>PENDING_CONFIRMATION)]
-    PARSE -.futuro.-> GEM["Gemini API<br/>(seguimiento, no conectado aún)"]
-    PG --> BOT["Telegram: botones<br/>Confirmar / Rechazar"]
-    BOT -->|confirma| ORDER["orders/pending/&lt;id&gt;.json"]
-    ORDER -->|polling 2s, FILE_COMMON| EA["EA KronosBridgeEA.mq4<br/>(MT4 vía Wine)"]
-    EA -->|OrderSend| VT["VT Markets<br/>cuenta live"]
-    EA -->|resultado| RES["orders/results/&lt;id&gt;.json"]
-    RES -->|leído cada 5s| N8N
-    N8N -->|ticket / error| BOT
-    DASH["Dashboard Flask<br/>(LAN local)"] -.consulta status.json.- EA
-```
-
-## 🧩 Retos técnicos
-
-Formato problema → solución, con los que más tiempo me tomaron:
-
-### Duplicar señales al confirmar dos veces
-**Problema:** un doble clic en "Confirmar" (dedo torpe a las 4 a.m., o un reintento de red de Telegram) podía re-ejecutar la orden dos veces.
-**Solución:** el `UPDATE` de status usa un CTE con `WHERE status = 'PENDING_CONFIRMATION'` que solo aplica el cambio una vez; el segundo clic actualiza 0 filas, y el callback responde "ya fue procesada" en vez de reinsertar.
-
-### Telethon perdiendo mensajes en el canal de más tráfico
-**Problema:** en el grupo real (~3900 suscriptores, tráfico alto), Telethon a veces pedía un resync de "difference" ante un gap de `pts` y **no volvía a disparar `events.NewMessage`** para el mensaje que causó el gap — se perdía en silencio, sin error visible.
-**Solución:** agregué un polling de respaldo cada 15s sobre el historial reciente del chat (`iter_messages`), deduplicado por `message_id` contra los ya procesados por el evento en vivo. Red de seguridad, no reemplazo del evento en tiempo real.
-
-### MQL4 no deja escribir archivos fuera de una carpeta sandboxeada
-**Problema:** el EA necesita comunicarse con n8n vía archivos, pero `FileOpen`/`FileWrite` en MQL4 están limitados a `MQL4\Files\` del terminal — ni con Wine se puede apuntar a una ruta arbitraria.
-**Solución:** la flag `FILE_COMMON` redirige a `.../MetaQuotes/Terminal/Common/Files/`, una carpeta compartida entre todos los terminales del mismo prefijo de Wine, independiente del ID de instalación. `mt4-bridge/orders/` en el repo es un symlink local (no versionado) hacia esa carpeta.
-
-### Docker no puede resolver symlinks que apuntan fuera del árbol montado
-**Problema:** n8n corre en un contenedor y necesita leer/escribir en esa misma carpeta de `Common/Files`, pero el symlink del repo apunta a una ruta del host que Docker no puede atravesar.
-**Solución:** bind mount directo del destino real (`${MT4_ORDERS_HOST_PATH}` → `/mt4-bridge/orders` dentro del contenedor de n8n), no del symlink — se monta a dónde apunta, no el enlace en sí.
-
-### Condición de carrera al abrir dos órdenes seguidas (mismo instrumento)
-**Problema:** cuando una señal trae 2 take-profits, se generan 2 sub-operaciones independientes que el EA manda casi simultáneas — el bróker devolvía error 4109 (trade context busy) en la segunda.
-**Solución:** una pausa corta entre `OrderSend` consecutivos en el EA, suficiente para que el contexto de trading del terminal se libere entre una orden y la siguiente.
-
-### `chat_id` reales rompiendo el schema
-**Problema:** los IDs de canales/grupos grandes de Telegram son negativos y superan el rango de `INTEGER` en Postgres (`-5523530567`, por ejemplo).
-**Solución:** `chat_id`, `message_id` y `reply_to_message_id` son `BIGINT` desde el diseño del schema, no un parche después de que rompiera en producción... aunque de hecho sí rompió una vez antes de que terminara de generalizar el fix a las tres columnas.
-
-### El modo de binarios de n8n cambió sin aviso entre versiones
-**Problema:** al leer el archivo de resultado del EA con el nodo `readWriteFile`, el contenido no viajaba en base64 dentro de `item.binary.data.data` como en versiones viejas de n8n — solo había un string literal `"filesystem-v2"`, y decodificarlo como base64 rompía con `SyntaxError`.
-**Solución:** leer el buffer real con `await this.helpers.getBinaryDataBuffer(i, 'data')` dentro del nodo `Code`, específico del modo `binaryMode: "separate"` que usa esta versión de n8n.
-
-## 🧰 Stack
-
-| Pieza | Tecnología | Por qué |
+| Versión | Estado | Qué es |
 |---|---|---|
-| Captura de señales | Python + Telethon (MTProto) | Solo una cuenta de usuario puede leer un grupo donde no soy admin |
-| Orquestación | n8n (Docker) | Iteración rápida de reglas de negocio, sin costo, corriendo local |
-| Base de datos | PostgreSQL | Transacciones idempotentes para el estado de cada señal |
-| Ejecución real | MQL4 (Expert Advisor) sobre MT4 vía Wine | Control total del lotaje y manejo de errores del bróker |
-| Dashboard | Flask + JS vanilla | Monitoreo simple en la LAN, sin frontend framework innecesario |
-| Notificaciones y confirmación | Telegram Bot API | Canal ya presente en el flujo, con soporte nativo de botones inline |
-| Interpretación de lenguaje libre (próxima fase) | Gemini API | Reservado para instrucciones de seguimiento sin formato fijo — no conectado aún |
+| **[v1](docs/versions/v1.md)** | ✅ MVP funcional, ejecución real verificada | Ciclo completo con confirmación humana: captura → parseo por regex → confirmación → ejecución real en MT4 → resultado. Arrancó el 10/08/2026. |
+| v2 | 🔜 Planeada | Automatización completa (sin confirmación manual) + interpretación por Gemini de instrucciones de seguimiento en lenguaje libre. |
 
-## 🚀 Instalación
+Cada versión documenta su propia arquitectura, decisiones, retos técnicos, stack, instalación y roadmap — el README no repite ese detalle a propósito, para que quede versionado junto con el código al que corresponde.
 
-**Prerequisitos:**
-- Docker y Docker Compose
-- Una cuenta de Telegram (no bot) con acceso al grupo a escuchar
-- Credenciales de la [API de Telegram](https://my.telegram.org) (`api_id` / `api_hash`)
-- Un bot de Telegram para las notificaciones (vía [@BotFather](https://t.me/BotFather))
-- MT4 corriendo contra tu bróker — nativo en Windows, o vía Wine en Linux (ver `docs/INSTALL_LINUX.md` / `docs/INSTALL_UBUNTU_SERVER.md` / `docs/INSTALL_WINDOWS.md`)
-- Un túnel público hacia n8n para que Telegram le llegue (usé [ngrok](https://ngrok.com/), incluido en el `docker-compose.yml`)
-
-**Pasos:**
-
-```bash
-git clone https://github.com/alejandro-xoxo/Kronos_Bot.git
-cd Kronos_Bot
-
-# Completar variables de entorno (ver sección de Configuración)
-cp .env.example .env   # crear .env.example si no existe todavía
-nano .env
-
-# Levantar todo el stack
-docker compose up -d --build
-
-# Setear el bridge con MT4 (symlinks a Common/Files de Wine)
-./scripts/setup-mt4.sh        # Linux
-# scripts/setup-mt4.ps1       # Windows nativo
-```
-
-Después de levantar el stack, hay que importar `n8n-workflows/webhook-mvp-workflow.json` en la instancia de n8n (`localhost:5678`) y activarlo.
-
-> ⚠️ El repo no incluye un `.env.example` todavía — es deuda de documentación pendiente (ver [roadmap](#-estado-actual-y-roadmap)). Las variables exactas que hacen falta están listadas abajo.
-
-## ⚙️ Configuración
-
-**Variables de entorno (`.env`):**
-
-| Variable | Para qué |
-|---|---|
-| `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | Credenciales de la API de Telegram (my.telegram.org) |
-| `TELEGRAM_PHONE` | Número de la cuenta que va a leer el grupo (Telethon) |
-| `TELEGRAM_GROUP_ID` | ID del grupo a escuchar (se obtiene con `telethon-service/list_groups.py`) |
-| `TELEGRAM_USER_CHAT_ID` | Tu chat privado, donde llegan las notificaciones y botones |
-| `N8N_HOST` | Dominio público de n8n (para el webhook de Telegram) |
-| `N8N_API_KEY` | Para editar el workflow vía API en vez de solo la UI |
-| `NGROK_AUTHTOKEN` | Token del túnel público |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credenciales de la base |
-| `MT4_ORDERS_HOST_PATH` | Ruta real en el host hacia `.../MetaQuotes/Terminal/Common/Files/orders` (depende de tu prefijo de Wine) |
-
-**Parámetros del EA (`KronosBridgeEA.mq4`, configurables desde MT4 al adjuntarlo a un gráfico):**
-
-| Input | Default | Para qué |
-|---|---|---|
-| `InpPollIntervalSeconds` | `2` | Cada cuánto revisa `orders/pending/*.json` |
-| `InpSlippage` | `5` | Slippage máximo en puntos al ejecutar |
-| `InpMagicNumber` | `20260814` | Identifica las órdenes abiertas por este EA |
-| `InpSymbolSuffix` | `-VIP` | Sufijo real del símbolo en el bróker (`-VIP` demo / `-STD` real en VT Markets) — también actualizable en caliente desde el dashboard, sin recompilar |
-
-El EA necesita `FILE_COMMON` habilitado y correr con "Permitir importación de DLL" / auto-trading activado en MT4. Instrumentos soportados hoy: **XAUUSD** y **EURUSD**, con el sufijo de símbolo que use tu bróker.
-
-## 📁 Estructura de carpetas
-
-```
-Kronos_Bot/
-├── telethon-service/     # Microservicio Python — captura de mensajes (Telethon)
-├── n8n-workflows/        # Workflow exportado + parser de señales
-├── dashboard/            # Dashboard Flask (posiciones, historial, acciones)
-├── mt4-bridge/
-│   ├── ea/               # Expert Advisor en MQL4
-│   ├── orders/           # Symlinks locales a Common/Files (no versionados)
-│   └── FORMATO_ARCHIVOS.md
-├── db/
-│   └── schema.sql        # Schema Postgres, auto-init en el contenedor
-├── docs/
-│   ├── screenshots/
-│   ├── versions/         # Alcance versionado (v1, v2...)
-│   └── INSTALL_*.md
-├── scripts/               # Setup de MT4/Wine (Linux, Windows, Ubuntu server)
-├── PROTOCOLOS_KRONOS_BOT.md   # Reglas de negocio, fuente única de verdad
-├── STATUS.md                  # Estado técnico fase por fase
-└── docker-compose.yml
-```
-
-## ✅ Evidencia real
-
-No es una demo — corrió contra la cuenta real de VT Markets:
-
-```
-Señal: XAUUSD BUY 4398.57, TP 4402, SL 4370
-→ Confirmada por Telegram
-→ Ticket real: 24827753
-→ Status: OPEN, visible en el dashboard con precio en vivo
-```
-
-<p align="center">
-  <img src="docs/screenshots/01-senal-en-el-grupo.png" alt="Señal real llegando al grupo de Telegram" width="380">
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/04-dashboard.png" alt="Dashboard con la posición abierta en vivo" width="380">
-</p>
-<p align="center">
-  <img src="docs/screenshots/03-workflow-n8n.png" alt="Workflow real en n8n" width="760">
-  <br>
-  <sub><i>Señal real del grupo → dashboard con la posición abierta en vivo → el workflow completo en n8n.</i></sub>
-</p>
-
-## 📌 Estado actual y roadmap
-
-**v1 — hecho ✅**
-- [x] Captura en tiempo real (Telethon) + polling de respaldo ante pérdida de eventos
-- [x] Parseo por regex de señales de formato fijo, con hasta 2 take-profits por señal
-- [x] Confirmación humana idempotente vía botones de Telegram
-- [x] Ejecución real en MT4 vía EA en MQL4, lotaje fijo de control de riesgo
-- [x] Lectura de resultados y notificación de vuelta al usuario
-- [x] Dashboard local: posiciones abiertas, historial, BE / cerrar / reintentar
-
-**Pendiente / roadmap ⏳**
-- [ ] Conectar Gemini para interpretar instrucciones de seguimiento en lenguaje libre (mover SL a BE, cierre manual)
-- [ ] Cálculo de lotaje dinámico (hoy es fijo, `0.01`, por gestión de riesgo mientras se valida el sistema)
-- [ ] Automatización completa sin confirmación humana — la meta de fondo del proyecto
-- [ ] `.env.example` documentado (hoy hay que inferir las variables del `docker-compose.yml`)
-- [ ] Mover la lógica de parseo del nodo `Code` de n8n a un módulo Python testeable, si el proyecto crece más allá de 1-2 brokers/instrumentos
-- [ ] Infraestructura en la nube — hoy corre local sin costo, se evalúa un VPS después de validar rentabilidad
-
-Detalle completo de alcance en [`docs/versions/v1.md`](docs/versions/v1.md) y estado técnico fase por fase en [`STATUS.md`](STATUS.md).
-
-## 💡 Aprendizajes
-
-Lo que más me costó no fue ninguna tecnología puntual, sino diseñar para fallar bien: qué pasa si Telegram no responde, si el EA no puede escribir un archivo, si dos eventos llegan casi al mismo tiempo. La mayoría de los bugs reales de este proyecto no fueron de sintaxis — fueron de estado compartido entre sistemas que no se enteran del estado del otro (n8n no sabe si el EA está vivo, el EA no sabe si n8n ya leyó su resultado). Diseñar con archivos idempotentes y polling en vez de asumir "en vivo siempre funciona" fue la lección que más se repitió en distintas partes del sistema.
-
-También aprendí a no confiar ciego en una librería aunque tenga buena documentación — el bug de Telethon perdiendo eventos en canales de alto tráfico no está resaltado en ningún tutorial, apareció recién con tráfico real.
+Reglas de negocio (fuente única de verdad, no versionadas por release): [`PROTOCOLOS_KRONOS_BOT.md`](PROTOCOLOS_KRONOS_BOT.md). Estado técnico fase por fase: [`STATUS.md`](STATUS.md).
 
 ## 📄 Licencia
 
