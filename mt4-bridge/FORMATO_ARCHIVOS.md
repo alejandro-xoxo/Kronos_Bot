@@ -255,3 +255,38 @@ El nombre de archivo incluye la acción (`{ticket}-{action}.json`, no
 solo `{ticket}.json`) para que un `SET_BE` y un `CLOSE` mandados casi
 juntos sobre el mismo ticket no se pisen entre sí — el EA procesa los
 dos en el mismo ciclo si hace falta.
+
+### 4.4 Resultado de un comando — `mt4-bridge/orders/action_results/{ticket}-{action}.json`
+
+El EA lo escribe después de intentar `SET_BE`/`CLOSE` (éxito o
+fallo); el dashboard lo lee (`GET
+/api/positions/<ticket>/action_result?action=...`) para mostrar el
+resultado real en vez de inferirlo comparando el estado de la
+posición — un `SET_BE` puede fallar legítimamente (ej. `OrderModify`
+rechazado por el bróker si la posición todavía está en pérdida, el
+SL de break-even quedaría del lado equivocado del precio actual) y
+sin este archivo no había forma de distinguir "todavía no lo
+procesó" de "lo procesó y falló".
+
+```json
+{
+  "ticket": 202230990,
+  "action": "SET_BE",
+  "success": true,
+  "result_price": 4398.13,
+  "error_code": null,
+  "error_message": null,
+  "processed_at": "2026-08-17T06:00:00Z"
+}
+```
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `result_price` | number \| null | SL nuevo si `SET_BE` tuvo éxito, precio de cierre si `CLOSE` tuvo éxito. `null` si falló. |
+| `error_code` | int \| null | Código nativo de MQL4 (`GetLastError()`). `null` si tuvo éxito. |
+| `error_message` | string \| null | `"MT4 error {code}"` — sin traducción a texto legible todavía, el dashboard muestra el código tal cual. `null` si tuvo éxito. |
+
+El dashboard borra cualquier resultado anterior del mismo
+`{ticket}-{action}` **antes** de encolar un comando nuevo (en `POST
+/api/positions/<ticket>/action`), para que el polling del frontend
+nunca confunda un resultado viejo con el del intento actual.
