@@ -16,6 +16,7 @@
   h1 { font-size: 1.4rem; margin-bottom: 4px; }
   h2 { font-size: 1.1rem; margin-top: 32px; margin-bottom: 8px; }
   .subtitle { color: #9aa0a6; margin-top: 0; margin-bottom: 24px; }
+  .subtitle a { color: #6fa8ff; }
   .panel {
     background: #1c2028;
     border: 1px solid #2c3138;
@@ -72,7 +73,14 @@
 </head>
 <body>
   <h1>Kronos Bot — Dashboard</h1>
-  <p class="subtitle">Posiciones abiertas en MT4 y configuración del bróker</p>
+  <p class="subtitle">
+    Posiciones abiertas en MT4 y configuración del bróker
+    &nbsp;·&nbsp;
+    <a href="http://localhost:5678" target="_blank" rel="noopener"
+       title="Solo funciona si abrís esta página desde la misma máquina donde corre n8n">
+      Abrir n8n (localhost)
+    </a>
+  </p>
 
   <div class="panel">
     <h2 style="margin-top:0;">Sufijo de símbolo del bróker</h2>

@@ -18,7 +18,7 @@ async function loadPositions() {
   const bodyEl = document.getElementById("positions-body");
 
   try {
-    const res = await fetch("/api/positions");
+    const res = await fetch("api/positions");
     const data = await res.json();
 
     if (data.stale) {
@@ -62,7 +62,7 @@ async function loadPositions() {
 async function loadSignals() {
   const bodyEl = document.getElementById("signals-body");
   try {
-    const res = await fetch("/api/signals");
+    const res = await fetch("api/signals");
     const data = await res.json();
     const signals = data.signals || [];
 
@@ -103,7 +103,7 @@ function markActiveButton(suffix) {
 
 async function loadConfig() {
   try {
-    const res = await fetch("/api/config");
+    const res = await fetch("api/config");
     const data = await res.json();
     if (data.symbol_suffix) {
       markActiveButton(data.symbol_suffix);
@@ -119,7 +119,7 @@ async function loadConfig() {
 async function setSuffix(suffix) {
   setConfigStatus("Guardando...", "");
   try {
-    const res = await fetch("/api/config", {
+    const res = await fetch("api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ symbol_suffix: suffix }),
