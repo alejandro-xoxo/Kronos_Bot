@@ -62,6 +62,72 @@ def api_positions():
     return jsonify(data), 200
 
 
+VALID_POSITION_ACTIONS = ("SET_BE", "CLOSE")
+
+
+def _load_current_tickets():
+    """Tickets que el EA reportó como abiertos en el último status.json.
+    Se usa para no dejar escribir comandos sobre tickets inventados o
+    ya cerrados — mismo criterio de "solo lo que el EA ya conoce" que
+    orders/status.json."""
+    if not os.path.isfile(STATUS_PATH):
+        return set()
+    try:
+        with open(STATUS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {p.get("ticket") for p in data.get("positions", [])}
+
+
+@app.route("/api/positions/<int:ticket>/action", methods=["POST"])
+def api_position_action(ticket):
+    body = request.get_json(silent=True) or {}
+    action = body.get("action")
+
+    if action not in VALID_POSITION_ACTIONS:
+        return (
+            jsonify(
+                {
+                    "error": "action inválida: '{}'. Valores permitidos: {}".format(
+                        action, ", ".join(VALID_POSITION_ACTIONS)
+                    )
+                }
+            ),
+            400,
+        )
+
+    if ticket not in _load_current_tickets():
+        return (
+            jsonify(
+                {
+                    "error": f"ticket {ticket} no aparece en las posiciones abiertas actuales "
+                    "(¿ya cerró, o el EA todavía no reportó status.json?)."
+                }
+            ),
+            404,
+        )
+
+    actions_dir = os.path.join(ORDERS_DIR, "actions")
+    os.makedirs(actions_dir, exist_ok=True)
+    # El contenedor corre como root; el EA (Wine) corre con el usuario del
+    # host y necesita permiso de escritura sobre la CARPETA para poder
+    # borrar el archivo tras procesarlo (FileDelete), no solo sobre el
+    # archivo — sin esto queda basura en actions/ para siempre. 0777 es
+    # aceptable acá: carpeta local de un solo usuario, sin exponer nada
+    # a internet (ver docstring del módulo).
+    os.chmod(actions_dir, 0o777)
+
+    # Un archivo por ticket+acción: si mandás BE y CLOSE casi juntos no se
+    # pisan entre sí: el EA procesa los dos en el mismo ciclo.
+    action_path = os.path.join(actions_dir, f"{ticket}-{action}.json")
+    with open(action_path, "w", encoding="utf-8") as f:
+        json.dump({"ticket": ticket, "action": action}, f)
+    os.chmod(action_path, 0o666)
+
+    return jsonify({"ticket": ticket, "action": action, "queued": True}), 200
+
+
 SIGNAL_RANGES = {
     # date_trunc('week', ...) en Postgres arranca el lunes (semana ISO).
     "today": "date_trunc('day', NOW())",

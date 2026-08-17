@@ -78,6 +78,22 @@
   .btn-retry:hover { border-color: #d18f2c; }
   .btn-retry:disabled { opacity: 0.5; cursor: default; }
   .retry-status { margin-left: 8px; }
+  .position-actions { display: flex; gap: 6px; align-items: center; }
+  .btn-be {
+    background: #1f4a3a;
+    border-color: #2f7a5a;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+  }
+  .btn-be:hover { border-color: #4caf50; }
+  .btn-close {
+    background: #4a1f1f;
+    border-color: #7a2f2f;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+  }
+  .btn-close:hover { border-color: #ef5350; }
+  .btn-be:disabled, .btn-close:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
@@ -117,6 +133,7 @@
           <th>TP</th>
           <th>Profit</th>
           <th>Apertura</th>
+          <th>Acciones</th>
         </tr>
       </thead>
       <tbody id="positions-body"></tbody>
