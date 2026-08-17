@@ -1,12 +1,33 @@
-# Kronos Bot
+<div align="center">
+
+# 🤖 Kronos Bot
 
 **Un bot que copia señales de trading de un grupo de Telegram a mi cuenta real de MT4, para que confirmar una operación a las 4 de la mañana me tome un tap, no cinco minutos despierto abriendo MT4 a mano.**
 
-> Estado actual: **[v1 — MVP funcional](docs/versions/v1.md)**, con ejecución real verificada en cuenta live (VT Markets). Ver [evidencia real](#evidencia-real) más abajo. Armado en ~1 semana (arrancó el 10 de agosto de 2026), a la par de mis estudios.
+[![Estado](https://img.shields.io/badge/estado-v1%20MVP%20funcional-2ea44f)](docs/versions/v1.md)
+[![Ejecución real](https://img.shields.io/badge/ejecución-verificada%20en%20cuenta%20live-blue)](#-evidencia-real)
+![Python](https://img.shields.io/badge/Python-Telethon-3776AB?logo=python&logoColor=white)
+![n8n](https://img.shields.io/badge/n8n-orquestación-EA4B71?logo=n8n&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-DB-4169E1?logo=postgresql&logoColor=white)
+![MQL4](https://img.shields.io/badge/MQL4-MT4%20EA-black)
+
+</div>
 
 ---
 
-## La historia detrás de esto
+## 📖 Índice
+
+- [La historia detrás de esto](#-la-historia-detrás-de-esto)
+- [Qué hace, en corto](#-qué-hace-en-corto)
+- [Arquitectura](#-arquitectura)
+- [Stack técnico](#-stack-técnico)
+- [El proceso, no solo el resultado](#-el-proceso-no-solo-el-resultado)
+- [Evidencia real](#-evidencia-real)
+- [Documentación](#-documentación)
+
+---
+
+## 📖 La historia detrás de esto
 
 Todavía estoy estudiando para ser developer. En paralelo empecé a meterme en trading buscando un ingreso extra — algo que pudiera sostener mientras sigo formándome, no un plan de hacerme rico rápido.
 
@@ -16,10 +37,11 @@ No tenía plata para un VPS ni para una IA paga ni para pagarle a un servicio de
 
 <p align="center">
   <img src="docs/screenshots/01-senal-en-el-grupo.png" alt="Señal real llegando al grupo de Telegram VIP SIGNALS FX a las 4:19 am" width="420">
+  <br>
+  <sub><i>Así llega una señal real al grupo — de madrugada, en español, formato fijo.</i></sub>
 </p>
-<p align="center"><sub>Así llega una señal real al grupo — de madrugada, en español, formato fijo.</sub></p>
 
-## Qué hace, en corto
+## ⚙️ Qué hace, en corto
 
 1. Mi propia cuenta de Telegram (vía [Telethon](https://docs.telethon.dev/)) escucha el grupo de señales en tiempo real — uso mi cuenta y no un bot porque no soy admin del grupo, así que tengo que "leer" el chat como lo haría yo mismo.
 2. Un flujo en [n8n](https://n8n.io/) interpreta cada mensaje: si matchea el formato fijo de señal nueva (instrumento, dirección, entrada, TP, SL), lo parsea por regex; si trae varios TP, genera hasta 2 sub-operaciones independientes según mis propias reglas de riesgo.
@@ -29,17 +51,19 @@ No tenía plata para un VPS ni para una IA paga ni para pagarle a un servicio de
 
 <p align="center">
   <img src="docs/screenshots/02-confirmacion-telegram.png" alt="Notificación de nueva señal con botones Confirmar/Rechazar y confirmación de ejecución real con ticket" width="420">
+  <br>
+  <sub><i>La señal, el botón de Confirmar, y siete segundos después el ticket real ejecutado.</i></sub>
 </p>
-<p align="center"><sub>La señal, el botón de Confirmar, y siete segundos después el ticket real ejecutado.</sub></p>
 
-## Arquitectura
+## 🏗️ Arquitectura
 
-Telegram (grupo) → Telethon → webhook n8n → parser regex → Postgres → confirmación por Telegram → EA en MQL4 (MT4 vía Wine) → orden real en VT Markets → resultado de vuelta a n8n → notificación final. El dashboard consulta el estado en paralelo, sin intervenir en el flujo.
+> Telegram (grupo) → Telethon → webhook n8n → parser regex → Postgres → confirmación por Telegram → EA en MQL4 (MT4 vía Wine) → orden real en VT Markets → resultado de vuelta a n8n → notificación final. El dashboard consulta el estado en paralelo, sin intervenir en el flujo.
 
 <p align="center">
   <img src="docs/screenshots/03-workflow-n8n.png" alt="Workflow completo en n8n: webhook, parser regex, confirmación, escritura de orden a MT4, lectura de resultados" width="700">
+  <br>
+  <sub><i>El workflow real en n8n — desde el webhook de Telethon hasta la escritura/lectura del puente con MT4.</i></sub>
 </p>
-<p align="center"><sub>El workflow real en n8n — desde el webhook de Telethon hasta la escritura/lectura del puente con MT4.</sub></p>
 
 **Por qué estas decisiones técnicas, no otras:**
 
@@ -49,7 +73,7 @@ Telegram (grupo) → Telethon → webhook n8n → parser regex → Postgres → 
 - **EA propio en MQL4 en vez de un copiador comercial** — control total sobre el lotaje, el manejo de errores del bróker, y la lógica de "market vs. limit" según si el precio ya cruzó el nivel de entrada.
 - **Todo corre local (mi laptop, CachyOS + Wine)** — cero costo de infraestructura mientras valido que el sistema es rentable en modo semi-automático, antes de justificar gastar en un VPS.
 
-## Stack técnico
+## 🧰 Stack técnico
 
 | Pieza | Tecnología |
 |---|---|
@@ -61,7 +85,7 @@ Telegram (grupo) → Telethon → webhook n8n → parser regex → Postgres → 
 | Dashboard de monitoreo | Flask + JS vanilla |
 | Notificaciones y confirmación | Telegram Bot API |
 
-## El proceso, no solo el resultado
+## 🛠️ El proceso, no solo el resultado
 
 Esto no salió de tirarle prompts a una IA hasta que "andara" (vibe coding puro) ni de pegar código hasta que compilara. Lo armé tratándolo como un producto real, aunque el único usuario sea yo: con alcance definido antes de escribir código, reglas de negocio versionadas aparte de la implementación, y disciplina de control de versiones — porque eso es lo que quiero que se note de mí como developer, no solo que "funciona". Este repo deja ese proceso a la vista a propósito:
 
@@ -72,9 +96,9 @@ Esto no salió de tirarle prompts a una IA hasta que "andara" (vibe coding puro)
 - **Bugs reales, documentados donde importaban** — el payload anidado del webhook, IDs de Telegram que rompían `INTEGER`, condiciones de carrera al abrir 2 órdenes seguidas, mensajes que Telethon perdía en el canal de más tráfico — todo está en el código y en `STATUS.md`, no escondido debajo de la alfombra.
 - **Protocolo de negocio separado del código** (`PROTOCOLOS_KRONOS_BOT.md`) — las reglas de gestión de riesgo (tope de 2 sub-operaciones por señal, expiración a los 5 minutos, lotaje fijo en v1) están versionadas como fuente única de verdad, no dispersas en comentarios.
 
-**Sobre las herramientas:** usé Claude Code como copiloto durante el desarrollo — para escribir código, cazar bugs y acelerar el diagnóstico. Pero cada decisión de arquitectura, cada regla de negocio, y cada línea antes de commitear pasó por mí: qué formato de señal soportar, cuándo una operación se considera vencida, cómo manejar el race condition de dos órdenes seguidas, qué va en v1 y qué no. La herramienta escribió código bajo dirección explícita mía, no al revés — por eso el repo tiene alcance definido, fases verificadas y un Git Flow real, en vez de un historial de "prompteo hasta que funcione".
+> **Sobre las herramientas:** usé Claude Code como copiloto durante el desarrollo — para escribir código, cazar bugs y acelerar el diagnóstico. Pero cada decisión de arquitectura, cada regla de negocio, y cada línea antes de commitear pasó por mí: qué formato de señal soportar, cuándo una operación se considera vencida, cómo manejar el race condition de dos órdenes seguidas, qué va en v1 y qué no. La herramienta escribió código bajo dirección explícita mía, no al revés — por eso el repo tiene alcance definido, fases verificadas y un Git Flow real, en vez de un historial de "prompteo hasta que funcione".
 
-## Evidencia real
+## ✅ Evidencia real
 
 No es una demo — corrió contra la cuenta real de VT Markets:
 
@@ -87,21 +111,26 @@ Señal: XAUUSD BUY 4398.57, TP 4402, SL 4370
 
 <p align="center">
   <img src="docs/screenshots/04-dashboard.png" alt="Dashboard con la posición abierta en vivo, historial de señales y botones de acción" width="700">
+  <br>
+  <sub><i>Dashboard local: posición real abierta con precio en vivo, y el historial completo de señales (incluida la que rechacé a mano).</i></sub>
 </p>
-<p align="center"><sub>Dashboard local: posición real abierta con precio en vivo, y el historial completo de señales (incluida la que rechacé a mano).</sub></p>
 
-## Documentación
+## 📚 Documentación
 
 El README cuenta la historia y el porqué. El detalle técnico vive aparte, versionado por su cuenta:
 
-- **[docs/versions/v1.md](docs/versions/v1.md)** — qué incluye v1, qué queda afuera a propósito, y qué sigue en v2.
-- **[STATUS.md](STATUS.md)** — estado técnico fase por fase, pensado para retomar el proyecto sin depender de memoria de conversaciones previas.
-- **[PROTOCOLOS_KRONOS_BOT.md](PROTOCOLOS_KRONOS_BOT.md)** — reglas de negocio y gestión de riesgo, fuente única de verdad.
-
-## Nota
-
-Este proyecto es una herramienta personal de automatización, no un producto de inversión ni una recomendación de trading. Todo el capital operado es propio y el riesgo se gestiona con reglas explícitas y fijas (ver `PROTOCOLOS_KRONOS_BOT.md`).
+| Documento | Contenido |
+|---|---|
+| [`docs/versions/v1.md`](docs/versions/v1.md) | Qué incluye v1, qué queda afuera a propósito, y qué sigue en v2 |
+| [`STATUS.md`](STATUS.md) | Estado técnico fase por fase, pensado para retomar el proyecto sin depender de memoria de conversaciones previas |
+| [`PROTOCOLOS_KRONOS_BOT.md`](PROTOCOLOS_KRONOS_BOT.md) | Reglas de negocio y gestión de riesgo, fuente única de verdad |
 
 ---
 
-Construido por [alejandro-xoxo](https://github.com/alejandro-xoxo) mientras aprendo a programar en serio, resolviendo un problema que era mío.
+<div align="center">
+
+⚠️ *Este proyecto es una herramienta personal de automatización, no un producto de inversión ni una recomendación de trading. Todo el capital operado es propio y el riesgo se gestiona con reglas explícitas y fijas (ver `PROTOCOLOS_KRONOS_BOT.md`).*
+
+Construido por [**alejandro-xoxo**](https://github.com/alejandro-xoxo) mientras aprendo a programar en serio, resolviendo un problema que era mío.
+
+</div>
