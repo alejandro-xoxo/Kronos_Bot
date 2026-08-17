@@ -69,13 +69,17 @@ async function loadSignals() {
     const signals = data.signals || [];
 
     if (signals.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="8" class="empty-msg">Sin señales en este período.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Sin señales en este período.</td></tr>';
       return;
     }
 
     bodyEl.innerHTML = signals
-      .map(
-        (s) => `<tr>
+      .map((s) => {
+        const retryBtn =
+          s.status === "PENDING_MANUAL"
+            ? `<button class="btn-retry" data-id="${s.id}">Reintentar</button>`
+            : "";
+        return `<tr>
           <td>${fmt(s.instrument)}</td>
           <td>${fmt(s.direction)}</td>
           <td>${fmt(s.status)}</td>
@@ -84,11 +88,40 @@ async function loadSignals() {
           <td>${fmt(s.sl)}</td>
           <td>${fmt(s.tp)}</td>
           <td>${fmtDate(s.created_at)}</td>
-        </tr>`
-      )
+          <td>${retryBtn}<span class="retry-status" data-id="${s.id}"></span></td>
+        </tr>`;
+      })
       .join("");
+
+    bodyEl.querySelectorAll(".btn-retry").forEach((btn) => {
+      btn.addEventListener("click", () => retrySignal(btn.dataset.id, btn));
+    });
   } catch (err) {
-    bodyEl.innerHTML = '<tr><td colspan="8" class="empty-msg">Error consultando /api/signals.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Error consultando /api/signals.</td></tr>';
+  }
+}
+
+async function retrySignal(id, btn) {
+  const statusEl = document.querySelector(`.retry-status[data-id="${id}"]`);
+  btn.disabled = true;
+  statusEl.textContent = "Reintentando...";
+  statusEl.className = "retry-status status-msg";
+  try {
+    const res = await fetch(`api/signals/${id}/retry`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      statusEl.textContent = data.error || "Error al reintentar.";
+      statusEl.className = "retry-status status-msg error";
+      btn.disabled = false;
+      return;
+    }
+    statusEl.textContent = "Orden reenviada al EA.";
+    statusEl.className = "retry-status status-msg ok";
+    loadSignals();
+  } catch (err) {
+    statusEl.textContent = "Error de red al reintentar.";
+    statusEl.className = "retry-status status-msg error";
+    btn.disabled = false;
   }
 }
 

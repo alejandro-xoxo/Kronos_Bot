@@ -69,6 +69,15 @@
   .status-msg.ok { color: #4caf50; }
   .status-msg.error { color: #ef5350; }
   .empty-msg { color: #9aa0a6; padding: 12px 0; }
+  .btn-retry {
+    background: #6b4a16;
+    border-color: #a5701f;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+  }
+  .btn-retry:hover { border-color: #d18f2c; }
+  .btn-retry:disabled { opacity: 0.5; cursor: default; }
+  .retry-status { margin-left: 8px; }
 </style>
 </head>
 <body>
@@ -133,6 +142,7 @@
           <th>SL</th>
           <th>TP</th>
           <th>Fecha</th>
+          <th>Acciones</th>
         </tr>
       </thead>
       <tbody id="signals-body"></tbody>
