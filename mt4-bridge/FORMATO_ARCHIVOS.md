@@ -230,3 +230,28 @@ al ejecutar órdenes.
 
 Si el archivo no existe todavía, `GET /api/config` del dashboard
 responde `{"symbol_suffix": null}` con status 200.
+
+### 4.3 Comandos sobre posiciones abiertas — `mt4-bridge/orders/actions/{ticket}-{action}.json`
+
+El dashboard los escribe (`POST /api/positions/<ticket>/action`); el
+EA los lee en cada ciclo de `OnTimer` (antes de reescribir
+`status.json`), ejecuta el comando y borra el archivo siempre
+(éxito o fallo) — mismo criterio de limpieza que `pending/`.
+
+```json
+{ "ticket": 202230990, "action": "SET_BE" }
+```
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `ticket` | int | Ticket real de MT4, tiene que aparecer en el último `status.json` reportado — el dashboard rechaza tickets inventados o ya cerrados con 404 antes de escribir el archivo. |
+| `action` | string | `"SET_BE"` (mueve el SL al precio de apertura) o `"CLOSE"` (cierra a mercado). Cualquier otro valor se rechaza con 400 del lado del dashboard. |
+
+El EA solo actúa si el ticket tiene el mismo `InpMagicNumber` de este
+EA — nunca toca operativa manual del usuario en la misma cuenta,
+aunque alguien escriba un ticket válido de otra operación a mano.
+
+El nombre de archivo incluye la acción (`{ticket}-{action}.json`, no
+solo `{ticket}.json`) para que un `SET_BE` y un `CLOSE` mandados casi
+juntos sobre el mismo ticket no se pisen entre sí — el EA procesa los
+dos en el mismo ciclo si hace falta.
