@@ -67,6 +67,22 @@ services:
     networks:
       - trading_net
 
+  dashboard:
+    build: ./dashboard
+    restart: always
+    ports:
+      - "8088:8080"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ${MT4_ORDERS_HOST_PATH}:/mt4-bridge/orders
+    depends_on:
+      - postgres
+    networks:
+      - trading_net
+
 volumes:
   n8n_data:
   telethon_session:
