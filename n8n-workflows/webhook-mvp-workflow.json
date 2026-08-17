@@ -669,32 +669,6 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-        "text": "=🔍 Mensaje recibido, no matchea regex de señal nueva\n\nChat: {{ $json.chat_id }}\nSender: {{ $json.sender }}\nRazón: {{ $json.reason }}\n\nTexto:\n{{ $json.text }}",
-        "additionalFields": {
-          "appendAttribution": false,
-          "parse_mode": "none"
-        }
-      },
-      "id": "53f854f8-50b7-4838-9e85-9562c95a0dd3",
-      "name": "Avisar en chat: No matchea regex",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        -1440,
-        480
-      ],
-      "credentials": {
-        "telegramApi": {
-          "id": "W4XHaBNANAtKf4Ih",
-          "name": "Telegram account"
-        }
-      },
-      "notes": "Debug: confirma que Telethon capturó el mensaje aunque no matchee el formato fijo de señal nueva.",
-      "webhookId": "447c6515-b45f-4003-8beb-65331d4f2457"
-    },
-    {
-      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -760,13 +734,7 @@
             "index": 0
           }
         ],
-        [
-          {
-            "node": "Avisar en chat: No matchea regex",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "Insertar señal (Postgres)": {
