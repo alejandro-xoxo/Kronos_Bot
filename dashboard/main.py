@@ -61,19 +61,45 @@ def api_positions():
     return jsonify(data), 200
 
 
+SIGNAL_RANGES = {
+    # date_trunc('week', ...) en Postgres arranca el lunes (semana ISO).
+    "today": "date_trunc('day', NOW())",
+    "week": "date_trunc('week', NOW())",
+    "month": "date_trunc('month', NOW())",
+    "all": None,
+}
+
+
 @app.route("/api/signals")
 def api_signals():
+    range_param = request.args.get("range", "all")
+    if range_param not in SIGNAL_RANGES:
+        return (
+            jsonify(
+                {
+                    "error": "range inválido: '{}'. Valores permitidos: {}".format(
+                        range_param, ", ".join(SIGNAL_RANGES)
+                    )
+                }
+            ),
+            400,
+        )
+
+    since_expr = SIGNAL_RANGES[range_param]
+    where_clause = f"WHERE created_at >= {since_expr}" if since_expr else ""
+
     conn = None
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                """
+                f"""
                 SELECT id, signal_uid, instrument, direction, status,
                        mt4_ticket, entry_price, sl, tp, created_at, updated_at
                 FROM signals
+                {where_clause}
                 ORDER BY created_at DESC
-                LIMIT 50
+                LIMIT 500
                 """
             )
             rows = cur.fetchall()
@@ -83,7 +109,7 @@ def api_signals():
         if conn is not None:
             conn.close()
 
-    return jsonify({"signals": rows}), 200
+    return jsonify({"signals": rows, "range": range_param}), 200
 
 
 @app.route("/api/config", methods=["GET"])
