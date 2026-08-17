@@ -16,6 +16,7 @@ services:
       - N8N_SECURE_COOKIE=false
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - TELEGRAM_USER_CHAT_ID=${TELEGRAM_USER_CHAT_ID}
+      - KRONOS_WEBHOOK_SECRET=${KRONOS_WEBHOOK_SECRET}
       - MT4_ORDERS_DIR=/mt4-bridge/orders
       - N8N_RESTRICT_FILE_ACCESS_TO=/mt4-bridge/orders;/home/node/.n8n-files
       - NODE_FUNCTION_ALLOW_BUILTIN=fs
@@ -61,6 +62,7 @@ services:
       - TELEGRAM_PHONE=${TELEGRAM_PHONE}
       - TELEGRAM_GROUP_ID=${TELEGRAM_GROUP_ID}
       - N8N_WEBHOOK_URL=http://n8n:5678/webhook/kronos-telethon-signal
+      - KRONOS_WEBHOOK_SECRET=${KRONOS_WEBHOOK_SECRET}
     volumes:
       - telethon_session:/app/session
     depends_on:

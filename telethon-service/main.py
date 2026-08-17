@@ -16,6 +16,7 @@ API_ID = int(os.environ["TELEGRAM_API_ID"])
 API_HASH = os.environ["TELEGRAM_API_HASH"]
 PHONE = os.environ["TELEGRAM_PHONE"]
 N8N_WEBHOOK_URL = os.environ["N8N_WEBHOOK_URL"]
+WEBHOOK_SECRET = os.environ["KRONOS_WEBHOOK_SECRET"]
 
 _group_env = os.environ.get("TELEGRAM_GROUP_ID", "").strip()
 GROUP_IDENTIFIER = int(_group_env) if _group_env else None
@@ -60,7 +61,12 @@ async def process_message(message):
     logger.info(f"Mensaje capturado de {sender_name}: {message_text[:80]!r}")
 
     try:
-        response = requests.post(N8N_WEBHOOK_URL, json=payload, timeout=10)
+        response = requests.post(
+            N8N_WEBHOOK_URL,
+            json=payload,
+            headers={"X-Kronos-Secret": WEBHOOK_SECRET},
+            timeout=10,
+        )
         response.raise_for_status()
         logger.info(f"Enviado a n8n correctamente (status {response.status_code})")
     except requests.RequestException as e:

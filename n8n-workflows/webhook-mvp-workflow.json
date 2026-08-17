@@ -692,6 +692,40 @@
       },
       "notes": "Debug: confirma que Telethon capturó el mensaje aunque no matchee el formato fijo de señal nueva.",
       "webhookId": "447c6515-b45f-4003-8beb-65331d4f2457"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "secret-check",
+              "leftValue": "={{ $json.headers['x-kronos-secret'] }}",
+              "rightValue": "={{ $env.KRONOS_WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ab5942a9-bc5f-4904-8231-10dda967902a",
+      "name": "¿Secreto de webhook válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2176,
+        384
+      ],
+      "notes": "Rechaza silenciosamente (sin bajar por la rama false) cualquier POST al webhook que no traiga el header X-Kronos-Secret correcto — evita que alguien que descubra la URL pública inyecte señales falsas. El webhook igual responde 'received' al instante (responseMode oculta la validación)."
     }
   ],
   "connections": {
@@ -699,7 +733,7 @@
       "main": [
         [
           {
-            "node": "Parsear señal (regex)",
+            "node": "¿Secreto de webhook válido?",
             "type": "main",
             "index": 0
           }
@@ -964,6 +998,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "¿Secreto de webhook válido?": {
+      "main": [
+        [
+          {
+            "node": "Parsear señal (regex)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
