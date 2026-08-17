@@ -225,13 +225,57 @@ Sub-etapas de esta fase, con estado individual:
     verdad en Telegram y verificar que el EA la levanta y ejecuta) —
     no se disparó todavía para no tocar la cuenta real sin que el
     usuario lo decida explícitamente.
-- **Etapa 5 — 🔲 no iniciada.** Nodo (probablemente por polling con un
-  Cron/Interval trigger, ya que n8n no tiene forma nativa de "escuchar"
-  cambios en el filesystem) que lea `orders/results/{signal_id}.json`,
-  actualice `signals.mt4_ticket`/`status` en Postgres, notifique al
-  usuario por Telegram con el resultado real (ticket, precio de
-  ejecución o motivo de fallo), y borre el archivo de `results/` tras
-  procesarlo.
+- **Etapa 5 — ✅ implementada y verificada end-to-end.** Rama
+  `feature/n8n-read-mt4-results`. Seis nodos nuevos, en paralelo al
+  flujo de confirmación (no tocan los nodos existentes):
+  **`Trigger: leer resultados MT4`** (`scheduleTrigger`, cada 5s) →
+  **`Leer resultados (MT4)`** (`readWriteFile`, operation `read`,
+  `fileSelector = {{ $env.MT4_ORDERS_DIR }}/results/*.json`, soporta
+  glob, 0 items si no hay archivos — no falla) → **`Parsear resultado
+  (MT4)`** (Code) → **`Actualizar status: OPEN/PENDING_MANUAL`**
+  (Postgres, `UPDATE` idempotente `WHERE status = 'CONFIRMED'`,
+  `status` final `OPEN` si `success=true` o `PENDING_MANUAL` si
+  `success=false`) → **`¿Se actualizó ahora?`** (IF sobre
+  `updated_count`) → rama `true`: **`Avisar en chat: Resultado MT4`**
+  (Telegram, texto distinto para éxito/fallo) → ambas ramas confluyen
+  en **`Borrar archivo de resultado`** (Code, `fs.promises.unlink`,
+  se ejecuta siempre haya o no notificado).
+  - **Detalle técnico no obvio, encontrado en esta etapa:** esta
+    versión de n8n usa modo de binarios `filesystem-v2`
+    (`settings.binaryMode: "separate"`) — el contenido del archivo
+    leído por `readWriteFile` **no** viaja en base64 dentro de
+    `item.binary.data.data` (ahí solo hay el string literal
+    `"filesystem-v2"`, un marcador). Hay que leer el contenido real
+    con `await this.helpers.getBinaryDataBuffer(i, 'data')` dentro
+    del Code node. Intentar `Buffer.from(item.binary.data.data,
+    'base64')` como en versiones más viejas de n8n rompe con
+    `SyntaxError: ... is not valid JSON` (el string `"filesystem-v2"`
+    decodificado de "base64" da bytes basura).
+  - **Segundo detalle no obvio:** el nodo Postgres intermedio
+    reemplaza `item.json` por las columnas devueltas por la query, así
+    que el nodo de borrado no puede leer `$json.fileName` directo —
+    hay que recuperarlo del nodo `Parsear resultado (MT4)` usando el
+    `pairedItem` del item actual (`$('Parsear resultado (MT4)').all()
+    [idx].json.fileName`, con `idx` sacado de `item.pairedItem.item`)
+    para que el índice sea correcto incluso si el IF divide en dos
+    ramas.
+  - Requiere `NODE_FUNCTION_ALLOW_BUILTIN=fs` en el servicio `n8n` de
+    `docker-compose.yml` (n8n restringe qué módulos built-in de Node
+    puede usar un Code node) — agregado.
+  - **Probado en real:** al implementar esto había 5 archivos de
+    `results/` acumulados de pruebas manuales previas de la Etapa 6
+    (EA) que nunca se habían consumido (`7.json`...`11.json`) — el
+    trigger nuevo los procesó todos en el primer ciclo, actualizó
+    Postgres (`7` y `8` a `PENDING_MANUAL` por error real del EA, `9`,
+    `10`, `11` a `OPEN` con tickets reales de VT Markets) y los borró.
+    Además se probó manualmente un archivo `999999.json` con
+    `signal_id` inexistente en Postgres: `updated_count` dio `0`
+    (sin error), no se mandó notificación (la señal nunca estuvo en
+    `CONFIRMED`), y el archivo igual se borró — comportamiento
+    idempotente correcto.
+  - Workflow sincronizado de vuelta a
+    `n8n-workflows/webhook-mvp-workflow.json` tras subir los nodos vía
+    `PUT /api/v1/workflows/{id}`.
 
 ## Documentación de instalación — completa hasta esta etapa
 
@@ -257,10 +301,12 @@ Sub-etapas de esta fase, con estado individual:
 - **Cálculo de lotaje por slots** (80/20, sección 5.3 del protocolo) —
   fórmula definida, no implementada. Todas las señales (incluidas ambas
   sub-señales de una señal multi-TP) usan lotaje fijo `0.01`.
-- **Ejecución real en MT4** — el EA existe pero no está compilado ni
-  probado; los nodos de n8n que lo alimentan (Etapas 4 y 5 de arriba) no
-  existen todavía. Nada se ejecuta de verdad en la cuenta real hasta que
-  esto esté completo.
+- **Ejecución real en MT4 — ciclo completo (Etapas 4 y 5) ya
+  implementado y verificado**: n8n escribe la orden al confirmar, el
+  EA la ejecuta, n8n lee el resultado, actualiza Postgres y notifica.
+  Pendiente solo la prueba end-to-end disparada por una señal real
+  nueva del grupo (las pruebas hechas hasta ahora fueron manuales por
+  etapa).
 - **Ciclo de cierre y registro en Google Sheets** (Fase 7) — sin
   empezar, depende de que la ejecución real en MT4 esté funcionando
   primero (necesita que el EA reporte cierres, no solo aperturas).
@@ -276,10 +322,10 @@ Sub-etapas de esta fase, con estado individual:
    MetaEditor (F7) dentro de MT4, revisar que compile sin errores.
 2. **[Manual, usuario]** Iniciar sesión en MT4 con la cuenta real
    (servidor `VTMarkets-Live 9`), desde la red de casa.
-3. **[Con Claude Code]** Etapa 4: nodo n8n que escribe
-   `orders/pending/{signal_id}.json` al confirmar una señal.
-4. **[Con Claude Code]** Etapa 5: nodo n8n que lee
-   `orders/results/{signal_id}.json`, actualiza Postgres y notifica.
+3. ✅ Etapa 4: nodo n8n que escribe `orders/pending/{signal_id}.json`
+   al confirmar una señal — completo.
+4. ✅ Etapa 5: nodo n8n que lee `orders/results/{signal_id}.json`,
+   actualiza Postgres y notifica — completo.
 5. Prueba end-to-end completa: señal real → confirmar en Telegram → EA
    ejecuta en MT4 (demo o real, a decidir) → resultado vuelve a Telegram.
 6. Recién después de validar el flujo básico de ejecución: cálculo de
@@ -297,8 +343,9 @@ Sub-etapas de esta fase, con estado individual:
 - ✅ Fase 5 — botones de confirmar/rechazar funcionales, idempotentes,
   con mensaje de confirmación visible en el chat.
 - 🔶 Fase 6 — EA puente en MT4. Wine/MT4 instalados, formato de
-  archivos y symlinks verificados, EA escrito y revisado — pendiente
-  compilar, loguearse en MT4, y los nodos n8n de las Etapas 4/5 de esta
-  misma fase (ver detalle arriba).
+  archivos y symlinks verificados, EA escrito, compilado y ejecutando
+  órdenes reales; nodos n8n de las Etapas 4 y 5 (escribir orden pending
+  / leer resultado) completos y verificados. Pendiente solo la prueba
+  end-to-end disparada por una señal real nueva del grupo.
 - 🔲 Fase 7 — cierre y registro en Google Sheets.
 - 🔲 Fase 8 — ejecución 100% automática (futuro).

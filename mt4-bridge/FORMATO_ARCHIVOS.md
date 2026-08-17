@@ -97,7 +97,12 @@ confirmación). Se reutiliza este id en vez de inventar uno nuevo.
   (no lo deja mientras ejecuta, para no reprocesarlo por timing del
   polling).
 - n8n, tras leer y procesar un archivo de `results/`, lo **borra**
-  también.
+  también. **Implementado (Etapa 5):** un `Schedule Trigger` cada 5
+  segundos lee `results/*.json` con `readWriteFile` (operation
+  `read`, soporta glob), actualiza `signals.status`/`mt4_ticket` en
+  Postgres con un `UPDATE` idempotente (`WHERE status = 'CONFIRMED'`),
+  notifica por Telegram si corresponde, y borra el archivo con
+  `fs.promises.unlink` siempre (haya notificado o no).
 - Si un archivo de `results/` no aparece dentro de un timeout
   razonable después de escribir el `pending/` correspondiente, es un
   caso de fallo de comunicación. El protocolo de reintento/alerta
