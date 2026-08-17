@@ -54,6 +54,7 @@ async function loadPositions() {
           <td>
             <div class="position-actions">
               <button class="btn-be" data-ticket="${p.ticket}" data-action="SET_BE">BE</button>
+              <button class="btn-be-tp" data-ticket="${p.ticket}" data-action="SET_TP_BE">BE inverso</button>
               <button class="btn-close" data-ticket="${p.ticket}" data-action="CLOSE">Cerrar</button>
               <span class="position-action-status" data-ticket="${p.ticket}"></span>
             </div>
@@ -62,7 +63,7 @@ async function loadPositions() {
       })
       .join("");
 
-    bodyEl.querySelectorAll(".btn-be, .btn-close").forEach((btn) => {
+    bodyEl.querySelectorAll(".btn-be, .btn-be-tp, .btn-close").forEach((btn) => {
       btn.addEventListener("click", () =>
         sendPositionAction(btn.dataset.ticket, btn.dataset.action, btn)
       );
@@ -96,8 +97,12 @@ async function pollActionResult(ticket, action, statusEl) {
     if (!data.found) continue;
 
     if (data.success) {
-      statusEl.textContent =
-        action === "SET_BE" ? "SL movido a " + data.result_price : "Cerrada a " + data.result_price;
+      const labels = {
+        SET_BE: "SL movido a " + data.result_price,
+        SET_TP_BE: "TP movido a " + data.result_price,
+        CLOSE: "Cerrada a " + data.result_price,
+      };
+      statusEl.textContent = labels[action] || "Hecho.";
       statusEl.className = "position-action-status status-msg ok";
     } else {
       statusEl.textContent = data.error_message || "El bróker rechazó el comando.";
@@ -120,8 +125,13 @@ async function sendPositionAction(ticket, action, btn) {
 
   const statusEl = document.querySelector(`.position-action-status[data-ticket="${ticket}"]`);
   const row = btn.closest("tr");
-  row.querySelectorAll(".btn-be, .btn-close").forEach((b) => (b.disabled = true));
-  statusEl.textContent = action === "SET_BE" ? "Moviendo a BE..." : "Cerrando...";
+  row.querySelectorAll(".btn-be, .btn-be-tp, .btn-close").forEach((b) => (b.disabled = true));
+  const pendingLabels = {
+    SET_BE: "Moviendo a BE...",
+    SET_TP_BE: "Moviendo TP a BE...",
+    CLOSE: "Cerrando...",
+  };
+  statusEl.textContent = pendingLabels[action] || "Enviando...";
   statusEl.className = "position-action-status status-msg";
 
   try {
@@ -134,7 +144,7 @@ async function sendPositionAction(ticket, action, btn) {
     if (!res.ok) {
       statusEl.textContent = data.error || "Error.";
       statusEl.className = "position-action-status status-msg error";
-      row.querySelectorAll(".btn-be, .btn-close").forEach((b) => (b.disabled = false));
+      row.querySelectorAll(".btn-be, .btn-be-tp, .btn-close").forEach((b) => (b.disabled = false));
       return;
     }
     statusEl.textContent = "Enviado al EA, esperando confirmación...";
@@ -143,7 +153,7 @@ async function sendPositionAction(ticket, action, btn) {
   } catch (err) {
     statusEl.textContent = "Error de red.";
     statusEl.className = "position-action-status status-msg error";
-    row.querySelectorAll(".btn-be, .btn-close").forEach((b) => (b.disabled = false));
+    row.querySelectorAll(".btn-be, .btn-be-tp, .btn-close").forEach((b) => (b.disabled = false));
   }
 }
 

@@ -17,7 +17,7 @@
 #property description "dinámico, sin recompilar) y escribe orders/status.json con las"
 #property description "posiciones abiertas de este EA (magic number) en cada ciclo."
 #property description ""
-#property description "orders/actions/*.json: comandos de break-even (SET_BE) y cierre"
+#property description "orders/actions/*.json: comandos de break-even (SET_BE), BE inverso sobre el TP (SET_TP_BE) y cierre"
 #property description "a mercado (CLOSE) sobre posiciones ya abiertas, generados desde"
 #property description "el dashboard web — solo actúa sobre tickets con el magic number"
 #property description "de este EA, nunca sobre operativa manual del usuario."
@@ -386,7 +386,7 @@ void ProcessPositionActions()
 
 //+------------------------------------------------------------------+
 //| Procesa un único archivo de orders/actions/. Formato:            |
-//|   { "ticket": 202230990, "action": "SET_BE" | "CLOSE" }          |
+//|   { "ticket": 202230990, "action": "SET_BE" | "SET_TP_BE" | "CLOSE" } |
 //| Solo actúa sobre tickets con el InpMagicNumber de este EA — nunca|
 //| toca operativa manual del usuario en la misma cuenta. El archivo |
 //| se borra siempre tras intentarlo (éxito o fallo), salvo que no   |
@@ -415,7 +415,7 @@ void ProcessSingleAction(string fileName)
 
    int ticket = (int)StringToInteger(ticketStr);
 
-   if(ticket <= 0 || (action != "SET_BE" && action != "CLOSE"))
+   if(ticket <= 0 || (action != "SET_BE" && action != "SET_TP_BE" && action != "CLOSE"))
    {
       Print("Kronos EA: acción inválida en ", actionPath, " (ticket=", ticket,
             ", action=", action, "), se descarta.");
@@ -441,6 +441,8 @@ void ProcessSingleAction(string fileName)
 
    if(action == "SET_BE")
       ApplyBreakEven(ticket);
+   else if(action == "SET_TP_BE")
+      ApplyTakeProfitBreakEven(ticket);
    else // "CLOSE"
       ApplyClose(ticket);
 
@@ -467,7 +469,32 @@ void ApplyBreakEven(int ticket)
       Print("Kronos EA: ERROR al mover a break-even ticket ", ticket,
             ", error ", errCode);
 
-   WriteActionResult(ticket, "SET_BE", ok, ok ? 0.0 : openPrice, errCode);
+   WriteActionResult(ticket, "SET_BE", ok, ok ? openPrice : 0.0, errCode);
+}
+
+//+------------------------------------------------------------------+
+//| "BE inverso": mueve el TP (no el SL) al precio de apertura de la |
+//| posición — deja la operación sin objetivo de ganancia, cerrando  |
+//| solo si vuelve al precio de entrada. Mismo cálculo para BUY y    |
+//| SELL, misma validación de magic number que ApplyBreakEven (ver   |
+//| ProcessSingleAction). Asume que el ticket ya está seleccionado.  |
+//+------------------------------------------------------------------+
+void ApplyTakeProfitBreakEven(int ticket)
+{
+   double openPrice = OrderOpenPrice();
+
+   ResetLastError();
+   bool ok      = OrderModify(ticket, openPrice, OrderStopLoss(), openPrice, 0, clrNONE);
+   int  errCode = ok ? 0 : GetLastError();
+
+   if(ok)
+      Print("Kronos EA: ticket ", ticket, " — TP movido a break-even (TP=",
+            DoubleToString(openPrice, 5), ").");
+   else
+      Print("Kronos EA: ERROR al mover TP a break-even ticket ", ticket,
+            ", error ", errCode);
+
+   WriteActionResult(ticket, "SET_TP_BE", ok, ok ? openPrice : 0.0, errCode);
 }
 
 //+------------------------------------------------------------------+

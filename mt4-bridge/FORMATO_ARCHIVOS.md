@@ -245,7 +245,7 @@ EA los lee en cada ciclo de `OnTimer` (antes de reescribir
 | Campo | Tipo | Notas |
 |---|---|---|
 | `ticket` | int | Ticket real de MT4, tiene que aparecer en el último `status.json` reportado — el dashboard rechaza tickets inventados o ya cerrados con 404 antes de escribir el archivo. |
-| `action` | string | `"SET_BE"` (mueve el SL al precio de apertura) o `"CLOSE"` (cierra a mercado). Cualquier otro valor se rechaza con 400 del lado del dashboard. |
+| `action` | string | `"SET_BE"` (mueve el SL al precio de apertura), `"SET_TP_BE"` (BE inverso: mueve el TP al precio de apertura, no el SL) o `"CLOSE"` (cierra a mercado). Cualquier otro valor se rechaza con 400 del lado del dashboard. |
 
 El EA solo actúa si el ticket tiene el mismo `InpMagicNumber` de este
 EA — nunca toca operativa manual del usuario en la misma cuenta,
@@ -282,7 +282,7 @@ procesó" de "lo procesó y falló".
 
 | Campo | Tipo | Notas |
 |---|---|---|
-| `result_price` | number \| null | SL nuevo si `SET_BE` tuvo éxito, precio de cierre si `CLOSE` tuvo éxito. `null` si falló. |
+| `result_price` | number \| null | SL nuevo si `SET_BE` tuvo éxito, TP nuevo si `SET_TP_BE` tuvo éxito, precio de cierre si `CLOSE` tuvo éxito. `null` si falló. |
 | `error_code` | int \| null | Código nativo de MQL4 (`GetLastError()`). `null` si tuvo éxito. |
 | `error_message` | string \| null | `"MT4 error {code}"` — sin traducción a texto legible todavía, el dashboard muestra el código tal cual. `null` si tuvo éxito. |
 

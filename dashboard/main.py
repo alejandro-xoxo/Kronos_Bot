@@ -62,7 +62,7 @@ def api_positions():
     return jsonify(data), 200
 
 
-VALID_POSITION_ACTIONS = ("SET_BE", "CLOSE")
+VALID_POSITION_ACTIONS = ("SET_BE", "SET_TP_BE", "CLOSE")
 
 
 def _load_current_tickets():
