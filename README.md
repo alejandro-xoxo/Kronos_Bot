@@ -2,10 +2,11 @@
 
 # 🤖 Kronos Bot
 
-**Un bot que copia señales de trading de un grupo de Telegram a mi cuenta real de MT4, para que confirmar una operación a las 4 de la mañana me tome un tap, no cinco minutos despierto abriendo MT4 a mano.**
+**Copia señales de trading de un grupo de Telegram a una cuenta real de MT4, con confirmación humana de por medio — para que operar a las 4 de la mañana sea un tap, no cinco minutos despierto tipeando precios en MetaTrader.**
 
 [![Estado](https://img.shields.io/badge/estado-v1%20MVP%20funcional-2ea44f)](docs/versions/v1.md)
 [![Ejecución real](https://img.shields.io/badge/ejecución-verificada%20en%20cuenta%20live-blue)](#-evidencia-real)
+[![Licencia](https://img.shields.io/badge/uso-personal%20%2F%20portafolio-lightgrey)](#-licencia)
 ![Python](https://img.shields.io/badge/Python-Telethon-3776AB?logo=python&logoColor=white)
 ![n8n](https://img.shields.io/badge/n8n-orquestación-EA4B71?logo=n8n&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-DB-4169E1?logo=postgresql&logoColor=white)
@@ -13,90 +14,207 @@
 
 </div>
 
+<p align="center">
+  <img src="docs/screenshots/02-confirmacion-telegram.png" alt="Notificación de nueva señal con botones Confirmar/Rechazar y ticket real ejecutado" width="420">
+</p>
+
 ---
 
 ## 📖 Índice
 
-- [La historia detrás de esto](#-la-historia-detrás-de-esto)
-- [Qué hace, en corto](#-qué-hace-en-corto)
-- [Arquitectura](#-arquitectura)
-- [Stack técnico](#-stack-técnico)
-- [El proceso, no solo el resultado](#-el-proceso-no-solo-el-resultado)
-- [Evidencia real](#-evidencia-real)
-- [Documentación](#-documentación)
+- [El problema](#-el-problema)
+- [Cómo lo pensé — arquitectura y decisiones](#-cómo-lo-pensé--arquitectura-y-decisiones)
+- [Diagrama de flujo](#-diagrama-de-flujo)
+- [Retos técnicos](#-retos-técnicos)
+- [Stack](#-stack)
+- [Instalación](#-instalación)
+- [Configuración](#-configuración)
+- [Estructura de carpetas](#-estructura-de-carpetas)
+- [Estado actual y roadmap](#-estado-actual-y-roadmap)
+- [Aprendizajes](#-aprendizajes)
+- [Licencia](#-licencia)
 
 ---
 
-## 📖 La historia detrás de esto
+## 🎯 El problema
 
-Todavía estoy estudiando para ser developer. En paralelo empecé a meterme en trading buscando un ingreso extra — algo que pudiera sostener mientras sigo formándome, no un plan de hacerme rico rápido.
+Todavía estoy estudiando para ser developer. En paralelo empecé a meterme en trading buscando un ingreso extra — no un plan de hacerme rico rápido, sino algo real que pudiera sostener mientras sigo formándome.
 
-Encontré un grupo de señales que se veía sólido: buen historial, comunidad activa. El problema es que es un grupo español, y las señales me caen entre la **1:30 a. m. y las 8:00 a. m.** hora mía. El objetivo real, el que persigo de fondo, es que el copiado sea **100% automático** — que la señal se ejecute sola en mi cuenta mientras yo estoy durmiendo, sin que tenga que despertarme a nada.
+Encontré un grupo de señales en Telegram que se veía sólido: buen historial, comunidad activa. El problema es que es un grupo español y yo no vivo ahí — las señales me caen entre la **1:30 a. m. y las 8:00 a. m.** hora mía. Copiarlas a mano significaba despertarme, abrir MT4 medio dormido, y tipear instrumento, dirección, entrada, take-profit y stop-loss antes de que el precio se moviera. Un solo dígito mal tipeado a esa hora es plata perdida.
 
-No tenía plata para un VPS ni para una IA paga ni para pagarle a un servicio de copy-trading. Tenía mi laptop, tiempo libre robado al sueño, y ganas de meterle mano a un problema mío de verdad — no un tutorial ni un proyecto de práctica que después se archiva. Así nació Kronos Bot. Y como todo sistema que va a mover plata real, no arranqué confiando ciego en él: la v1 que ves acá todavía me pide confirmar cada señal con un botón de Telegram antes de ejecutar, como capa de seguridad mientras valido que el bicho entero funciona sin sorpresas. Es un paso intermedio a propósito, no el destino final — la automatización completa (sin que yo intervenga) es la meta declarada para las próximas versiones, una vez que el historial de ejecuciones reales me dé la confianza para soltarle la decisión también a él.
+No tenía presupuesto para un VPS, ni para una API de IA paga, ni para pagarle a un servicio de copy-trading de terceros. Tenía mi laptop, tiempo robado al sueño, y ganas de resolver un problema que era mío de verdad — no un tutorial que después se archiva. Así nació Kronos Bot.
 
-<p align="center">
-  <img src="docs/screenshots/01-senal-en-el-grupo.png" alt="Señal real llegando al grupo de Telegram VIP SIGNALS FX a las 4:19 am" width="420">
-  <br>
-  <sub><i>Así llega una señal real al grupo — de madrugada, en español, formato fijo.</i></sub>
-</p>
+La meta de fondo es que el copiado sea **100% automático**: que la señal se ejecute sola en mi cuenta mientras duermo. Pero un sistema que va a mover plata real no se suelta a ciegas desde el día uno — por eso esta v1 todavía me pide confirmar cada señal con un botón de Telegram antes de ejecutar. Es un paso intermedio deliberado: primero valido que cada pieza del sistema funciona sin sorpresas con un humano en el loop, después le suelto también la decisión.
 
-## ⚙️ Qué hace, en corto
+## 🧠 Cómo lo pensé — arquitectura y decisiones
 
-1. Mi propia cuenta de Telegram (vía [Telethon](https://docs.telethon.dev/)) escucha el grupo de señales en tiempo real — uso mi cuenta y no un bot porque no soy admin del grupo, así que tengo que "leer" el chat como lo haría yo mismo.
-2. Un flujo en [n8n](https://n8n.io/) interpreta cada mensaje: si matchea el formato fijo de señal nueva (instrumento, dirección, entrada, TP, SL), lo parsea por regex; si trae varios TP, genera hasta 2 sub-operaciones independientes según mis propias reglas de riesgo.
-3. Me llega al toque una notificación a Telegram con botones **Confirmar / Rechazar**. Acá no hay atajos: nada se ejecuta sin que yo lo apruebe, aunque sea medio dormido con el celular en la cara.
-4. Al confirmar, la orden se escribe en un puente de archivos que lee un **Expert Advisor en MQL4** corriendo dentro de MT4 (bajo Wine, en mi propia laptop), que la manda a la cuenta real.
-5. El resultado (ticket, precio de ejecución, o motivo de fallo) vuelve a Postgres y me llega la confirmación por Telegram — con la operación ya abierta y corriendo, sin que yo haya tocado MT4.
+Ninguna pieza de este stack fue "porque sí" o porque era la más de moda. Cada una resuelve una restricción concreta:
 
-<p align="center">
-  <img src="docs/screenshots/02-confirmacion-telegram.png" alt="Notificación de nueva señal con botones Confirmar/Rechazar y confirmación de ejecución real con ticket" width="420">
-  <br>
-  <sub><i>La señal, el botón de Confirmar, y siete segundos después el ticket real ejecutado.</i></sub>
-</p>
+**Telethon (cuenta de usuario) en vez de un Bot API de Telegram.**
+No soy admin del grupo de señales, así que un bot de Telegram no puede leer sus mensajes — los bots solo ven lo que se les envía directo o en grupos donde son miembros con permisos. Necesitaba algo que leyera el chat como lo haría yo mismo desde mi celular: eso es exactamente lo que hace MTProto vía Telethon, autenticado con mi propia cuenta.
 
-## 🏗️ Arquitectura
+**n8n como orquestador en vez de un backend propio desde cero.**
+Evalué escribir un backend a mano (FastAPI o similar) contra usar un orquestador visual. Elegí n8n porque el cuello de botella de este proyecto no es rendimiento, es **iteración de reglas de negocio** — el formato de las señales, las validaciones de antigüedad, los reintentos, el manejo de callbacks de Telegram cambiaron varias veces durante el desarrollo, y n8n me dejaba ajustar un nodo y reimportar sin tocar infraestructura. El costo que acepté: la lógica de parseo vive en un nodo `Code` (JavaScript) en vez de un módulo Python testeable con un framework de tests — un trade-off consciente de velocidad de iteración por sobre pureza de arquitectura, válido para v1.
 
-> Telegram (grupo) → Telethon → webhook n8n → parser regex → Postgres → confirmación por Telegram → EA en MQL4 (MT4 vía Wine) → orden real en VT Markets → resultado de vuelta a n8n → notificación final. El dashboard consulta el estado en paralelo, sin intervenir en el flujo.
+**Postgres en vez de Google Sheets como base transaccional.**
+Sheets sigue en el proyecto, pero como registro de resultados legible para humanos, no como fuente de verdad. La razón es idempotencia: confirmar/rechazar una señal necesita una transacción atómica con estado (`PENDING_CONFIRMATION` → `CONFIRMED`/`REJECTED_BY_USER`) que no se rompa si el usuario hace doble clic o si dos webhooks llegan casi simultáneos. Eso es trivial con un `UPDATE ... WHERE status = 'X' RETURNING`, y frágil de garantizar contra una hoja de cálculo.
 
-<p align="center">
-  <img src="docs/screenshots/03-workflow-n8n.png" alt="Workflow completo en n8n: webhook, parser regex, confirmación, escritura de orden a MT4, lectura de resultados" width="700">
-  <br>
-  <sub><i>El workflow real en n8n — desde el webhook de Telethon hasta la escritura/lectura del puente con MT4.</i></sub>
-</p>
+**Regex para señales nuevas, Gemini reservado para instrucciones de seguimiento (todavía no conectado).**
+El grupo tiene un formato fijo para señales nuevas (`INSTRUMENTO BUY|SELL [LIMIT] PRECIO TP valor SL valor`) — parsearlo con IA sería pagar latencia y no-determinismo por algo que un regex resuelve en microsegundos y de forma 100% predecible. Donde sí planeo usar Gemini es en la fase siguiente, para instrucciones de seguimiento con redacción libre ("moví el SL a BE", "cerrá a 4374, +20 pips") — ahí el formato no es fijo y vale la pena la IA. **Esta pieza está diseñada pero no implementada todavía** (ver [roadmap](#-estado-actual-y-roadmap)).
 
-**Por qué estas decisiones técnicas, no otras:**
+**Confirmación humana obligatoria en v1.**
+No es una limitación técnica, es una decisión de secuencia: antes de dejar que el sistema mueva dinero real sin supervisión, quería un tramo con un humano revisando que el parseo, el lotaje y la conexión con MT4 no fallaran. La automatización total es el objetivo declarado, no algo que descarté.
 
-- **Telethon en vez de un Bot API de Telegram** — no soy admin del grupo VIP, así que un bot no puede leer sus mensajes. Solo una cuenta de usuario (MTProto) puede.
-- **n8n como orquestador en vez de un backend hecho a mano** — necesitaba iterar rápido sobre reglas de negocio (formato de señales, validaciones, reintentos) sin reescribir infraestructura cada vez, corriendo 100% local sin costo.
-- **Confirmación humana en v1, no automatización ciega desde el día 1** — antes de dejar que un sistema mueva dinero real solo, quería verlo ejecutar señales reales con un humano de por medio, revisando que el parseo, el lotaje y la conexión con MT4 no fallen. Es una decisión de secuencia, no de filosofía: primero confío, después suelto.
-- **EA propio en MQL4 en vez de un copiador comercial** — control total sobre el lotaje, el manejo de errores del bróker, y la lógica de "market vs. limit" según si el precio ya cruzó el nivel de entrada.
-- **Todo corre local (mi laptop, CachyOS + Wine)** — cero costo de infraestructura mientras valido que el sistema es rentable en modo semi-automático, antes de justificar gastar en un VPS.
+**EA propio en MQL4 en vez de un copiador comercial.**
+Quería control total sobre el lotaje, el manejo de errores específicos del bróker (VT Markets), y la lógica de "ejecutar a mercado si el precio ya cruzó el nivel de entrada de una LIMIT" — nada de esto es configurable en los copiadores genéricos que evalué.
 
-## 🧰 Stack técnico
+**Todo corre local (HP EliteBook, CachyOS/Arch + Wine).**
+Cero costo de infraestructura mientras valido que el sistema es rentable en modo semi-automático. Un VPS se justifica después de tener el historial que lo respalde, no antes.
 
-| Pieza | Tecnología |
+## 🔀 Diagrama de flujo
+
+```mermaid
+flowchart LR
+    TG["Grupo de Telegram<br/>(España, 1:30-8:00 am)"] -->|MTProto, Telethon| TL[Microservicio Telethon]
+    TL -->|webhook| N8N[n8n]
+    N8N -->|regex| PARSE{"¿Formato fijo<br/>de señal nueva?"}
+    PARSE -->|sí| PG[(Postgres<br/>PENDING_CONFIRMATION)]
+    PARSE -.futuro.-> GEM["Gemini API<br/>(seguimiento, no conectado aún)"]
+    PG --> BOT["Telegram: botones<br/>Confirmar / Rechazar"]
+    BOT -->|confirma| ORDER["orders/pending/&lt;id&gt;.json"]
+    ORDER -->|polling 2s, FILE_COMMON| EA["EA KronosBridgeEA.mq4<br/>(MT4 vía Wine)"]
+    EA -->|OrderSend| VT["VT Markets<br/>cuenta live"]
+    EA -->|resultado| RES["orders/results/&lt;id&gt;.json"]
+    RES -->|leído cada 5s| N8N
+    N8N -->|ticket / error| BOT
+    DASH["Dashboard Flask<br/>(LAN local)"] -.consulta status.json.- EA
+```
+
+## 🧩 Retos técnicos
+
+Formato problema → solución, con los que más tiempo me tomaron:
+
+### Duplicar señales al confirmar dos veces
+**Problema:** un doble clic en "Confirmar" (dedo torpe a las 4 a.m., o un reintento de red de Telegram) podía re-ejecutar la orden dos veces.
+**Solución:** el `UPDATE` de status usa un CTE con `WHERE status = 'PENDING_CONFIRMATION'` que solo aplica el cambio una vez; el segundo clic actualiza 0 filas, y el callback responde "ya fue procesada" en vez de reinsertar.
+
+### Telethon perdiendo mensajes en el canal de más tráfico
+**Problema:** en el grupo real (~3900 suscriptores, tráfico alto), Telethon a veces pedía un resync de "difference" ante un gap de `pts` y **no volvía a disparar `events.NewMessage`** para el mensaje que causó el gap — se perdía en silencio, sin error visible.
+**Solución:** agregué un polling de respaldo cada 15s sobre el historial reciente del chat (`iter_messages`), deduplicado por `message_id` contra los ya procesados por el evento en vivo. Red de seguridad, no reemplazo del evento en tiempo real.
+
+### MQL4 no deja escribir archivos fuera de una carpeta sandboxeada
+**Problema:** el EA necesita comunicarse con n8n vía archivos, pero `FileOpen`/`FileWrite` en MQL4 están limitados a `MQL4\Files\` del terminal — ni con Wine se puede apuntar a una ruta arbitraria.
+**Solución:** la flag `FILE_COMMON` redirige a `.../MetaQuotes/Terminal/Common/Files/`, una carpeta compartida entre todos los terminales del mismo prefijo de Wine, independiente del ID de instalación. `mt4-bridge/orders/` en el repo es un symlink local (no versionado) hacia esa carpeta.
+
+### Docker no puede resolver symlinks que apuntan fuera del árbol montado
+**Problema:** n8n corre en un contenedor y necesita leer/escribir en esa misma carpeta de `Common/Files`, pero el symlink del repo apunta a una ruta del host que Docker no puede atravesar.
+**Solución:** bind mount directo del destino real (`${MT4_ORDERS_HOST_PATH}` → `/mt4-bridge/orders` dentro del contenedor de n8n), no del symlink — se monta a dónde apunta, no el enlace en sí.
+
+### Condición de carrera al abrir dos órdenes seguidas (mismo instrumento)
+**Problema:** cuando una señal trae 2 take-profits, se generan 2 sub-operaciones independientes que el EA manda casi simultáneas — el bróker devolvía error 4109 (trade context busy) en la segunda.
+**Solución:** una pausa corta entre `OrderSend` consecutivos en el EA, suficiente para que el contexto de trading del terminal se libere entre una orden y la siguiente.
+
+### `chat_id` reales rompiendo el schema
+**Problema:** los IDs de canales/grupos grandes de Telegram son negativos y superan el rango de `INTEGER` en Postgres (`-5523530567`, por ejemplo).
+**Solución:** `chat_id`, `message_id` y `reply_to_message_id` son `BIGINT` desde el diseño del schema, no un parche después de que rompiera en producción... aunque de hecho sí rompió una vez antes de que terminara de generalizar el fix a las tres columnas.
+
+### El modo de binarios de n8n cambió sin aviso entre versiones
+**Problema:** al leer el archivo de resultado del EA con el nodo `readWriteFile`, el contenido no viajaba en base64 dentro de `item.binary.data.data` como en versiones viejas de n8n — solo había un string literal `"filesystem-v2"`, y decodificarlo como base64 rompía con `SyntaxError`.
+**Solución:** leer el buffer real con `await this.helpers.getBinaryDataBuffer(i, 'data')` dentro del nodo `Code`, específico del modo `binaryMode: "separate"` que usa esta versión de n8n.
+
+## 🧰 Stack
+
+| Pieza | Tecnología | Por qué |
+|---|---|---|
+| Captura de señales | Python + Telethon (MTProto) | Solo una cuenta de usuario puede leer un grupo donde no soy admin |
+| Orquestación | n8n (Docker) | Iteración rápida de reglas de negocio, sin costo, corriendo local |
+| Base de datos | PostgreSQL | Transacciones idempotentes para el estado de cada señal |
+| Ejecución real | MQL4 (Expert Advisor) sobre MT4 vía Wine | Control total del lotaje y manejo de errores del bróker |
+| Dashboard | Flask + JS vanilla | Monitoreo simple en la LAN, sin frontend framework innecesario |
+| Notificaciones y confirmación | Telegram Bot API | Canal ya presente en el flujo, con soporte nativo de botones inline |
+| Interpretación de lenguaje libre (próxima fase) | Gemini API | Reservado para instrucciones de seguimiento sin formato fijo — no conectado aún |
+
+## 🚀 Instalación
+
+**Prerequisitos:**
+- Docker y Docker Compose
+- Una cuenta de Telegram (no bot) con acceso al grupo a escuchar
+- Credenciales de la [API de Telegram](https://my.telegram.org) (`api_id` / `api_hash`)
+- Un bot de Telegram para las notificaciones (vía [@BotFather](https://t.me/BotFather))
+- MT4 corriendo contra tu bróker — nativo en Windows, o vía Wine en Linux (ver `docs/INSTALL_LINUX.md` / `docs/INSTALL_UBUNTU_SERVER.md` / `docs/INSTALL_WINDOWS.md`)
+- Un túnel público hacia n8n para que Telegram le llegue (usé [ngrok](https://ngrok.com/), incluido en el `docker-compose.yml`)
+
+**Pasos:**
+
+```bash
+git clone https://github.com/alejandro-xoxo/Kronos_Bot.git
+cd Kronos_Bot
+
+# Completar variables de entorno (ver sección de Configuración)
+cp .env.example .env   # crear .env.example si no existe todavía
+nano .env
+
+# Levantar todo el stack
+docker compose up -d --build
+
+# Setear el bridge con MT4 (symlinks a Common/Files de Wine)
+./scripts/setup-mt4.sh        # Linux
+# scripts/setup-mt4.ps1       # Windows nativo
+```
+
+Después de levantar el stack, hay que importar `n8n-workflows/webhook-mvp-workflow.json` en la instancia de n8n (`localhost:5678`) y activarlo.
+
+> ⚠️ El repo no incluye un `.env.example` todavía — es deuda de documentación pendiente (ver [roadmap](#-estado-actual-y-roadmap)). Las variables exactas que hacen falta están listadas abajo.
+
+## ⚙️ Configuración
+
+**Variables de entorno (`.env`):**
+
+| Variable | Para qué |
 |---|---|
-| Captura de señales | Python + Telethon (MTProto) |
-| Orquestación | n8n (Docker) |
-| Base de datos | PostgreSQL |
-| Interpretación de lenguaje variable (fase siguiente) | Gemini API |
-| Ejecución real | MQL4 (Expert Advisor) sobre MT4 vía Wine |
-| Dashboard de monitoreo | Flask + JS vanilla |
-| Notificaciones y confirmación | Telegram Bot API |
+| `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | Credenciales de la API de Telegram (my.telegram.org) |
+| `TELEGRAM_PHONE` | Número de la cuenta que va a leer el grupo (Telethon) |
+| `TELEGRAM_GROUP_ID` | ID del grupo a escuchar (se obtiene con `telethon-service/list_groups.py`) |
+| `TELEGRAM_USER_CHAT_ID` | Tu chat privado, donde llegan las notificaciones y botones |
+| `N8N_HOST` | Dominio público de n8n (para el webhook de Telegram) |
+| `N8N_API_KEY` | Para editar el workflow vía API en vez de solo la UI |
+| `NGROK_AUTHTOKEN` | Token del túnel público |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credenciales de la base |
+| `MT4_ORDERS_HOST_PATH` | Ruta real en el host hacia `.../MetaQuotes/Terminal/Common/Files/orders` (depende de tu prefijo de Wine) |
 
-## 🛠️ El proceso, no solo el resultado
+**Parámetros del EA (`KronosBridgeEA.mq4`, configurables desde MT4 al adjuntarlo a un gráfico):**
 
-Esto no salió de tirarle prompts a una IA hasta que "andara" (vibe coding puro) ni de pegar código hasta que compilara. Lo armé tratándolo como un producto real, aunque el único usuario sea yo: con alcance definido antes de escribir código, reglas de negocio versionadas aparte de la implementación, y disciplina de control de versiones — porque eso es lo que quiero que se note de mí como developer, no solo que "funciona". Este repo deja ese proceso a la vista a propósito:
+| Input | Default | Para qué |
+|---|---|---|
+| `InpPollIntervalSeconds` | `2` | Cada cuánto revisa `orders/pending/*.json` |
+| `InpSlippage` | `5` | Slippage máximo en puntos al ejecutar |
+| `InpMagicNumber` | `20260814` | Identifica las órdenes abiertas por este EA |
+| `InpSymbolSuffix` | `-VIP` | Sufijo real del símbolo en el bróker (`-VIP` demo / `-STD` real en VT Markets) — también actualizable en caliente desde el dashboard, sin recompilar |
 
-- **Alcance de MVP definido por escrito antes de tocar código** — qué entra en v1 y qué queda explícitamente afuera ([detalle acá](docs/versions/v1.md)) se decidió y se documentó primero, no se fue improvisando sobre la marcha.
-- **Fases con estado propio, no una lista de tareas gigante** — cada etapa (captura, parseo, confirmación, ejecución real, dashboard) se cerró y se verificó por separado antes de avanzar a la siguiente, con su estado registrado en `STATUS.md`.
-- **Git Flow real**: cada feature en su propia rama (`feature/<algo>`), PR hacia `develop`, y `develop` → `main` solo cuando el ciclo completo está probado — nada de commits directos a `main`.
-- **Historial de commits en español, descriptivo y granular** — se puede seguir cómo fue creciendo el proyecto día a día leyendo `git log`, sin necesitar contexto externo.
-- **Bugs reales, documentados donde importaban** — el payload anidado del webhook, IDs de Telegram que rompían `INTEGER`, condiciones de carrera al abrir 2 órdenes seguidas, mensajes que Telethon perdía en el canal de más tráfico — todo está en el código y en `STATUS.md`, no escondido debajo de la alfombra.
-- **Protocolo de negocio separado del código** (`PROTOCOLOS_KRONOS_BOT.md`) — las reglas de gestión de riesgo (tope de 2 sub-operaciones por señal, expiración a los 5 minutos, lotaje fijo en v1) están versionadas como fuente única de verdad, no dispersas en comentarios.
+El EA necesita `FILE_COMMON` habilitado y correr con "Permitir importación de DLL" / auto-trading activado en MT4. Instrumentos soportados hoy: **XAUUSD** y **EURUSD**, con el sufijo de símbolo que use tu bróker.
 
-> **Sobre las herramientas:** usé Claude Code como copiloto durante el desarrollo — para escribir código, cazar bugs y acelerar el diagnóstico. Pero cada decisión de arquitectura, cada regla de negocio, y cada línea antes de commitear pasó por mí: qué formato de señal soportar, cuándo una operación se considera vencida, cómo manejar el race condition de dos órdenes seguidas, qué va en v1 y qué no. La herramienta escribió código bajo dirección explícita mía, no al revés — por eso el repo tiene alcance definido, fases verificadas y un Git Flow real, en vez de un historial de "prompteo hasta que funcione".
+## 📁 Estructura de carpetas
+
+```
+Kronos_Bot/
+├── telethon-service/     # Microservicio Python — captura de mensajes (Telethon)
+├── n8n-workflows/        # Workflow exportado + parser de señales
+├── dashboard/            # Dashboard Flask (posiciones, historial, acciones)
+├── mt4-bridge/
+│   ├── ea/               # Expert Advisor en MQL4
+│   ├── orders/           # Symlinks locales a Common/Files (no versionados)
+│   └── FORMATO_ARCHIVOS.md
+├── db/
+│   └── schema.sql        # Schema Postgres, auto-init en el contenedor
+├── docs/
+│   ├── screenshots/
+│   ├── versions/         # Alcance versionado (v1, v2...)
+│   └── INSTALL_*.md
+├── scripts/               # Setup de MT4/Wine (Linux, Windows, Ubuntu server)
+├── PROTOCOLOS_KRONOS_BOT.md   # Reglas de negocio, fuente única de verdad
+├── STATUS.md                  # Estado técnico fase por fase
+└── docker-compose.yml
+```
 
 ## ✅ Evidencia real
 
@@ -110,26 +228,51 @@ Señal: XAUUSD BUY 4398.57, TP 4402, SL 4370
 ```
 
 <p align="center">
-  <img src="docs/screenshots/04-dashboard.png" alt="Dashboard con la posición abierta en vivo, historial de señales y botones de acción" width="700">
+  <img src="docs/screenshots/01-senal-en-el-grupo.png" alt="Señal real llegando al grupo de Telegram" width="380">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/04-dashboard.png" alt="Dashboard con la posición abierta en vivo" width="380">
+</p>
+<p align="center">
+  <img src="docs/screenshots/03-workflow-n8n.png" alt="Workflow real en n8n" width="760">
   <br>
-  <sub><i>Dashboard local: posición real abierta con precio en vivo, y el historial completo de señales (incluida la que rechacé a mano).</i></sub>
+  <sub><i>Señal real del grupo → dashboard con la posición abierta en vivo → el workflow completo en n8n.</i></sub>
 </p>
 
-## 📚 Documentación
+## 📌 Estado actual y roadmap
 
-El README cuenta la historia y el porqué. El detalle técnico vive aparte, versionado por su cuenta:
+**v1 — hecho ✅**
+- [x] Captura en tiempo real (Telethon) + polling de respaldo ante pérdida de eventos
+- [x] Parseo por regex de señales de formato fijo, con hasta 2 take-profits por señal
+- [x] Confirmación humana idempotente vía botones de Telegram
+- [x] Ejecución real en MT4 vía EA en MQL4, lotaje fijo de control de riesgo
+- [x] Lectura de resultados y notificación de vuelta al usuario
+- [x] Dashboard local: posiciones abiertas, historial, BE / cerrar / reintentar
 
-| Documento | Contenido |
-|---|---|
-| [`docs/versions/v1.md`](docs/versions/v1.md) | Qué incluye v1, qué queda afuera a propósito, y qué sigue en v2 |
-| [`STATUS.md`](STATUS.md) | Estado técnico fase por fase, pensado para retomar el proyecto sin depender de memoria de conversaciones previas |
-| [`PROTOCOLOS_KRONOS_BOT.md`](PROTOCOLOS_KRONOS_BOT.md) | Reglas de negocio y gestión de riesgo, fuente única de verdad |
+**Pendiente / roadmap ⏳**
+- [ ] Conectar Gemini para interpretar instrucciones de seguimiento en lenguaje libre (mover SL a BE, cierre manual)
+- [ ] Cálculo de lotaje dinámico (hoy es fijo, `0.01`, por gestión de riesgo mientras se valida el sistema)
+- [ ] Automatización completa sin confirmación humana — la meta de fondo del proyecto
+- [ ] `.env.example` documentado (hoy hay que inferir las variables del `docker-compose.yml`)
+- [ ] Mover la lógica de parseo del nodo `Code` de n8n a un módulo Python testeable, si el proyecto crece más allá de 1-2 brokers/instrumentos
+- [ ] Infraestructura en la nube — hoy corre local sin costo, se evalúa un VPS después de validar rentabilidad
+
+Detalle completo de alcance en [`docs/versions/v1.md`](docs/versions/v1.md) y estado técnico fase por fase en [`STATUS.md`](STATUS.md).
+
+## 💡 Aprendizajes
+
+Lo que más me costó no fue ninguna tecnología puntual, sino diseñar para fallar bien: qué pasa si Telegram no responde, si el EA no puede escribir un archivo, si dos eventos llegan casi al mismo tiempo. La mayoría de los bugs reales de este proyecto no fueron de sintaxis — fueron de estado compartido entre sistemas que no se enteran del estado del otro (n8n no sabe si el EA está vivo, el EA no sabe si n8n ya leyó su resultado). Diseñar con archivos idempotentes y polling en vez de asumir "en vivo siempre funciona" fue la lección que más se repitió en distintas partes del sistema.
+
+También aprendí a no confiar ciego en una librería aunque tenga buena documentación — el bug de Telethon perdiendo eventos en canales de alto tráfico no está resaltado en ningún tutorial, apareció recién con tráfico real.
+
+## 📄 Licencia
+
+Uso personal / portafolio. El código es público para que se vea el proceso, pero no está pensado como librería reusable ni producto de terceros. Si algo de acá te sirve como referencia, adelante — mencioná la fuente.
+
+⚠️ *Este proyecto es una herramienta personal de automatización, no un producto de inversión ni una recomendación de trading. Todo el capital operado es propio y el riesgo se gestiona con reglas explícitas y fijas (ver `PROTOCOLOS_KRONOS_BOT.md`).*
 
 ---
 
 <div align="center">
-
-⚠️ *Este proyecto es una herramienta personal de automatización, no un producto de inversión ni una recomendación de trading. Todo el capital operado es propio y el riesgo se gestiona con reglas explícitas y fijas (ver `PROTOCOLOS_KRONOS_BOT.md`).*
 
 Construido por [**alejandro-xoxo**](https://github.com/alejandro-xoxo) mientras aprendo a programar en serio, resolviendo un problema que era mío.
 
