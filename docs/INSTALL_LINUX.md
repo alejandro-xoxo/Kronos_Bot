@@ -67,9 +67,24 @@ MT4_ORDERS_HOST_PATH=
 - `N8N_API_KEY` se genera desde la propia UI de n8n (Settings → n8n
   API → Create an API Key) **después** del primer arranque — se
   agrega a `.env` en un segundo paso, no antes.
-- `TELEGRAM_GROUP_ID` y `TELEGRAM_USER_CHAT_ID` se obtienen inspeccionando
-  los IDs reales de Telegram (grupo de señales y tu chat privado con
-  el bot, respectivamente).
+- `TELEGRAM_GROUP_ID`: la forma soportada de obtenerlo es correr
+  `telethon-service/list_groups.py` (necesita `TELEGRAM_API_ID`/
+  `TELEGRAM_API_HASH`/`TELEGRAM_PHONE` ya completos en `.env`) — lista
+  todos los chats/grupos/canales visibles para tu cuenta con su ID:
+  ```bash
+  cd telethon-service
+  pip install -r requirements.txt   # o un venv, si preferís no instalar global
+  python list_groups.py
+  cd ..
+  ```
+  Copiar el ID del grupo de señales tal cual lo imprime (incluido el
+  signo negativo si lo tiene).
+- `TELEGRAM_USER_CHAT_ID`: tu propio `chat_id` privado, no el del
+  grupo — es donde te van a llegar las notificaciones y los botones de
+  Confirmar/Rechazar. Se obtiene fácil hablándole a `@userinfobot` en
+  Telegram (te devuelve tu ID al toque), o revisando el `chat.id` de
+  cualquier update que le mandes a tu propio bot una vez creado (ver
+  sección 5).
 - `MT4_ORDERS_HOST_PATH` se completa en la sección 11, no ahora —
   depende de una ruta que solo existe después de instalar Wine/MT4.
 
