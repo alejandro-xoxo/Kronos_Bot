@@ -10,11 +10,12 @@ pasos están documentados pero **no verificados end-to-end** como sí
 lo está `docs/INSTALL_LINUX.md`. Los pasos de compilar/activar el EA
 (sección 10) y el puente n8n → MT4 (sección 11) sí están escritos acá,
 trasladados 1:1 de lo verificado en Linux (la UI de MetaEditor/MT4 y
-los nodos de n8n son idénticos en ambas plataformas) — pero **la parte
-de enlazar el `.mq4` automáticamente a `MQL4\Experts\` NO está
-automatizada en Windows** (`scripts/setup-mt4.ps1` no lo hace, a
-diferencia de `setup-mt4.sh` en Linux) — hay que copiarlo/enlazarlo a
-mano, ver sección 8.
+los nodos de n8n son idénticos en ambas plataformas). `scripts/setup-mt4.ps1`
+automatiza los symlinks de `orders/{pending,results}` y del `.mq4` a
+`MQL4\Experts\`, en paridad con `setup-mt4.sh`/`setup-mt4-ubuntu.sh` —
+usa `New-Item -ItemType SymbolicLink`, que requiere PowerShell como
+Administrador o "Developer Mode" activado (Windows 10/11); sin uno de
+los dos falla con "A required privilege is not held by the client".
 
 ## 1. Docker
 
@@ -110,13 +111,26 @@ se puede automatizar:
 
 Qué hace:
 
-1. Crea la estructura `mt4-bridge\orders\{pending,results}\` en la
-   raíz del repo (con `.gitkeep`).
-2. Imprime los pasos manuales pendientes (siguiente sección).
+1. Prepara `mt4-bridge\orders\{pending,results}\`: si MT4 todavía no
+   está instalado/abierto en esta máquina, deja carpetas reales con
+   `.gitkeep`; si ya detecta el terminal de MT4 (`%APPDATA%\MetaQuotes\Terminal\Common`),
+   las reemplaza por symlinks hacia `Common\Files\orders\{pending,results}`
+   — idempotente, igual que en Linux (sección 8).
+2. Enlaza `mt4-bridge\ea\KronosBridgeEA.mq4` a `MQL4\Experts\` del
+   terminal detectado (si ya existe) — mismo mecanismo, dirección
+   inversa (ver sección 8).
+3. Imprime los pasos manuales pendientes (siguiente sección).
 
-No instala paquetes ni requiere permisos elevados — a diferencia del
-script de Linux, no hay nada equivalente a `wine`/`winetricks` que
-instalar.
+No instala paquetes — a diferencia del script de Linux, no hay nada
+equivalente a `wine`/`winetricks` que instalar. Si corrés el script
+ANTES de instalar MT4 por primera vez, los pasos 1 y 2 no encuentran
+nada que enlazar todavía — volvé a correrlo después de instalar y
+abrir MT4 al menos una vez.
+
+**Requiere permisos de Administrador o "Developer Mode" activado**
+para poder crear los symlinks (`New-Item -ItemType SymbolicLink`) —
+sin uno de los dos, PowerShell tira un error de privilegios en los
+pasos 1 y 2, pero el resto del script sigue igual (no aborta).
 
 ## 7. Instalar MT4 (instalador de VT Markets)
 
@@ -157,23 +171,39 @@ La carpeta `Common` dentro de esa lista (junto a la carpeta con el ID
 autogenerado del terminal específico) es la que se usa — igual que en
 Linux, `Common\Files\` es fija y no depende del ID del terminal.
 
-### Symlinks (mklink) en vez de symlinks de Unix
+### Symlinks — automatizados por `scripts/setup-mt4.ps1`
 
 El mismo problema de la Etapa 2 en Linux aplica acá: MQL4 con
 `FILE_COMMON` solo puede leer/escribir dentro de `Common\Files\`, no
-en rutas arbitrarias como `mt4-bridge\` del repo. La solución
-equivalente en Windows es un symlink de directorio con `mklink`
-(requiere PowerShell/cmd como Administrador):
+en rutas arbitrarias como `mt4-bridge\` del repo. **Ya corriste
+`setup-mt4.ps1` en el paso 6** — si en ese momento MT4 ya estaba
+instalado y abierto al menos una vez, los symlinks de
+`mt4-bridge\orders\{pending,results}` y de
+`mt4-bridge\ea\KronosBridgeEA.mq4` (a `MQL4\Experts\`) ya están
+creados. Si corriste el script antes de instalar MT4, volvé a
+correrlo ahora que ya lo instalaste (paso 7) — es idempotente, no
+rompe nada si ya existían.
+
+Si por algún motivo preferís crearlos a mano (ej. para depurar un
+symlink roto sin volver a correr el script completo), el equivalente
+manual con `New-Item` (PowerShell nativo, no requiere `cmd /c mklink`)
+es:
 
 ```powershell
-Remove-Item -Recurse -Force mt4-bridge\orders\pending, mt4-bridge\orders\results
-
 $CommonFiles = "$env:APPDATA\MetaQuotes\Terminal\Common\Files"
 New-Item -ItemType Directory -Force -Path "$CommonFiles\orders\pending", "$CommonFiles\orders\results" | Out-Null
 
-cmd /c mklink /D mt4-bridge\orders\pending "$CommonFiles\orders\pending"
-cmd /c mklink /D mt4-bridge\orders\results "$CommonFiles\orders\results"
+Remove-Item -Recurse -Force mt4-bridge\orders\pending, mt4-bridge\orders\results -ErrorAction SilentlyContinue
+New-Item -ItemType SymbolicLink -Path mt4-bridge\orders\pending -Target "$CommonFiles\orders\pending"
+New-Item -ItemType SymbolicLink -Path mt4-bridge\orders\results -Target "$CommonFiles\orders\results"
+
+$TerminalId = (Get-ChildItem -Path "$env:APPDATA\MetaQuotes\Terminal" -Directory | Where-Object { $_.Name -ne "Common" }).Name
+$ExpertsDir = "$env:APPDATA\MetaQuotes\Terminal\$TerminalId\MQL4\Experts"
+$RepoEa = (Resolve-Path .\mt4-bridge\ea\KronosBridgeEA.mq4).Path
+New-Item -ItemType SymbolicLink -Path "$ExpertsDir\KronosBridgeEA.mq4" -Target $RepoEa
 ```
+
+Requiere PowerShell como Administrador o "Developer Mode" activado.
 
 **Importante — igual que en Linux, esto es local y no se commitea.**
 La ruta depende del usuario de Windows específico. Nunca hacer `git
@@ -292,5 +322,5 @@ dentro de WSL2, que la ruta de `MT4_ORDERS_HOST_PATH` esté en formato
 *Este documento se actualiza junto con cada etapa nueva del proyecto.
 Los pasos de Docker/`.env`/Postgres/EA están alineados 1:1 con
 `docs/INSTALL_LINUX.md`; solo difieren MT4 (nativo, sin Wine), la ruta
-de `Common\Files\`, y que el symlink del EA a `MQL4\Experts\` es
-manual acá (sección 8) en vez de automatizado por script.*
+de `Common\Files\`, y que los symlinks (sección 8) se crean con
+`New-Item -ItemType SymbolicLink` (PowerShell nativo) en vez de `ln -s`.*
