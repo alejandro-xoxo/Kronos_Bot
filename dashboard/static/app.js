@@ -157,7 +157,7 @@ async function loadSignals() {
     const signals = data.signals || [];
 
     if (signals.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Sin señales en este período.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin señales en este período.</td></tr>';
       return;
     }
 
@@ -168,6 +168,7 @@ async function loadSignals() {
             ? `<button class="btn-retry" data-id="${s.id}">Reintentar</button>`
             : "";
         return `<tr>
+          <td>${fmt(s.cycle_position)}</td>
           <td>${fmt(s.instrument)}</td>
           <td>${fmt(s.direction)}</td>
           <td>${fmt(s.status)}</td>
@@ -185,7 +186,42 @@ async function loadSignals() {
       btn.addEventListener("click", () => retrySignal(btn.dataset.id, btn));
     });
   } catch (err) {
-    bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Error consultando /api/signals.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin señales en este período.</td></tr>';
+  }
+}
+
+async function loadSummary() {
+  const bodyEl = document.getElementById("summary-body");
+  try {
+    const res = await fetch("api/signals/summary");
+    const data = await res.json();
+    const summaries = data.summaries || [];
+
+    if (summaries.length === 0) {
+      bodyEl.innerHTML =
+        '<tr><td colspan="6" class="empty-msg">Todavía no se archivó ninguna tanda (menos de 20 señales acumuladas).</td></tr>';
+      return;
+    }
+
+    bodyEl.innerHTML = summaries
+      .map((s) => {
+        const statusCounts = Object.entries(s.status_counts || {})
+          .map(([status, count]) => `${status}: ${count}`)
+          .join(", ");
+        const period = `${fmtDate(s.period_start)} — ${fmtDate(s.period_end)}`;
+        const plClass = s.total_profit_loss == null ? "" : s.total_profit_loss >= 0 ? "profit-pos" : "profit-neg";
+        return `<tr>
+          <td>#0</td>
+          <td>${period}</td>
+          <td>${fmt(s.signal_count)}</td>
+          <td>${statusCounts || "-"}</td>
+          <td>${fmt(s.instruments)}</td>
+          <td class="${plClass}">${fmt(s.total_profit_loss)}</td>
+        </tr>`;
+      })
+      .join("");
+  } catch (err) {
+    bodyEl.innerHTML = '<tr><td colspan="6" class="empty-msg">Error consultando /api/signals/summary.</td></tr>';
   }
 }
 
