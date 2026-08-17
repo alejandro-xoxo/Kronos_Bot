@@ -27,8 +27,9 @@ reinterpretarse libremente.
 - **Gemini API** (capa gratuita) — interpreta instrucciones de
   seguimiento con redacción variable (mover SL, BE, cerrar). Las
   señales nuevas con formato fijo se parsean por regex, sin usar IA.
-- **MT4 + EA puente** (Wine/Bottles, en el EliteBook) — ejecución real
-  en la cuenta de VT Markets. Aún no implementado.
+- **MT4 + EA puente** (Wine, en el EliteBook) — ejecución real en la
+  cuenta de VT Markets. EA compilado y corriendo; falta el nodo n8n
+  que lee los resultados (ver `STATUS.md`).
 - **Google Sheets** — registro de resultados y de señales rechazadas.
 
 Todo corre local en el EliteBook (CachyOS) por ahora — no hay VPS ni
@@ -46,9 +47,16 @@ es rentable en modo semi-automático.
 - El cálculo de capital para lotaje **nunca** debe usar `AccountBalance()` solo (puede incluir crédito del bróker). Se calcula automáticamente en el EA como `AccountBalance() - AccountCredit()`, y el EA lo reporta a n8n para actualizar `capital_real` en la tabla `settings`. No requiere edición manual en operación normal.
 - **`mt4-bridge/orders/pending/` y `mt4-bridge/orders/results/` son symlinks locales** en las máquinas donde MT4 ya está instalado (vía `scripts/setup-mt4.sh`), apuntando a la carpeta `Common/Files/orders/` del prefijo de Wine de esa máquina específica (ej. `~/.wine-mt4/drive_c/users/<usuario>/AppData/Roaming/MetaQuotes/Terminal/Common/Files/orders/`). Esa ruta es específica del usuario/máquina — **nunca se debe commitear** ese symlink ni el contenido que apunta a Wine. `git status` va a mostrar los `.gitkeep` originales como "borrados" y los symlinks como "sin seguimiento" — es el estado local esperado, no se stagea (nunca usar `git add -A` en este repo, y menos en `mt4-bridge/`). Los `.gitkeep` siguen versionados en el repo porque son necesarios para el estado por defecto de un clone nuevo, antes de correr el setup de Wine.
 
-## MVP actual — Fase 1: activar señales nuevas por regex
+## MVP actual — Fase 1: señal del grupo → confirmación → ejecución en MT4
 
-**Alcance de este MVP (no más que esto por ahora):**
+**El MVP es el ciclo completo semi-automático**: detectar la señal en
+el grupo, esperar confirmación humana por Telegram, y ejecutarla de
+verdad en MT4. No termina en la notificación — la ejecución real
+(EA puente) es parte de este MVP, no una fase posterior. (Corregido:
+una versión anterior de este documento la marcaba como "fuera de
+alcance"; fue un error de alcance, no una decisión de producto.)
+
+**Alcance de este MVP:**
 
 1. El webhook de n8n recibe el payload de Telethon
    (`message_id`, `chat_id`, `sender`, `text`, `timestamp`,
@@ -74,6 +82,13 @@ es rentable en modo semi-automático.
    privado del usuario), cada una con sus propios botones
    Confirmar/Rechazar independientes — confirmar o rechazar una no
    afecta a la otra.
+7. Al confirmar, n8n escribe la orden en `mt4-bridge/orders/pending/`
+   (formato en `mt4-bridge/FORMATO_ARCHIVOS.md`); el EA puente
+   (`mt4-bridge/ea/KronosBridgeEA.mq4`) la ejecuta en MT4 con lotaje
+   fijo `0.01` y escribe el resultado en `mt4-bridge/orders/results/`.
+8. n8n lee ese resultado, actualiza `signals.mt4_ticket`/`status` en
+   Postgres, y notifica el resultado real (ticket, precio de
+   ejecución o motivo de fallo) por Telegram.
 
 **Explícitamente fuera de este MVP** (no implementar todavía):
 - Interpretación por Gemini de instrucciones de seguimiento (mover
@@ -82,7 +97,6 @@ es rentable en modo semi-automático.
   aislada y probada, pero no conectada al flujo de ejecución real
   todavía. Ambas sub-señales de una misma señal usan el lotaje fijo
   `0.01` sin ningún mecanismo de "competencia por slot" entre ellas.
-- Ejecución real en MT4 (el EA puente no existe aún).
 - División de una señal en más de 2 sub-señales (TP3 en adelante) —
   el tope es 2 por gestión de riesgo, aunque el tutorial oficial del
   grupo indica abrir una operación por cada TP que traiga la señal.
