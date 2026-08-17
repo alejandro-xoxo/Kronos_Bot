@@ -48,7 +48,7 @@ docker compose version
 ## 2. Clonar el repo
 
 ```bash
-git clone <url-del-repo> Kronos_Bot
+git clone https://github.com/alejandro-xoxo/Kronos_Bot.git
 cd Kronos_Bot
 ```
 

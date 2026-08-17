@@ -37,7 +37,7 @@ Docker Desktop; o la shell de la distro WSL2).
 ## 2. Clonar el repo
 
 ```powershell
-git clone <url-del-repo> Kronos_Bot
+git clone https://github.com/alejandro-xoxo/Kronos_Bot.git
 cd Kronos_Bot
 ```
 
