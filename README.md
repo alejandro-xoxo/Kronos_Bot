@@ -14,6 +14,11 @@ Encontré un grupo de señales que se veía sólido: buen historial, comunidad a
 
 No tenía plata para un VPS ni para una IA paga ni para pagarle a un servicio de copy-trading. Tenía mi laptop, tiempo libre robado al sueño, y ganas de meterle mano a un problema mío de verdad — no un tutorial ni un proyecto de práctica que después se archiva. Así nació Kronos Bot. Y como todo sistema que va a mover plata real, no arranqué confiando ciego en él: la v1 que ves acá todavía me pide confirmar cada señal con un botón de Telegram antes de ejecutar, como capa de seguridad mientras valido que el bicho entero funciona sin sorpresas. Es un paso intermedio a propósito, no el destino final — la automatización completa (sin que yo intervenga) es la meta declarada para las próximas versiones, una vez que el historial de ejecuciones reales me dé la confianza para soltarle la decisión también a él.
 
+<p align="center">
+  <img src="docs/screenshots/01-senal-en-el-grupo.png" alt="Señal real llegando al grupo de Telegram VIP SIGNALS FX a las 4:19 am" width="420">
+</p>
+<p align="center"><sub>Así llega una señal real al grupo — de madrugada, en español, formato fijo.</sub></p>
+
 ## Qué hace, en corto
 
 1. Mi propia cuenta de Telegram (vía [Telethon](https://docs.telethon.dev/)) escucha el grupo de señales en tiempo real — uso mi cuenta y no un bot porque no soy admin del grupo, así que tengo que "leer" el chat como lo haría yo mismo.
@@ -21,6 +26,11 @@ No tenía plata para un VPS ni para una IA paga ni para pagarle a un servicio de
 3. Me llega al toque una notificación a Telegram con botones **Confirmar / Rechazar**. Acá no hay atajos: nada se ejecuta sin que yo lo apruebe, aunque sea medio dormido con el celular en la cara.
 4. Al confirmar, la orden se escribe en un puente de archivos que lee un **Expert Advisor en MQL4** corriendo dentro de MT4 (bajo Wine, en mi propia laptop), que la manda a la cuenta real.
 5. El resultado (ticket, precio de ejecución, o motivo de fallo) vuelve a Postgres y me llega la confirmación por Telegram — con la operación ya abierta y corriendo, sin que yo haya tocado MT4.
+
+<p align="center">
+  <img src="docs/screenshots/02-confirmacion-telegram.png" alt="Notificación de nueva señal con botones Confirmar/Rechazar y confirmación de ejecución real con ticket" width="420">
+</p>
+<p align="center"><sub>La señal, el botón de Confirmar, y siete segundos después el ticket real ejecutado.</sub></p>
 
 ## Arquitectura
 
@@ -37,6 +47,11 @@ flowchart LR
     N8N -->|notifica ticket/resultado| USR
     DASH["Dashboard web\n(Flask, LAN local)"] -.consulta posiciones/estado.- EA
 ```
+
+<p align="center">
+  <img src="docs/screenshots/03-workflow-n8n.png" alt="Workflow completo en n8n: webhook, parser regex, confirmación, escritura de orden a MT4, lectura de resultados" width="700">
+</p>
+<p align="center"><sub>El workflow real en n8n — desde el webhook de Telethon hasta la escritura/lectura del puente con MT4.</sub></p>
 
 **Por qué estas decisiones técnicas, no otras:**
 
@@ -81,6 +96,11 @@ Señal: XAUUSD BUY 4398.57, TP 4402, SL 4370
 → Ticket real: 24827753
 → Status: OPEN, visible en el dashboard con precio en vivo
 ```
+
+<p align="center">
+  <img src="docs/screenshots/04-dashboard.png" alt="Dashboard con la posición abierta en vivo, historial de señales y botones de acción" width="700">
+</p>
+<p align="center"><sub>Dashboard local: posición real abierta con precio en vivo, y el historial completo de señales (incluida la que rechacé a mano).</sub></p>
 
 ## Qué es v1 (y qué queda para después)
 
