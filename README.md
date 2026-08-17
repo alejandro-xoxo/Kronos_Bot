@@ -31,19 +31,17 @@
 
 ## 🎯 El problema
 
-Todavía estoy estudiando para ser developer. En paralelo empecé a meterme en trading buscando un ingreso extra — no un plan de hacerme rico rápido, sino algo real que pudiera sostener mientras sigo formándome.
+Un grupo de señales de trading en Telegram, con buen historial, publica entre la **1:30 a. m. y las 8:00 a. m.** hora del autor. Copiar cada señal a mano significa despertarse, abrir MT4 medio dormido y tipear instrumento, dirección, entrada, take-profit y stop-loss antes de que el precio se mueva — un dígito mal tipeado a esa hora es plata perdida.
 
-Encontré un grupo de señales en Telegram que se veía sólido: buen historial, comunidad activa. El problema es que es un grupo español y yo no vivo ahí — las señales me caen entre la **1:30 a. m. y las 8:00 a. m.** hora mía. Copiarlas a mano significaba despertarme, abrir MT4 medio dormido, y tipear instrumento, dirección, entrada, take-profit y stop-loss antes de que el precio se moviera. Un solo dígito mal tipeado a esa hora es plata perdida.
+Sin presupuesto para un VPS, una API de IA paga, ni un servicio de copy-trading de terceros, Kronos Bot nace como solución propia: correr local, con las piezas justas para resolver el problema real.
 
-No tenía presupuesto para un VPS, ni para una API de IA paga, ni para pagarle a un servicio de copy-trading de terceros. Tenía mi laptop y ganas de aprender de verdad construyendo algo real — no otro boceto de portafolio, sino un problema mío que tenía que funcionar de verdad. Así nació Kronos Bot.
-
-La meta de fondo es que el copiado sea **100% automático**: que la señal se ejecute sola en mi cuenta mientras duermo. Pero un sistema que va a mover plata real no se suelta a ciegas desde el día uno — por eso la primera versión todavía me pide confirmar cada señal con un botón de Telegram antes de ejecutar. Es un paso intermedio deliberado: primero valido que cada pieza del sistema funciona sin sorpresas con un humano en el loop, después le suelto también la decisión.
+La meta de fondo es automatización total — la señal ejecutándose sola mientras el autor duerme. v1 mantiene confirmación humana por diseño: un sistema que mueve dinero real no se suelta a ciegas desde el día uno. Primero se valida cada pieza con un humano en el loop; la decisión se automatiza después.
 
 ## ⚙️ Cómo funciona, en corto
 
-Telegram (grupo) → Telethon captura el mensaje → n8n lo parsea e inserta en Postgres → me llega a mí un botón de Confirmar/Rechazar por Telegram → si confirmo, un Expert Advisor en MQL4 ejecuta la orden real en MT4 → el resultado (ticket real) vuelve por el mismo camino y me llega la confirmación.
+Telegram (grupo) → Telethon captura el mensaje → n8n lo parsea e inserta en Postgres → botón de Confirmar/Rechazar por Telegram → al confirmar, un Expert Advisor en MQL4 ejecuta la orden real en MT4 → el resultado (ticket real) vuelve por el mismo camino como confirmación.
 
-El detalle de cada decisión de arquitectura, los retos técnicos que aparecieron con tráfico real, el diagrama completo, instalación y configuración están documentados por versión — ver abajo.
+Arquitectura, retos técnicos, instalación y configuración están documentados por versión — ver abajo.
 
 ## 📦 Versiones
 
@@ -66,6 +64,6 @@ Uso personal / portafolio. El código es público para que se vea el proceso, pe
 
 <div align="center">
 
-Construido por [**alejandro-xoxo**](https://github.com/alejandro-xoxo) mientras aprendo a programar en serio, resolviendo un problema que era mío.
+Construido por [**alejandro-xoxo**](https://github.com/alejandro-xoxo) como proyecto real de aprendizaje, resolviendo un problema propio.
 
 </div>

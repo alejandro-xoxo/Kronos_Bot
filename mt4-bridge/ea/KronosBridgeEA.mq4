@@ -23,7 +23,7 @@
 #property description "de este EA, nunca sobre operativa manual del usuario."
 
 //--- Parámetros configurables desde las propiedades del EA en MT4
-input int    InpPollIntervalSeconds = 2;          // Intervalo de polling de orders/pending/ (segundos)
+input int    InpPollIntervalSeconds = 1;          // Intervalo de polling de orders/pending/ y orders/actions/ (segundos)
 input int    InpSlippage            = 5;          // Slippage máximo en puntos
 input int    InpMagicNumber         = 20260814;   // Magic number para identificar órdenes de este EA
 input string InpSymbolSuffix        = "-VIP";     // Sufijo del símbolo real: "-VIP" (demo) / "-STD" (real, cuenta 23096429)
