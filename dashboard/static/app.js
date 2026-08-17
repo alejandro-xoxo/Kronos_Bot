@@ -63,11 +63,53 @@ async function loadPositions() {
       .join("");
 
     bodyEl.querySelectorAll(".btn-be, .btn-close").forEach((btn) => {
-      btn.addEventListener("click", () => sendPositionAction(btn.dataset.ticket, btn.dataset.action, btn));
+      btn.addEventListener("click", () =>
+        sendPositionAction(btn.dataset.ticket, btn.dataset.action, btn)
+      );
     });
   } catch (err) {
     warningEl.innerHTML = '<div class="warning">Error consultando /api/positions.</div>';
   }
+}
+
+// Consulta /api/positions/<ticket>/action_result — el resultado REAL
+// que escribe el EA tras intentar el comando (éxito con el precio
+// resultante, o el error de MT4 tal cual, ej. "Invalid stops" si se
+// intenta un BE con la posición todavía en pérdida). El backend borra
+// cualquier resultado viejo del mismo ticket+acción al encolar el
+// comando nuevo, así que un "found: true" acá siempre corresponde a
+// ESTE intento, no a uno anterior. Reintenta cada 1.5s hasta ~10
+// veces (~15s); si se agota, deja el aviso de "seguimos esperando".
+async function pollActionResult(ticket, action, statusEl) {
+  const maxAttempts = 10;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    let data;
+    try {
+      const res = await fetch(`api/positions/${ticket}/action_result?action=${encodeURIComponent(action)}`);
+      data = await res.json();
+    } catch (err) {
+      continue; // error de red puntual, seguimos intentando
+    }
+
+    if (!data.found) continue;
+
+    if (data.success) {
+      statusEl.textContent =
+        action === "SET_BE" ? "SL movido a " + data.result_price : "Cerrada a " + data.result_price;
+      statusEl.className = "position-action-status status-msg ok";
+    } else {
+      statusEl.textContent = data.error_message || "El bróker rechazó el comando.";
+      statusEl.className = "position-action-status status-msg error";
+    }
+    loadPositions();
+    return;
+  }
+
+  statusEl.textContent = "El EA todavía no lo procesó — puede tardar un poco más, revisá la tabla en unos segundos.";
+  statusEl.className = "position-action-status status-msg";
+  loadPositions();
 }
 
 async function sendPositionAction(ticket, action, btn) {
@@ -95,11 +137,9 @@ async function sendPositionAction(ticket, action, btn) {
       row.querySelectorAll(".btn-be, .btn-close").forEach((b) => (b.disabled = false));
       return;
     }
-    statusEl.textContent = "Enviado al EA.";
-    statusEl.className = "position-action-status status-msg ok";
-    // El EA tarda hasta ~InpPollIntervalSeconds en procesarlo; el próximo
-    // poll de loadPositions (5s) ya debería reflejar el cambio.
-    setTimeout(loadPositions, 3000);
+    statusEl.textContent = "Enviado al EA, esperando confirmación...";
+    statusEl.className = "position-action-status status-msg";
+    await pollActionResult(ticket, action, statusEl);
   } catch (err) {
     statusEl.textContent = "Error de red.";
     statusEl.className = "position-action-status status-msg error";
@@ -117,7 +157,7 @@ async function loadSignals() {
     const signals = data.signals || [];
 
     if (signals.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Sin señales en este período.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin señales en este período.</td></tr>';
       return;
     }
 
@@ -128,6 +168,7 @@ async function loadSignals() {
             ? `<button class="btn-retry" data-id="${s.id}">Reintentar</button>`
             : "";
         return `<tr>
+          <td>${fmt(s.cycle_position)}</td>
           <td>${fmt(s.instrument)}</td>
           <td>${fmt(s.direction)}</td>
           <td>${fmt(s.status)}</td>
@@ -145,7 +186,42 @@ async function loadSignals() {
       btn.addEventListener("click", () => retrySignal(btn.dataset.id, btn));
     });
   } catch (err) {
-    bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Error consultando /api/signals.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin señales en este período.</td></tr>';
+  }
+}
+
+async function loadSummary() {
+  const bodyEl = document.getElementById("summary-body");
+  try {
+    const res = await fetch("api/signals/summary");
+    const data = await res.json();
+    const summaries = data.summaries || [];
+
+    if (summaries.length === 0) {
+      bodyEl.innerHTML =
+        '<tr><td colspan="6" class="empty-msg">Todavía no se archivó ninguna tanda (menos de 20 señales acumuladas).</td></tr>';
+      return;
+    }
+
+    bodyEl.innerHTML = summaries
+      .map((s) => {
+        const statusCounts = Object.entries(s.status_counts || {})
+          .map(([status, count]) => `${status}: ${count}`)
+          .join(", ");
+        const period = `${fmtDate(s.period_start)} — ${fmtDate(s.period_end)}`;
+        const plClass = s.total_profit_loss == null ? "" : s.total_profit_loss >= 0 ? "profit-pos" : "profit-neg";
+        return `<tr>
+          <td>#0</td>
+          <td>${period}</td>
+          <td>${fmt(s.signal_count)}</td>
+          <td>${statusCounts || "-"}</td>
+          <td>${fmt(s.instruments)}</td>
+          <td class="${plClass}">${fmt(s.total_profit_loss)}</td>
+        </tr>`;
+      })
+      .join("");
+  } catch (err) {
+    bodyEl.innerHTML = '<tr><td colspan="6" class="empty-msg">Error consultando /api/signals/summary.</td></tr>';
   }
 }
 

@@ -125,7 +125,49 @@ def api_position_action(ticket):
         json.dump({"ticket": ticket, "action": action}, f)
     os.chmod(action_path, 0o666)
 
+    # Borra cualquier resultado viejo del mismo ticket+acción (de un
+    # intento anterior) para que el polling del frontend no lea un
+    # "success" desactualizado antes de que el EA procese este comando
+    # nuevo — ver api_position_action_result.
+    result_path = _action_result_path(ticket, action)
+    if os.path.isfile(result_path):
+        os.remove(result_path)
+
     return jsonify({"ticket": ticket, "action": action, "queued": True}), 200
+
+
+def _action_result_path(ticket, action):
+    return os.path.join(ORDERS_DIR, "action_results", f"{ticket}-{action}.json")
+
+
+@app.route("/api/positions/<int:ticket>/action_result")
+def api_position_action_result(ticket):
+    action = request.args.get("action")
+    if action not in VALID_POSITION_ACTIONS:
+        return (
+            jsonify(
+                {
+                    "error": "action inválida: '{}'. Valores permitidos: {}".format(
+                        action, ", ".join(VALID_POSITION_ACTIONS)
+                    )
+                }
+            ),
+            400,
+        )
+
+    result_path = _action_result_path(ticket, action)
+    if not os.path.isfile(result_path):
+        return jsonify({"found": False}), 200
+
+    try:
+        with open(result_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        # Escritura a medias del EA — tratar como "todavía no está".
+        return jsonify({"found": False}), 200
+
+    data["found"] = True
+    return jsonify(data), 200
 
 
 SIGNAL_RANGES = {
@@ -162,7 +204,8 @@ def api_signals():
             cur.execute(
                 f"""
                 SELECT id, signal_uid, instrument, direction, status,
-                       mt4_ticket, entry_price, sl, tp, created_at, updated_at
+                       mt4_ticket, entry_price, sl, tp, created_at, updated_at,
+                       CASE WHEN id % 20 = 0 THEN 20 ELSE id % 20 END AS cycle_position
                 FROM signals
                 {where_clause}
                 ORDER BY created_at DESC
@@ -177,6 +220,37 @@ def api_signals():
             conn.close()
 
     return jsonify({"signals": rows, "range": range_param}), 200
+
+
+@app.route("/api/signals/summary")
+def api_signals_summary():
+    # "#0": resumen de lo que se archivó automáticamente cada vez que
+    # signals superó 20 filas (ver trigger compact_old_signals en
+    # db/schema.sql). Cada compactación agrega UNA fila acá — se
+    # devuelven las últimas ~20 tandas archivadas, más reciente primero,
+    # para que el dashboard pueda mostrar historial agregado sin tener
+    # que guardar cada señal vieja individualmente.
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, period_start, period_end, signal_count,
+                       status_counts, instruments, total_profit_loss, archived_at
+                FROM signals_archive_summary
+                ORDER BY archived_at DESC
+                LIMIT 20
+                """
+            )
+            rows = cur.fetchall()
+    except psycopg2.Error as exc:
+        return jsonify({"error": f"error consultando la base de datos: {exc}"}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+    return jsonify({"summaries": rows}), 200
 
 
 @app.route("/api/signals/<int:signal_id>/retry", methods=["POST"])

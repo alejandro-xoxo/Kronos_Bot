@@ -142,6 +142,24 @@
 
   <h2>Historial de señales</h2>
   <div class="panel">
+    <p class="subtitle" style="margin-bottom:12px;">
+      La columna "N°" es un número de ciclo visual (1 a 20, se repite) —
+      no es el id real de la base. Cada vez que se acumulan más de 20
+      señales, las más viejas se resumen en la fila "#0" de abajo.
+    </p>
+    <table id="summary-table" style="margin-bottom:20px;">
+      <thead>
+        <tr>
+          <th>N°</th>
+          <th>Período</th>
+          <th>Cantidad</th>
+          <th>Por estado</th>
+          <th>Instrumentos</th>
+          <th>P/L total</th>
+        </tr>
+      </thead>
+      <tbody id="summary-body"></tbody>
+    </table>
     <div class="config-row" id="signals-filter">
       <button data-range="today">Hoy</button>
       <button data-range="week">Esta semana</button>
@@ -151,6 +169,7 @@
     <table id="signals-table">
       <thead>
         <tr>
+          <th>N°</th>
           <th>Instrumento</th>
           <th>Dirección</th>
           <th>Estado</th>
