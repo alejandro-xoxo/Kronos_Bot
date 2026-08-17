@@ -495,7 +495,29 @@
     },
     {
       "parameters": {
-        "jsCode": "// Kronos Bot — Etapa 4 (puente MT4): arma el JSON de orden pendiente\n// según el contrato exacto de mt4-bridge/FORMATO_ARCHIVOS.md.\n// Lotaje fijo 0.01 (MVP, sin cálculo de slots conectado todavía).\nconst row = $input.first().json;\n\nconst order = {\n  signal_id: row.id,\n  signal_uid: row.signal_uid,\n  instrument: row.instrument,\n  direction: row.direction,\n  execution_type: row.execution_type,\n  entry_price: Number(row.entry_price),\n  sl: Number(row.sl),\n  tp: Number(row.tp),\n  lot: 0.01,\n  created_at: new Date().toISOString(),\n};\n\nconst buffer = Buffer.from(JSON.stringify(order, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${row.id}.json`, 'application/json');\n\nreturn [{\n  json: order,\n  binary: { data: binary },\n}];"
+        "operation": "executeQuery",
+        "query": "SELECT capital_real FROM settings ORDER BY id DESC LIMIT 1;",
+        "options": {}
+      },
+      "id": "3c3d3e3f-0001-4a1a-8a1a-000000000034",
+      "name": "Obtener capital real (settings)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -256,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "capital_real lo reporta el EA (AccountBalance() - AccountCredit()) y n8n lo guarda en settings. Se lee justo antes de armar la orden para calcular el lotaje contra el capital ACTUAL, no uno viejo (PROTOCOLOS_KRONOS_BOT.md sección 5.1/5.2)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Etapa 4 (puente MT4): arma el JSON de orden pendiente\n// según el contrato exacto de mt4-bridge/FORMATO_ARCHIVOS.md.\n// Lotaje dinámico (PROTOCOLOS_KRONOS_BOT.md sección 5.2): floor(capital_real / 100) * 0.01,\n// con piso de 0.01 si el cálculo da 0 o negativo. NO es el cálculo de slots 80/20 de la\n// sección 5.3 (ese sigue sin implementar) — acá no hay competencia entre sub-señales.\nconst row = $('Obtener señal confirmada').item.json;\nconst capitalRow = $input.first().json;\nconst capitalReal = Number(capitalRow.capital_real);\n\nlet lot = Math.floor(capitalReal / 100) * 0.01;\nif (!(lot > 0)) {\n  lot = 0.01;\n}\nlot = Number(lot.toFixed(2));\n\nconst order = {\n  signal_id: row.id,\n  signal_uid: row.signal_uid,\n  instrument: row.instrument,\n  direction: row.direction,\n  execution_type: row.execution_type,\n  entry_price: Number(row.entry_price),\n  sl: Number(row.sl),\n  tp: Number(row.tp),\n  lot,\n  created_at: new Date().toISOString(),\n};\n\nconst buffer = Buffer.from(JSON.stringify(order, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${row.id}.json`, 'application/json');\n\nreturn [{\n  json: order,\n  binary: { data: binary },\n}];"
       },
       "id": "3c3d3e3f-0002-4a1a-8a1a-000000000032",
       "name": "Preparar orden pending (JSON)",
@@ -877,7 +899,7 @@
       "main": [
         [
           {
-            "node": "Preparar orden pending (JSON)",
+            "node": "Obtener capital real (settings)",
             "type": "main",
             "index": 0
           }
@@ -978,6 +1000,17 @@
           }
         ],
         []
+      ]
+    },
+    "Obtener capital real (settings)": {
+      "main": [
+        [
+          {
+            "node": "Preparar orden pending (JSON)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },

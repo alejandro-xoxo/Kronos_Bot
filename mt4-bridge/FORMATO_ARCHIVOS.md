@@ -48,7 +48,7 @@ confirmación). Se reutiliza este id en vez de inventar uno nuevo.
 | `entry_price` | number | Precio de entrada de la señal (referencia para LIMIT; informativo en MARKET). |
 | `sl` | number | Stop loss. |
 | `tp` | number | Take profit (ya resuelto a un solo valor por sub-señal — ver protocolo sección 4.2 regla 6). |
-| `lot` | number | Fijo `0.01` por ahora (protocolo sección 5, MVP sin cálculo de slots conectado). |
+| `lot` | number | Dinámico, calculado por n8n antes de escribir el archivo: `floor(capital_real / 100) * 0.01`, con piso `0.01` si el resultado da 0 o negativo (protocolo sección 5.2). Se recalcula contra el `capital_real` actual en `settings` en cada confirmación — no queda pegado a un máximo histórico. Redondeado a 2 decimales. Distinto del cálculo de slots 80/20 de la sección 5.3, que sigue sin conectar al flujo real. |
 | `created_at` | string | ISO 8601 UTC. Para logging/diagnóstico de antigüedad del lado del EA, no para revalidar los 5 minutos (esa regla ya se aplicó en n8n antes de confirmar). |
 
 ## 2. Resultado de ejecución — `mt4-bridge/orders/results/{signal_id}.json`

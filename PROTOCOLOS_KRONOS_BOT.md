@@ -134,7 +134,20 @@ n8n envía el mensaje a Gemini
 lote_total = floor(capital_real / 100) × 0.01
 ```
 
+**Estado: ACTIVO.** Esta fórmula es la que hoy calcula `lot` en
+`n8n-workflows/webhook-mvp-workflow.json` (nodo "Preparar orden
+pending (JSON)"), con piso de `0.01` si el resultado da 0 o negativo.
+Se recalcula contra el `capital_real` actual de `settings` en cada
+confirmación de señal — no se "pega" a un máximo histórico de capital.
+Sin techo superior definido.
+
 ### 5.3. División en slots (máximo 2 operaciones simultáneas)
+
+**Estado: DISEÑADO, NO IMPLEMENTADO.** Esta sección describe una
+división posterior de `lote_total` (5.2) entre hasta 2 operaciones
+simultáneas compitiendo por el mismo capital. No está conectada al
+flujo real: hoy cada sub-señal usa el `lote_total` completo de 5.2 sin
+ninguna competencia por slot entre ellas. No confundir ambas reglas.
 
 ```
 slot_1 = round(lote_total × 0.80, a 0.01 más cercano)
