@@ -50,7 +50,7 @@ El detalle de cada decisión de arquitectura, los retos técnicos que apareciero
 | Versión | Estado | Qué es |
 |---|---|---|
 | **[v1](docs/versions/v1.md)** | ✅ MVP funcional, ejecución real verificada | Ciclo completo con confirmación humana: captura → parseo por regex → confirmación → ejecución real en MT4 → resultado. Arrancó el 10/08/2026. |
-| v2 | 🔜 Planeada | Automatización completa (sin confirmación manual) + interpretación por Gemini de instrucciones de seguimiento en lenguaje libre. |
+| v2 | ⏸️ En pausa | Automatización completa (sin confirmación manual) + interpretación por Gemini de instrucciones de seguimiento en lenguaje libre. Todavía sin arrancar. |
 
 Cada versión documenta su propia arquitectura, decisiones, retos técnicos, stack, instalación y roadmap — el README no repite ese detalle a propósito, para que quede versionado junto con el código al que corresponde.
 
