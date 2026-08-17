@@ -17,6 +17,7 @@ services:
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - TELEGRAM_USER_CHAT_ID=${TELEGRAM_USER_CHAT_ID}
       - MT4_ORDERS_DIR=/mt4-bridge/orders
+      - N8N_RESTRICT_FILE_ACCESS_TO=/mt4-bridge/orders;/home/node/.n8n-files
     volumes:
       - n8n_data:/home/node/.n8n
       - ${MT4_ORDERS_HOST_PATH}:/mt4-bridge/orders
