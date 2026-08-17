@@ -2,7 +2,7 @@
 
 **Un bot que copia señales de trading de un grupo de Telegram a mi cuenta real de MT4, para que confirmar una operación a las 4 de la mañana me tome un tap, no cinco minutos despierto abriendo MT4 a mano.**
 
-> Estado actual: **v1 — MVP funcional**, con ejecución real verificada en cuenta live (VT Markets). Ver [evidencia real](#evidencia-real) más abajo. Armado en ~1 semana (arrancó el 10 de agosto de 2026), a la par de mis estudios.
+> Estado actual: **[v1 — MVP funcional](docs/versions/v1.md)**, con ejecución real verificada en cuenta live (VT Markets). Ver [evidencia real](#evidencia-real) más abajo. Armado en ~1 semana (arrancó el 10 de agosto de 2026), a la par de mis estudios.
 
 ---
 
@@ -65,7 +65,7 @@ Telegram (grupo) → Telethon → webhook n8n → parser regex → Postgres → 
 
 Esto no salió de tirarle prompts a una IA hasta que "andara" (vibe coding puro) ni de pegar código hasta que compilara. Lo armé tratándolo como un producto real, aunque el único usuario sea yo: con alcance definido antes de escribir código, reglas de negocio versionadas aparte de la implementación, y disciplina de control de versiones — porque eso es lo que quiero que se note de mí como developer, no solo que "funciona". Este repo deja ese proceso a la vista a propósito:
 
-- **Alcance de MVP definido por escrito antes de tocar código** — qué entra en v1 y qué queda explícitamente afuera (ver la sección de abajo) se decidió y se documentó primero, no se fue improvisando sobre la marcha.
+- **Alcance de MVP definido por escrito antes de tocar código** — qué entra en v1 y qué queda explícitamente afuera ([detalle acá](docs/versions/v1.md)) se decidió y se documentó primero, no se fue improvisando sobre la marcha.
 - **Fases con estado propio, no una lista de tareas gigante** — cada etapa (captura, parseo, confirmación, ejecución real, dashboard) se cerró y se verificó por separado antes de avanzar a la siguiente, con su estado registrado en `STATUS.md`.
 - **Git Flow real**: cada feature en su propia rama (`feature/<algo>`), PR hacia `develop`, y `develop` → `main` solo cuando el ciclo completo está probado — nada de commits directos a `main`.
 - **Historial de commits en español, descriptivo y granular** — se puede seguir cómo fue creciendo el proyecto día a día leyendo `git log`, sin necesitar contexto externo.
@@ -90,21 +90,13 @@ Señal: XAUUSD BUY 4398.57, TP 4402, SL 4370
 </p>
 <p align="center"><sub>Dashboard local: posición real abierta con precio en vivo, y el historial completo de señales (incluida la que rechacé a mano).</sub></p>
 
-## Qué es v1 (y qué queda para después)
+## Documentación
 
-**Incluido en v1:**
-- Captura en tiempo real + polling de respaldo (por un bug conocido de Telethon en canales de alto tráfico).
-- Parseo por regex de señales de formato fijo, con soporte para hasta 2 take-profits por señal.
-- Confirmación humana vía botones de Telegram, idempotente ante doble clic.
-- Ejecución real en MT4 vía EA en MQL4, con lotaje fijo de control de riesgo.
-- Lectura de resultados y notificación de vuelta al usuario.
-- Dashboard local con posiciones abiertas, botones de BE / cerrar / reintentar.
+El README cuenta la historia y el porqué. El detalle técnico vive aparte, versionado por su cuenta:
 
-**Fuera de v1, a propósito:**
-- Interpretación por IA (Gemini) de instrucciones de seguimiento con redacción libre ("mover el SL a BE", "cerrar a X") — hoy solo se detectan señales de formato fijo.
-- Cálculo de lotaje dinámico (slots 80/20) — hoy el lotaje es fijo, por gestión de riesgo mientras se valida el sistema.
-- Ejecución 100% automática sin confirmación humana — es la meta de fondo del proyecto, pero deliberadamente no para v1: primero quería el historial de ejecuciones reales de esta versión con humano en el loop, antes de soltarle la decisión al sistema.
-- Infraestructura en la nube — hoy corre local, sin costo, hasta validar rentabilidad.
+- **[docs/versions/v1.md](docs/versions/v1.md)** — qué incluye v1, qué queda afuera a propósito, y qué sigue en v2.
+- **[STATUS.md](STATUS.md)** — estado técnico fase por fase, pensado para retomar el proyecto sin depender de memoria de conversaciones previas.
+- **[PROTOCOLOS_KRONOS_BOT.md](PROTOCOLOS_KRONOS_BOT.md)** — reglas de negocio y gestión de riesgo, fuente única de verdad.
 
 ## Nota
 
