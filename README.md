@@ -34,19 +34,7 @@ No tenía plata para un VPS ni para una IA paga ni para pagarle a un servicio de
 
 ## Arquitectura
 
-```mermaid
-flowchart LR
-    TG["Grupo de Telegram\n(España, 1:30-8:00 am)"] -->|MTProto, Telethon| TL[Microservicio Telethon]
-    TL -->|webhook| N8N[n8n — orquestador]
-    N8N -->|regex / Gemini| PG[(Postgres)]
-    N8N -->|botones Confirmar/Rechazar| USR["Yo, por Telegram"]
-    USR -->|confirma| N8N
-    N8N -->|orden pending .json| EA["EA en MQL4\n(MT4 vía Wine)"]
-    EA -->|ejecuta orden real| VT["VT Markets\n(cuenta live)"]
-    EA -->|resultado .json| N8N
-    N8N -->|notifica ticket/resultado| USR
-    DASH["Dashboard web\n(Flask, LAN local)"] -.consulta posiciones/estado.- EA
-```
+Telegram (grupo) → Telethon → webhook n8n → parser regex → Postgres → confirmación por Telegram → EA en MQL4 (MT4 vía Wine) → orden real en VT Markets → resultado de vuelta a n8n → notificación final. El dashboard consulta el estado en paralelo, sin intervenir en el flujo.
 
 <p align="center">
   <img src="docs/screenshots/03-workflow-n8n.png" alt="Workflow completo en n8n: webhook, parser regex, confirmación, escritura de orden a MT4, lectura de resultados" width="700">
