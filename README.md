@@ -42,7 +42,7 @@ Todavía estoy estudiando para ser developer. En paralelo empecé a meterme en t
 
 Encontré un grupo de señales en Telegram que se veía sólido: buen historial, comunidad activa. El problema es que es un grupo español y yo no vivo ahí — las señales me caen entre la **1:30 a. m. y las 8:00 a. m.** hora mía. Copiarlas a mano significaba despertarme, abrir MT4 medio dormido, y tipear instrumento, dirección, entrada, take-profit y stop-loss antes de que el precio se moviera. Un solo dígito mal tipeado a esa hora es plata perdida.
 
-No tenía presupuesto para un VPS, ni para una API de IA paga, ni para pagarle a un servicio de copy-trading de terceros. Tenía mi laptop, tiempo robado al sueño, y ganas de resolver un problema que era mío de verdad — no un tutorial que después se archiva. Así nació Kronos Bot.
+No tenía presupuesto para un VPS, ni para una API de IA paga, ni para pagarle a un servicio de copy-trading de terceros. Tenía mi laptop y ganas de aprender de verdad construyendo algo real — no otro boceto de portafolio, sino un problema mío que tenía que funcionar de verdad. Así nació Kronos Bot.
 
 La meta de fondo es que el copiado sea **100% automático**: que la señal se ejecute sola en mi cuenta mientras duermo. Pero un sistema que va a mover plata real no se suelta a ciegas desde el día uno — por eso esta v1 todavía me pide confirmar cada señal con un botón de Telegram antes de ejecutar. Es un paso intermedio deliberado: primero valido que cada pieza del sistema funciona sin sorpresas con un humano en el loop, después le suelto también la decisión.
 
