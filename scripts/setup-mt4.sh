@@ -176,27 +176,25 @@ cat <<EOF
 
 Lo automatizable ya quedó listo. Faltan estos pasos manuales:
 
-1. Descargar el instalador GENÉRICO de MetaTrader 4 desde el sitio
-   oficial: https://www.metatrader4.com/es/download
-   (NO existe un instalador separado de VT Markets — es el mismo
-   software genérico para cualquier bróker; la conexión a VT Markets
-   se hace después, desde dentro de la plataforma ya instalada).
-   Guárdalo en cualquier carpeta temporal, ej. ~/Descargas
-   (normalmente algo como "mt4setup.exe").
+1. Descargar el instalador de VT Markets desde vtmarkets.com
+   ("vtmarkets4setup.exe") — a diferencia de lo que se pensó
+   originalmente, VT Markets SÍ distribuye su propio instalador, no
+   hace falta el genérico de metatrader4.com. Guárdalo en cualquier
+   carpeta temporal, ej. ~/Descargas.
 
 2. Correr el instalador usando el prefijo de Wine dedicado (NO el
    prefijo por defecto), para no mezclarlo con otras apps de Wine:
 
-     WINEPREFIX="${WINE_PREFIX_MT4}" wine ~/Descargas/mt4setup.exe
+     WINEPREFIX="${WINE_PREFIX_MT4}" wine ~/Descargas/vtmarkets4setup.exe
 
 3. Seguir el instalador gráfico hasta el final (Next, Next, Finish).
    MT4 debería quedar instalado dentro de:
 
-     ${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/MetaTrader 4/
+     ${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/VT Markets MT4/
 
 4. Abrir MT4 con ese mismo prefijo:
 
-     WINEPREFIX="${WINE_PREFIX_MT4}" wine "${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/MetaTrader 4/terminal.exe"
+     WINEPREFIX="${WINE_PREFIX_MT4}" wine "${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/VT Markets MT4/terminal.exe"
 
 5. Recién AHORA, dentro de la plataforma ya instalada, conectarte al
    servidor específico de VT Markets: en MT4 ir a
