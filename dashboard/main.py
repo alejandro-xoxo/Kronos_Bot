@@ -14,6 +14,7 @@ antes de hacerlo.
 """
 import json
 import os
+from datetime import datetime, timezone
 
 import psycopg2
 import psycopg2.extras
@@ -110,6 +111,69 @@ def api_signals():
             conn.close()
 
     return jsonify({"signals": rows, "range": range_param}), 200
+
+
+@app.route("/api/signals/<int:signal_id>/retry", methods=["POST"])
+def api_signal_retry(signal_id):
+    # Solo reintenta señales que quedaron en PENDING_MANUAL (el EA las
+    # confirmó como CONFIRMED pero OrderSend falló — ver
+    # mt4-bridge/FORMATO_ARCHIVOS.md sección 2). Guard idempotente igual
+    # que el resto del flujo: si dos clicks llegan casi juntos, el
+    # segundo UPDATE no encuentra la fila (ya no está en PENDING_MANUAL)
+    # y no reescribe el archivo de orden dos veces.
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                UPDATE signals
+                SET status = 'CONFIRMED', updated_at = NOW()
+                WHERE id = %s AND status = 'PENDING_MANUAL'
+                RETURNING id, signal_uid, instrument, direction, execution_type,
+                          entry_price, sl, tp, lot_assigned
+                """,
+                (signal_id,),
+            )
+            row = cur.fetchone()
+            conn.commit()
+    except psycopg2.Error as exc:
+        return jsonify({"error": f"error consultando la base de datos: {exc}"}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+    if row is None:
+        return (
+            jsonify(
+                {
+                    "error": f"señal #{signal_id} no está en PENDING_MANUAL "
+                    "(ya se reintentó, sigue en curso, o nunca falló)."
+                }
+            ),
+            409,
+        )
+
+    order = {
+        "signal_id": row["id"],
+        "signal_uid": row["signal_uid"],
+        "instrument": row["instrument"],
+        "direction": row["direction"],
+        "execution_type": row["execution_type"],
+        "entry_price": row["entry_price"],
+        "sl": row["sl"],
+        "tp": row["tp"],
+        "lot": row["lot_assigned"],
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+    pending_dir = os.path.join(ORDERS_DIR, "pending")
+    os.makedirs(pending_dir, exist_ok=True)
+    pending_path = os.path.join(pending_dir, f"{signal_id}.json")
+    with open(pending_path, "w", encoding="utf-8") as f:
+        json.dump(order, f)
+
+    return jsonify({"signal_id": signal_id, "status": "CONFIRMED", "order": order}), 200
 
 
 @app.route("/api/config", methods=["GET"])
