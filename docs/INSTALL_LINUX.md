@@ -62,6 +62,10 @@ TELEGRAM_USER_CHAT_ID=
 # MT4 y correr scripts/setup-mt4.sh, no antes; sin Wine todavía no
 # existe la ruta real que va acá)
 MT4_ORDERS_HOST_PATH=
+
+# Dashboard web (Basic Auth — obligatorio antes de exponerlo por ngrok)
+DASHBOARD_USER=
+DASHBOARD_PASSWORD=
 ```
 
 - `N8N_API_KEY` se genera desde la propia UI de n8n (Settings → n8n
@@ -72,6 +76,10 @@ MT4_ORDERS_HOST_PATH=
   el bot, respectivamente).
 - `MT4_ORDERS_HOST_PATH` se completa en la sección 11, no ahora —
   depende de una ruta que solo existe después de instalar Wine/MT4.
+- `DASHBOARD_USER`/`DASHBOARD_PASSWORD` protegen el dashboard web
+  (puerto 8088) con HTTP Basic Auth — obligatorio completarlas antes de
+  levantar el servicio `dashboard`, si quedan vacías el dashboard
+  responde 503 a todo (falla cerrado, no abierto).
 
 ## 4. Levantar el stack de Docker
 
