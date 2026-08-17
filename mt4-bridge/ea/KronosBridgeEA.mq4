@@ -12,6 +12,10 @@
 #property description "CLAUDE.md). Esto NO calcula lotaje inteligente ni gestiona cierres/"
 #property description "modificaciones — solo abre órdenes nuevas con los datos que ya vienen"
 #property description "resueltos en el JSON (lote fijo 0.01, protocolo sección 5)."
+#property description ""
+#property description "También lee orders/config.json en cada ciclo (sufijo de símbolo"
+#property description "dinámico, sin recompilar) y escribe orders/status.json con las"
+#property description "posiciones abiertas de este EA (magic number) en cada ciclo."
 
 //--- Parámetros configurables desde las propiedades del EA en MT4
 input int    InpPollIntervalSeconds = 2;          // Intervalo de polling de orders/pending/ (segundos)
@@ -23,6 +27,13 @@ input string InpSymbolSuffix        = "-VIP";     // Sufijo del símbolo real: "
 #define PENDING_DIR_PATTERN "orders\\pending\\*.json"
 #define PENDING_DIR_PREFIX  "orders\\pending\\"
 #define RESULTS_DIR_PREFIX  "orders\\results\\"
+#define CONFIG_FILE_PATH    "orders\\config.json"
+#define STATUS_FILE_PATH    "orders\\status.json"
+
+//--- Sufijo de símbolo efectivo: arranca con InpSymbolSuffix (fallback) y
+//    puede actualizarse en caliente vía orders/config.json (ver
+//    UpdateSymbolSuffixFromConfig), sin necesidad de recompilar el EA.
+string g_SymbolSuffix;
 
 //--- Estructura de una orden pendiente ya parseada
 struct PendingOrder
@@ -52,7 +63,7 @@ bool ResolveBrokerSymbol(const string instrument, string &brokerSymbol)
    if(instrument != "XAUUSD" && instrument != "EURUSD")
       return false;
 
-   brokerSymbol = instrument + InpSymbolSuffix;
+   brokerSymbol = instrument + g_SymbolSuffix;
    return true;
 }
 
@@ -63,6 +74,8 @@ bool ResolveBrokerSymbol(const string instrument, string &brokerSymbol)
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   g_SymbolSuffix = InpSymbolSuffix;
+
    if(!EventSetTimer(InpPollIntervalSeconds))
    {
       Print("Kronos EA: no se pudo configurar el timer, error ", GetLastError());
@@ -92,7 +105,37 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+   UpdateSymbolSuffixFromConfig();
    ProcessPendingOrders();
+   WritePositionsStatus();
+}
+
+//+------------------------------------------------------------------+
+//| Lee orders/config.json (si existe) y actualiza g_SymbolSuffix    |
+//| cuando trae un "symbol_suffix" válido ("-VIP" o "-STD"). Nunca   |
+//| rompe el ciclo: si el archivo no existe, no parsea, o el valor   |
+//| no es uno de los dos permitidos, se deja g_SymbolSuffix como     |
+//| estaba (input o último valor válido leído).                      |
+//+------------------------------------------------------------------+
+void UpdateSymbolSuffixFromConfig()
+{
+   string content;
+   if(!ReadEntireFile(CONFIG_FILE_PATH, content))
+      return; // no existe orders/config.json todavía — caso normal
+
+   string suffix;
+   if(!JsonGetValue(content, "symbol_suffix", suffix))
+      return; // JSON sin la clave esperada, se ignora
+
+   if(suffix != "-VIP" && suffix != "-STD")
+      return; // valor no soportado, se ignora (validación estricta)
+
+   if(suffix != g_SymbolSuffix)
+   {
+      Print("Kronos EA: symbol_suffix actualizado desde orders/config.json: ",
+            g_SymbolSuffix, " -> ", suffix);
+      g_SymbolSuffix = suffix;
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -288,6 +331,76 @@ void WriteResult(int signalId, bool success, int ticket, double executedPrice,
       Print("Kronos EA: resultado escrito en ", resultPath, " (success=", success, ")");
    else
       Print("Kronos EA: ERROR al escribir ", resultPath, " — revisar permisos de Common\\Files");
+}
+
+//+------------------------------------------------------------------+
+//| Escribe orders/status.json con las posiciones de mercado         |
+//| (OP_BUY/OP_SELL) abiertas por este EA (mismo InpMagicNumber),    |
+//| para que un dashboard externo pueda leer el estado sin tocar     |
+//| MT4 directamente. Se sobrescribe completo en cada ciclo.         |
+//+------------------------------------------------------------------+
+void WritePositionsStatus()
+{
+   string positionsJson = "";
+   int    count         = 0;
+
+   int total = OrdersTotal();
+   for(int i = 0; i < total; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue; // solo posiciones de mercado ya ejecutadas
+
+      string signalUid = OrderComment();
+      string prefix     = "KronosBot:";
+      if(StringFind(signalUid, prefix) == 0)
+         signalUid = StringSubstr(signalUid, StringLen(prefix));
+
+      string direction    = (orderType == OP_BUY) ? "BUY" : "SELL";
+      double currentPrice = MarketInfo(OrderSymbol(), (orderType == OP_BUY) ? MODE_BID : MODE_ASK);
+
+      if(count > 0)
+         positionsJson += ",\n";
+
+      positionsJson += "    {\n";
+      positionsJson += "      \"ticket\": " + IntegerToString(OrderTicket()) + ",\n";
+      positionsJson += "      \"signal_uid\": \"" + JsonEscape(signalUid) + "\",\n";
+      positionsJson += "      \"symbol\": \"" + OrderSymbol() + "\",\n";
+      positionsJson += "      \"direction\": \"" + direction + "\",\n";
+      positionsJson += "      \"lot\": " + DoubleToString(OrderLots(), 2) + ",\n";
+      positionsJson += "      \"open_price\": " + DoubleToString(OrderOpenPrice(), 5) + ",\n";
+      positionsJson += "      \"current_price\": " + DoubleToString(currentPrice, 5) + ",\n";
+      positionsJson += "      \"sl\": " + DoubleToString(OrderStopLoss(), 5) + ",\n";
+      positionsJson += "      \"tp\": " + DoubleToString(OrderTakeProfit(), 5) + ",\n";
+      positionsJson += "      \"profit\": " + DoubleToString(OrderProfit(), 2) + ",\n";
+      positionsJson += "      \"open_time\": \"" + ToIso8601Utc(OrderOpenTime()) + "\"\n";
+      positionsJson += "    }";
+
+      count++;
+   }
+
+   string json = "{\n";
+   json += "  \"updated_at\": \"" + ToIso8601Utc(TimeGMT()) + "\",\n";
+   json += "  \"account\": {\n";
+   json += "    \"number\": " + IntegerToString(AccountNumber()) + ",\n";
+   json += "    \"balance\": " + DoubleToString(AccountBalance(), 2) + ",\n";
+   json += "    \"equity\": " + DoubleToString(AccountEquity(), 2) + "\n";
+   json += "  },\n";
+   json += "  \"positions\": [\n";
+   json += positionsJson;
+   if(count > 0)
+      json += "\n";
+   json += "  ]\n";
+   json += "}\n";
+
+   if(!WriteEntireFile(STATUS_FILE_PATH, json))
+      Print("Kronos EA: ERROR al escribir ", STATUS_FILE_PATH, " — revisar permisos de Common\\Files");
 }
 
 //+------------------------------------------------------------------+
@@ -515,6 +628,39 @@ string ReadEntireFile(string relativePath)
       return "";
 
    return CharArrayToString(buffer, 0, bytesRead, CP_UTF8);
+}
+
+//+------------------------------------------------------------------+
+//| Igual que ReadEntireFile(path) de arriba, pero como bool + out   |
+//| param: no distingue "vacío" de "no existe" en el valor de        |
+//| retorno string, así que esta variante permite a los llamadores   |
+//| tratar "el archivo no existe todavía" como caso normal (ej.      |
+//| orders/config.json antes de que el dashboard lo escriba), sin    |
+//| loggear error. No lanza error si el archivo simplemente falta.   |
+//+------------------------------------------------------------------+
+bool ReadEntireFile(string relativePath, string &outContent)
+{
+   int handle = FileOpen(relativePath, FILE_READ | FILE_BIN | FILE_COMMON);
+   if(handle == INVALID_HANDLE)
+      return false; // caso normal: el archivo todavía no existe
+
+   int fileSize = (int)FileSize(handle);
+   if(fileSize <= 0)
+   {
+      FileClose(handle);
+      return false;
+   }
+
+   uchar buffer[];
+   ArrayResize(buffer, fileSize);
+   int bytesRead = FileReadArray(handle, buffer, 0, fileSize);
+   FileClose(handle);
+
+   if(bytesRead <= 0)
+      return false;
+
+   outContent = CharArrayToString(buffer, 0, bytesRead, CP_UTF8);
+   return true;
 }
 
 //+------------------------------------------------------------------+
