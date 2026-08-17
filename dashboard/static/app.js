@@ -59,15 +59,17 @@ async function loadPositions() {
   }
 }
 
+let currentSignalsRange = "all";
+
 async function loadSignals() {
   const bodyEl = document.getElementById("signals-body");
   try {
-    const res = await fetch("api/signals");
+    const res = await fetch("api/signals?range=" + encodeURIComponent(currentSignalsRange));
     const data = await res.json();
     const signals = data.signals || [];
 
     if (signals.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="8" class="empty-msg">Sin señales todavía.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="8" class="empty-msg">Sin señales en este período.</td></tr>';
       return;
     }
 
@@ -89,6 +91,18 @@ async function loadSignals() {
     bodyEl.innerHTML = '<tr><td colspan="8" class="empty-msg">Error consultando /api/signals.</td></tr>';
   }
 }
+
+function setSignalsRange(range) {
+  currentSignalsRange = range;
+  document.querySelectorAll("#signals-filter button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.range === range);
+  });
+  loadSignals();
+}
+
+document.querySelectorAll("#signals-filter button").forEach((btn) => {
+  btn.addEventListener("click", () => setSignalsRange(btn.dataset.range));
+});
 
 function setConfigStatus(message, kind) {
   const el = document.getElementById("config-status");
