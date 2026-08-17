@@ -91,7 +91,65 @@ confirmación). Se reutiliza este id en vez de inventar uno nuevo.
 | `error_code` | int \| null | Código nativo de MQL4 (`GetLastError()`) cuando `success = false`, para diagnóstico exacto sin depender de interpretar texto. `null` si tuvo éxito. |
 | `error_message` | string \| null | Mensaje legible del error. `null` si tuvo éxito. |
 
-## 3. Convención de limpieza
+## 4. Configuración dinámica — `mt4-bridge/orders/config.json` (opcional, lado EA)
+
+Archivo opcional, escrito por un dashboard externo (fuera de este
+documento del lado del EA — ver la documentación del dashboard para
+cómo lo genera). El EA lo lee al inicio de **cada ciclo** de
+`OnTimer()`, antes de procesar `pending/`. Si no existe, o el JSON no
+parsea, o el valor no es uno de los dos soportados, el EA lo ignora
+silenciosamente y conserva el último `symbol_suffix` válido (o el
+input `InpSymbolSuffix` si todavía no leyó ninguno).
+
+```json
+{ "symbol_suffix": "-STD" }
+```
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `symbol_suffix` | string | Únicos valores válidos: `"-VIP"` (cuenta demo) o `"-STD"` (cuenta real). Cualquier otro valor se ignora (validación estricta, igual criterio que `ResolveBrokerSymbol` con los instrumentos). Permite cambiar de cuenta sin recompilar el EA. |
+
+No se borra tras leerlo (a diferencia de `pending/`/`results/`) — se
+relee en cada ciclo porque representa configuración persistente, no
+un evento puntual.
+
+## 5. Reporte de posiciones abiertas — `mt4-bridge/orders/status.json` (lado EA)
+
+Escrito por el EA al final de **cada ciclo** de `OnTimer()` (se
+sobrescribe completo, no se acumula). Contiene únicamente las
+posiciones de mercado (`OP_BUY`/`OP_SELL`) abiertas por este EA —
+filtradas por `InpMagicNumber`, para no mezclar con operativa manual
+del usuario en la misma cuenta.
+
+```json
+{
+  "updated_at": "2026-08-16T10:00:00Z",
+  "account": { "number": 23096429, "balance": 1000.00, "equity": 998.50 },
+  "positions": [
+    {
+      "ticket": 123456789,
+      "signal_uid": "1192-A",
+      "symbol": "XAUUSD-STD",
+      "direction": "BUY",
+      "lot": 0.01,
+      "open_price": 4372.30,
+      "current_price": 4371.80,
+      "sl": 4347.0,
+      "tp": 4376.0,
+      "profit": -0.50,
+      "open_time": "2026-08-16T09:55:00Z"
+    }
+  ]
+}
+```
+
+`signal_uid` se extrae del `OrderComment()` (`"KronosBot:" +
+signal_uid`, ver sección 1). `current_price` es el precio al que la
+posición se podría cerrar ahora mismo (Bid para BUY, Ask para SELL).
+Archivo de solo lectura para consumidores externos (dashboard); el EA
+nunca lo lee, solo lo escribe.
+
+## 6. Convención de limpieza
 
 - El EA, tras leer un archivo de `pending/`, lo **borra inmediatamente**
   (no lo deja mientras ejecuta, para no reprocesarlo por timing del
