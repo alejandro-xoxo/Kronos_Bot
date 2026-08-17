@@ -6,9 +6,15 @@ status.json escrito por el EA) y cambiar el sufijo de símbolo del
 bróker (via config.json leído por el EA). Ver
 mt4-bridge/FORMATO_ARCHIVOS.md para el contrato exacto de ambos
 archivos.
+
+Protegido con HTTP Basic Auth (DASHBOARD_USER/DASHBOARD_PASSWORD en
+.env) porque, a diferencia de n8n, acá cambiar el sufijo de símbolo
+cambia qué cuenta (demo/real) opera el EA con un solo click — no debe
+quedar accesible sin login si se expone por ngrok.
 """
 import json
 import os
+import secrets
 
 import psycopg2
 import psycopg2.extras
@@ -21,6 +27,40 @@ STATUS_PATH = os.path.join(ORDERS_DIR, "status.json")
 CONFIG_PATH = os.path.join(ORDERS_DIR, "config.json")
 
 VALID_SYMBOL_SUFFIXES = ("-VIP", "-STD")
+
+DASHBOARD_USER = os.environ.get("DASHBOARD_USER")
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD")
+
+
+def _credentials_valid(auth):
+    if auth is None:
+        return False
+    user_ok = secrets.compare_digest(auth.username or "", DASHBOARD_USER)
+    pass_ok = secrets.compare_digest(auth.password or "", DASHBOARD_PASSWORD)
+    return user_ok and pass_ok
+
+
+@app.before_request
+def require_auth():
+    # Fail-closed: si no se configuraron credenciales, el dashboard
+    # queda bloqueado en vez de quedar abierto por defecto — evita
+    # exponerlo sin querer por ngrok con un .env a medio configurar.
+    if not DASHBOARD_USER or not DASHBOARD_PASSWORD:
+        return (
+            jsonify(
+                {
+                    "error": "DASHBOARD_USER/DASHBOARD_PASSWORD no configurados en .env — "
+                    "dashboard bloqueado por seguridad hasta configurarlos."
+                }
+            ),
+            503,
+        )
+    if not _credentials_valid(request.authorization):
+        return (
+            "Autenticación requerida",
+            401,
+            {"WWW-Authenticate": 'Basic realm="Kronos Bot Dashboard"'},
+        )
 
 
 def get_db_connection():
