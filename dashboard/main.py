@@ -125,7 +125,49 @@ def api_position_action(ticket):
         json.dump({"ticket": ticket, "action": action}, f)
     os.chmod(action_path, 0o666)
 
+    # Borra cualquier resultado viejo del mismo ticket+acción (de un
+    # intento anterior) para que el polling del frontend no lea un
+    # "success" desactualizado antes de que el EA procese este comando
+    # nuevo — ver api_position_action_result.
+    result_path = _action_result_path(ticket, action)
+    if os.path.isfile(result_path):
+        os.remove(result_path)
+
     return jsonify({"ticket": ticket, "action": action, "queued": True}), 200
+
+
+def _action_result_path(ticket, action):
+    return os.path.join(ORDERS_DIR, "action_results", f"{ticket}-{action}.json")
+
+
+@app.route("/api/positions/<int:ticket>/action_result")
+def api_position_action_result(ticket):
+    action = request.args.get("action")
+    if action not in VALID_POSITION_ACTIONS:
+        return (
+            jsonify(
+                {
+                    "error": "action inválida: '{}'. Valores permitidos: {}".format(
+                        action, ", ".join(VALID_POSITION_ACTIONS)
+                    )
+                }
+            ),
+            400,
+        )
+
+    result_path = _action_result_path(ticket, action)
+    if not os.path.isfile(result_path):
+        return jsonify({"found": False}), 200
+
+    try:
+        with open(result_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        # Escritura a medias del EA — tratar como "todavía no está".
+        return jsonify({"found": False}), 200
+
+    data["found"] = True
+    return jsonify(data), 200
 
 
 SIGNAL_RANGES = {

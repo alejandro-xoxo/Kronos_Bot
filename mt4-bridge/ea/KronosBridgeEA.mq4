@@ -36,6 +36,7 @@ input string InpSymbolSuffix        = "-VIP";     // Sufijo del símbolo real: "
 #define STATUS_FILE_PATH    "orders\\status.json"
 #define ACTIONS_DIR_PATTERN "orders\\actions\\*.json"
 #define ACTIONS_DIR_PREFIX  "orders\\actions\\"
+#define ACTION_RESULTS_DIR_PREFIX "orders\\action_results\\"
 
 //--- Sufijo de símbolo efectivo: arranca con InpSymbolSuffix (fallback) y
 //    puede actualizarse en caliente vía orders/config.json (ver
@@ -82,6 +83,14 @@ bool ResolveBrokerSymbol(const string instrument, string &brokerSymbol)
 int OnInit()
 {
    g_SymbolSuffix = InpSymbolSuffix;
+
+   // orders/pending, orders/results y orders/actions ya existen como
+   // symlinks locales creados por scripts/setup-mt4.sh (ver CLAUDE.md);
+   // orders/action_results es nueva y nadie más la crea — sin esto,
+   // WriteActionResult() fallaría en el primer intento porque MQL4 no
+   // escribe en una carpeta que no existe. FolderCreate no falla si la
+   // carpeta ya existe, así que es seguro llamarlo siempre.
+   FolderCreate("orders\\action_results", FILE_COMMON);
 
    if(!EventSetTimer(InpPollIntervalSeconds))
    {
@@ -448,14 +457,17 @@ void ApplyBreakEven(int ticket)
    double openPrice = OrderOpenPrice();
 
    ResetLastError();
-   bool ok = OrderModify(ticket, openPrice, openPrice, OrderTakeProfit(), 0, clrNONE);
+   bool ok      = OrderModify(ticket, openPrice, openPrice, OrderTakeProfit(), 0, clrNONE);
+   int  errCode = ok ? 0 : GetLastError();
 
    if(ok)
       Print("Kronos EA: ticket ", ticket, " movido a break-even (SL=",
             DoubleToString(openPrice, 5), ").");
    else
       Print("Kronos EA: ERROR al mover a break-even ticket ", ticket,
-            ", error ", GetLastError());
+            ", error ", errCode);
+
+   WriteActionResult(ticket, "SET_BE", ok, ok ? 0.0 : openPrice, errCode);
 }
 
 //+------------------------------------------------------------------+
@@ -472,13 +484,42 @@ void ApplyClose(int ticket)
    double closePrice = (type == OP_BUY) ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK);
 
    ResetLastError();
-   bool ok = OrderClose(ticket, lots, closePrice, InpSlippage, clrNONE);
+   bool ok      = OrderClose(ticket, lots, closePrice, InpSlippage, clrNONE);
+   int  errCode = ok ? 0 : GetLastError();
 
    if(ok)
       Print("Kronos EA: ticket ", ticket, " cerrado a mercado, precio=",
             DoubleToString(closePrice, 5));
    else
-      Print("Kronos EA: ERROR al cerrar ticket ", ticket, ", error ", GetLastError());
+      Print("Kronos EA: ERROR al cerrar ticket ", ticket, ", error ", errCode);
+
+   WriteActionResult(ticket, "CLOSE", ok, closePrice, errCode);
+}
+
+//+------------------------------------------------------------------+
+//| Escribe orders/action_results/{ticket}-{action}.json — permite   |
+//| al dashboard mostrar el resultado REAL del comando (ej. "Invalid |
+//| stops") en vez de adivinar comparando el estado de la posición.  |
+//| resultPrice: SL nuevo si SET_BE tuvo éxito, precio de cierre si  |
+//| CLOSE tuvo éxito; 0.0 si falló (el dashboard no lo usa en fallo).|
+//+------------------------------------------------------------------+
+void WriteActionResult(int ticket, string action, bool success, double resultPrice, int errorCode)
+{
+   string errorMessage = success ? "" : ("MT4 error " + IntegerToString(errorCode));
+
+   string json = "{\n";
+   json += "  \"ticket\": " + IntegerToString(ticket) + ",\n";
+   json += "  \"action\": \"" + action + "\",\n";
+   json += "  \"success\": " + (success ? "true" : "false") + ",\n";
+   json += "  \"result_price\": " + (success ? DoubleToString(resultPrice, 5) : "null") + ",\n";
+   json += "  \"error_code\": " + (success ? "null" : IntegerToString(errorCode)) + ",\n";
+   json += "  \"error_message\": " + (success ? "null" : ("\"" + JsonEscape(errorMessage) + "\"")) + ",\n";
+   json += "  \"processed_at\": \"" + ToIso8601Utc(TimeGMT()) + "\"\n";
+   json += "}\n";
+
+   string path = ACTION_RESULTS_DIR_PREFIX + IntegerToString(ticket) + "-" + action + ".json";
+   if(!WriteEntireFile(path, json))
+      Print("Kronos EA: ERROR al escribir ", path, " — revisar permisos de Common\\Files");
 }
 
 //+------------------------------------------------------------------+

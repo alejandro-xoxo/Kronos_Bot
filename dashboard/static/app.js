@@ -63,11 +63,53 @@ async function loadPositions() {
       .join("");
 
     bodyEl.querySelectorAll(".btn-be, .btn-close").forEach((btn) => {
-      btn.addEventListener("click", () => sendPositionAction(btn.dataset.ticket, btn.dataset.action, btn));
+      btn.addEventListener("click", () =>
+        sendPositionAction(btn.dataset.ticket, btn.dataset.action, btn)
+      );
     });
   } catch (err) {
     warningEl.innerHTML = '<div class="warning">Error consultando /api/positions.</div>';
   }
+}
+
+// Consulta /api/positions/<ticket>/action_result — el resultado REAL
+// que escribe el EA tras intentar el comando (éxito con el precio
+// resultante, o el error de MT4 tal cual, ej. "Invalid stops" si se
+// intenta un BE con la posición todavía en pérdida). El backend borra
+// cualquier resultado viejo del mismo ticket+acción al encolar el
+// comando nuevo, así que un "found: true" acá siempre corresponde a
+// ESTE intento, no a uno anterior. Reintenta cada 1.5s hasta ~10
+// veces (~15s); si se agota, deja el aviso de "seguimos esperando".
+async function pollActionResult(ticket, action, statusEl) {
+  const maxAttempts = 10;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    let data;
+    try {
+      const res = await fetch(`api/positions/${ticket}/action_result?action=${encodeURIComponent(action)}`);
+      data = await res.json();
+    } catch (err) {
+      continue; // error de red puntual, seguimos intentando
+    }
+
+    if (!data.found) continue;
+
+    if (data.success) {
+      statusEl.textContent =
+        action === "SET_BE" ? "SL movido a " + data.result_price : "Cerrada a " + data.result_price;
+      statusEl.className = "position-action-status status-msg ok";
+    } else {
+      statusEl.textContent = data.error_message || "El bróker rechazó el comando.";
+      statusEl.className = "position-action-status status-msg error";
+    }
+    loadPositions();
+    return;
+  }
+
+  statusEl.textContent = "El EA todavía no lo procesó — puede tardar un poco más, revisá la tabla en unos segundos.";
+  statusEl.className = "position-action-status status-msg";
+  loadPositions();
 }
 
 async function sendPositionAction(ticket, action, btn) {
@@ -95,11 +137,9 @@ async function sendPositionAction(ticket, action, btn) {
       row.querySelectorAll(".btn-be, .btn-close").forEach((b) => (b.disabled = false));
       return;
     }
-    statusEl.textContent = "Enviado al EA.";
-    statusEl.className = "position-action-status status-msg ok";
-    // El EA tarda hasta ~InpPollIntervalSeconds en procesarlo; el próximo
-    // poll de loadPositions (5s) ya debería reflejar el cambio.
-    setTimeout(loadPositions, 3000);
+    statusEl.textContent = "Enviado al EA, esperando confirmación...";
+    statusEl.className = "position-action-status status-msg";
+    await pollActionResult(ticket, action, statusEl);
   } catch (err) {
     statusEl.textContent = "Error de red.";
     statusEl.className = "position-action-status status-msg error";
