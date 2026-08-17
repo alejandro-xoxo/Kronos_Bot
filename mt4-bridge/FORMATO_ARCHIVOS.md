@@ -103,3 +103,67 @@ confirmación). Se reutiliza este id en vez de inventar uno nuevo.
   caso de fallo de comunicación. El protocolo de reintento/alerta
   para ese caso se define al implementar el EA (Fase 6, pendiente),
   no en este documento de diseño.
+
+## 4. Estado de cuenta/posiciones y config del símbolo — dashboard web
+
+Contrato adicional entre el EA y el dashboard web (`dashboard/`,
+servicio Docker nuevo, puerto 8088). A diferencia de `pending/` y
+`results/` (que son colas de un solo uso, se leen y se borran), estos
+dos archivos viven directamente en `mt4-bridge/orders/` y se
+sobrescriben en el lugar — no hay borrado ni cola.
+
+### 4.1 Estado de cuenta y posiciones — `mt4-bridge/orders/status.json`
+
+El EA lo escribe periódicamente (polling, no evento) con el estado
+actual de la cuenta y las posiciones abiertas. El dashboard solo lee
+este archivo, nunca lo escribe.
+
+```json
+{
+  "updated_at": "2026-08-17T00:00:00Z",
+  "account": { "number": 23096429, "balance": 1000.0, "equity": 1005.2 },
+  "positions": [
+    { "ticket": 202201987, "signal_uid": "1192-A", "symbol": "XAUUSD-VIP",
+      "direction": "BUY", "lot": 0.01, "open_price": 4390.13,
+      "current_price": 4392.0, "sl": 4370.0, "tp": 4410.0,
+      "profit": 1.87, "open_time": "2026-08-17T00:28:56Z" }
+  ]
+}
+```
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `updated_at` | string | ISO 8601 UTC de la última escritura del EA. |
+| `account.number` | int | Número de cuenta MT4. |
+| `account.balance` | number | Balance de la cuenta. |
+| `account.equity` | number | Equity actual (balance ± flotante). |
+| `positions[].ticket` | int | Ticket real de MT4. |
+| `positions[].signal_uid` | string | Trazabilidad hacia `signals.signal_uid` en Postgres. |
+| `positions[].symbol` | string | Símbolo tal como lo reporta MT4, **con sufijo del bróker incluido** (ej. `"XAUUSD-VIP"`). |
+| `positions[].direction` | string | `"BUY"` o `"SELL"`. |
+| `positions[].lot`, `open_price`, `current_price`, `sl`, `tp`, `profit` | number | Estado en vivo de la posición. |
+| `positions[].open_time` | string | ISO 8601 UTC. |
+
+El dashboard (`GET /api/positions`) sirve el contenido de este
+archivo tal cual. Si el archivo todavía no existe (el EA no arrancó
+o no llegó a su primer ciclo de escritura), el endpoint responde
+`{"positions": [], "account": null, "stale": true}` con status 200
+— es un estado esperado antes/durante el arranque, no un error.
+
+### 4.2 Configuración de sufijo de símbolo — `mt4-bridge/orders/config.json`
+
+El dashboard lo escribe (`POST /api/config` desde la UI web); el EA
+lo lee para saber qué sufijo de símbolo del bróker anteponer al
+instrumento (`XAUUSD` → `XAUUSD-VIP` en demo, `XAUUSD-STD` en real)
+al ejecutar órdenes.
+
+```json
+{ "symbol_suffix": "-STD" }
+```
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `symbol_suffix` | string | Únicos dos valores válidos: `"-VIP"` (demo) o `"-STD"` (real). El dashboard rechaza cualquier otro valor con 400 antes de escribir el archivo — el EA no necesita validar texto libre. |
+
+Si el archivo no existe todavía, `GET /api/config` del dashboard
+responde `{"symbol_suffix": null}` con status 200.
