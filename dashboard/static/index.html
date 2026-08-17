@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kronos Bot — Dashboard</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #12151a;
+    color: #e6e6e6;
+    margin: 0;
+    padding: 24px;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  h2 { font-size: 1.1rem; margin-top: 32px; margin-bottom: 8px; }
+  .subtitle { color: #9aa0a6; margin-top: 0; margin-bottom: 24px; }
+  .panel {
+    background: #1c2028;
+    border: 1px solid #2c3138;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid #2c3138;
+    white-space: nowrap;
+  }
+  th { color: #9aa0a6; font-weight: 600; }
+  .profit-pos { color: #4caf50; }
+  .profit-neg { color: #ef5350; }
+  .warning {
+    background: #3a2f12;
+    border: 1px solid #6b5416;
+    color: #f0c14b;
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+  }
+  .config-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  button {
+    background: #2c3138;
+    color: #e6e6e6;
+    border: 1px solid #3a4048;
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  button.active {
+    background: #3a6bd6;
+    border-color: #3a6bd6;
+  }
+  button:hover { border-color: #5a626c; }
+  .status-msg { color: #9aa0a6; font-size: 0.85rem; }
+  .status-msg.ok { color: #4caf50; }
+  .status-msg.error { color: #ef5350; }
+  .empty-msg { color: #9aa0a6; padding: 12px 0; }
+</style>
+</head>
+<body>
+  <h1>Kronos Bot — Dashboard</h1>
+  <p class="subtitle">Posiciones abiertas en MT4 y configuración del bróker</p>
+
+  <div class="panel">
+    <h2 style="margin-top:0;">Sufijo de símbolo del bróker</h2>
+    <div class="config-row">
+      <button id="btn-vip" data-suffix="-VIP">Demo (-VIP)</button>
+      <button id="btn-std" data-suffix="-STD">Real (-STD)</button>
+      <span id="config-status" class="status-msg"></span>
+    </div>
+  </div>
+
+  <h2>Posiciones abiertas</h2>
+  <div class="panel">
+    <div id="positions-warning"></div>
+    <table id="positions-table">
+      <thead>
+        <tr>
+          <th>Ticket</th>
+          <th>Señal</th>
+          <th>Símbolo</th>
+          <th>Dirección</th>
+          <th>Lote</th>
+          <th>Precio apertura</th>
+          <th>Precio actual</th>
+          <th>SL</th>
+          <th>TP</th>
+          <th>Profit</th>
+          <th>Apertura</th>
+        </tr>
+      </thead>
+      <tbody id="positions-body"></tbody>
+    </table>
+  </div>
+
+  <h2>Historial de señales</h2>
+  <div class="panel">
+    <table id="signals-table">
+      <thead>
+        <tr>
+          <th>Instrumento</th>
+          <th>Dirección</th>
+          <th>Estado</th>
+          <th>Ticket</th>
+          <th>Entrada</th>
+          <th>SL</th>
+          <th>TP</th>
+          <th>Fecha</th>
+        </tr>
+      </thead>
+      <tbody id="signals-body"></tbody>
+    </table>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
