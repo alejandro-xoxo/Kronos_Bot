@@ -1,13 +1,33 @@
 # Kronos Bot — Estado actual
 
-> Snapshot técnico del proyecto al 2026-08-14, rama `feature/mt4-ea-bridge`
-> (sin mergear a `develop` todavía). Pensado para poder pegarse completo a
-> una sesión nueva de Claude Code (o de cualquier asistente) sin depender
-> de memoria de conversación previa. Para reglas de negocio detalladas ver
-> `PROTOCOLOS_KRONOS_BOT.md`; para contexto general y reglas de trabajo,
-> `CLAUDE.md`.
+> Snapshot técnico del proyecto al 2026-08-17, rama `develop` (ya mergeado
+> — Etapas 1 a 6 completas, ver más abajo). Pensado para poder pegarse
+> completo a una sesión nueva de Claude Code (o de cualquier asistente)
+> sin depender de memoria de conversación previa. Para reglas de negocio
+> detalladas ver `PROTOCOLOS_KRONOS_BOT.md`; para contexto general y
+> reglas de trabajo, `CLAUDE.md`; para el detalle de alcance de v1 (qué
+> incluye y qué queda afuera a propósito), `docs/versions/v1.md`.
+
+## ⚠️ El gap operativo más importante ahora mismo
+
+**Fase 4 (Gemini) no está implementada.** El sistema ejecuta señales
+*nuevas* de formato fijo de punta a punta, con dinero real. Pero los
+mensajes de *seguimiento* del grupo — "mover el SL a BE", "cerrar a X
+-Y PIPS", "TP alcanzado" — **no se interpretan ni se aplican solos**.
+Si el grupo pide cerrar o mover el SL de una operación ya abierta, hay
+que verlo en el chat y aplicarlo a mano con los botones **BE / Cerrar**
+del dashboard (`localhost:8088`). No hay ningún proceso automático
+mirando el grupo para eso todavía — es 100% responsabilidad manual del
+usuario mientras esta fase no esté conectada.
 
 ## Qué funciona probado de punta a punta (no solo diseñado)
+
+**Ejecución real en MT4 — verificada con tickets reales de VT Markets**,
+no solo en teoría. Ejemplo: señal `9641-A` (XAUUSD BUY, entrada 4398.57,
+TP 4402, SL 4370) → confirmada por Telegram → ticket real `24827753`,
+abierta y visible en el dashboard con precio en vivo. Desde entonces
+corrieron más señales reales (`9644-A/B`, `9646-A/B`), todas con tickets
+reales de la cuenta `23096429`.
 
 Flujo completo verificado con señales reales del grupo de Telegram:
 
@@ -93,7 +113,7 @@ un cambio por API.
 
 Sub-etapas de esta fase, con estado individual:
 
-### 1. Wine + MT4 instalado — ✅ completo, sin login todavía
+### 1. Wine + MT4 instalado — ✅ completo, con sesión real activa
 
 - `scripts/setup-mt4.sh` (Linux, cualquier distro Arch-based — verifica
   `pacman`, no asume CachyOS) instala `wine`/`winetricks`, crea el
@@ -111,9 +131,8 @@ Sub-etapas de esta fase, con estado individual:
   Markets sí distribuye su propio instalador.
 - Instalado correctamente en `~/.wine-mt4` (confirmado: carpeta
   `MetaQuotes/Terminal/<ID>/` con `MQL4/`, `config/`, etc.)
-- **Pendiente:** el usuario todavía no inició sesión con la cuenta real
-  (servidor `VTMarkets-Live 9`) — decisión deliberada de esperar a estar
-  en la red de casa por seguridad, no un bloqueo técnico.
+- Sesión real iniciada (cuenta `23096429`, servidor de VT Markets),
+  terminal corriendo (`terminal.exe` bajo Wine, verificado con `ps`).
 
 ### 2. Formato de archivos + symlinks a Common/Files — ✅ completo y verificado
 
@@ -158,7 +177,7 @@ Sub-etapas de esta fase, con estado individual:
   `mt4-bridge/orders/results/*`, con excepción explícita de los
   `.gitkeep`.
 
-### 3. EA en MQL4 — código completo y revisado, sin compilar todavía
+### 3. EA en MQL4 — ✅ compilado y ejecutando órdenes reales
 
 - `mt4-bridge/ea/KronosBridgeEA.mq4` — Expert Advisor que:
   - Usa `OnTimer` (no `OnTick`) para hacer polling de
@@ -188,15 +207,22 @@ Sub-etapas de esta fase, con estado individual:
     **Experts** de MT4.
 - Revisado en conjunto con el usuario (vía archivo enviado, no pegado en
   terminal — pegarlo corrompía el código).
-- **Pendiente:** compilar con MetaEditor (F7) — requiere interfaz
-  gráfica, no se puede automatizar desde una sesión de Claude Code (el
-  entorno de herramientas no comparte pantalla/GUI con la sesión de
-  escritorio real). Tampoco se probó todavía contra el gráfico real de
-  MT4.
+- **Compilado con MetaEditor** (`KronosBridgeEA.ex4` presente en
+  `MQL4/Experts/`) y **adjuntado a gráficos reales** (XAUUSD-STD,
+  EURUSD-STD) — verificado vía log de MT4 (`MQL4/Logs/`), incluyendo el
+  polling de `orders/pending/*.json`, la actualización en caliente del
+  sufijo de símbolo desde `orders/config.json`, y errores reales de
+  permisos de escritura ya resueltos.
+- **Fix real post-compilación:** al abrir 2 sub-señales del mismo
+  instrumento casi simultáneas (multi-TP), el bróker devolvía error
+  4109 (trade context busy) en la segunda `OrderSend` — se agregó una
+  pausa corta entre órdenes consecutivas.
 
 ### 4 y 5 — Nodos de n8n para el puente con MT4
 
-- **Etapa 4 — ✅ implementada, sin probar end-to-end todavía.** En la
+- **Etapa 4 — ✅ implementada y verificada end-to-end con dinero real.**
+  Confirmar una señal real en Telegram escribe la orden, el EA la
+  levanta y ejecuta, y vuelve un ticket real (ver arriba). En la
   rama `feature/n8n-mt4-order-bridge`:
   - **Bloqueo de infraestructura resuelto:** n8n corre en Docker y no
     tenía acceso al filesystem del host donde vive `mt4-bridge/orders/`
@@ -211,6 +237,7 @@ Sub-etapas de esta fase, con estado individual:
     escritura de prueba desde dentro del contenedor, visible del lado
     de Wine.
   - Tres nodos nuevos en el workflow, en la rama `CONFIRMED` del flujo
+    (contenido histórico de esta sección, aún vigente):
     de callback (paralelo a `Responder callback: Confirmada`, no lo
     reemplaza): **`Obtener señal confirmada`** (Postgres `SELECT`, ya
     que el `UPDATE` de `Actualizar status: CONFIRMED` solo devuelve
@@ -221,10 +248,8 @@ Sub-etapas de esta fase, con estado individual:
     `{{ $env.MT4_ORDERS_DIR }}/pending/{{ signal_id }}.json`).
   - Ya subido vía API a la instancia real de n8n (workflow activo
     `QxXebyoPgTGmGH2B`) y sincronizado de vuelta al JSON del repo.
-  - **Pendiente:** prueba end-to-end real (confirmar una señal de
-    verdad en Telegram y verificar que el EA la levanta y ejecuta) —
-    no se disparó todavía para no tocar la cuenta real sin que el
-    usuario lo decida explícitamente.
+  - **Prueba end-to-end real disparada y verificada** (ver el ejemplo
+    de `9641-A`/ticket `24827753` al inicio de este documento).
 - **Etapa 5 — ✅ implementada y verificada end-to-end.** Rama
   `feature/n8n-read-mt4-results`. Seis nodos nuevos, en paralelo al
   flujo de confirmación (no tocan los nodos existentes):
@@ -293,6 +318,36 @@ Sub-etapas de esta fase, con estado individual:
   como **no verificado end-to-end** (a diferencia del de Linux, que sí
   se probó en la máquina real del usuario).
 
+## Desde el snapshot del 14/08 — qué se agregó
+
+- **Dashboard (Flask, `localhost:8088`)**: posiciones abiertas en vivo
+  (precio, profit, SL/TP), botones **BE** y **Cerrar** por posición
+  (escriben comandos que el EA lee de `orders/actions/` y ejecuta),
+  botón **Reintentar** para señales en `PENDING_MANUAL`, historial de
+  señales con filtros por período y numeración de ciclo visual (1-20,
+  se resumen las más viejas en la fila "#0"), y un selector de sufijo
+  de símbolo del bróker (`-VIP` demo / `-STD` real) que el EA lee en
+  caliente desde `orders/config.json` sin recompilar.
+- **Fix de pérdida de eventos en Telethon**: en el grupo real (~3900
+  suscriptores, tráfico alto), Telethon a veces pedía un resync de
+  "difference" ante un gap de `pts` y no volvía a disparar
+  `events.NewMessage` — el mensaje se perdía en silencio. Se agregó un
+  polling de respaldo cada 15s sobre el historial reciente del chat,
+  deduplicado por `message_id`, como red de seguridad del evento en
+  vivo. También se corrigió el `timestamp` enviado a n8n para usar la
+  fecha real del mensaje (`message.date`) en vez de la hora de captura.
+- **Nodo de debug en n8n**: notifica por Telegram privado cualquier
+  mensaje del grupo que no matchee el regex de señal nueva, para poder
+  confirmar en vivo que Telethon está leyendo el grupo correcto.
+- **Repo limpio**: historia de git reescrita para sacar atribución de
+  herramientas de IA en los commits, ramas viejas ya mergeadas
+  eliminadas (local y remoto), solo quedan `main` y `develop`.
+- **README y documentación reestructurados** para portafolio: la
+  historia y el porqué del proyecto viven en `README.md`; el detalle
+  técnico completo (decisiones de arquitectura, retos técnicos,
+  instalación, configuración, roadmap) vive en `docs/versions/v1.md`,
+  versionado aparte para cuando exista v2.
+
 ## Qué NO hace todavía
 
 - **Interpretación por Gemini** (Fase 4 del roadmap original) — mover
@@ -301,15 +356,9 @@ Sub-etapas de esta fase, con estado individual:
 - **Cálculo de lotaje por slots** (80/20, sección 5.3 del protocolo) —
   fórmula definida, no implementada. Todas las señales (incluidas ambas
   sub-señales de una señal multi-TP) usan lotaje fijo `0.01`.
-- **Ejecución real en MT4 — ciclo completo (Etapas 4 y 5) ya
-  implementado y verificado**: n8n escribe la orden al confirmar, el
-  EA la ejecuta, n8n lee el resultado, actualiza Postgres y notifica.
-  Pendiente solo la prueba end-to-end disparada por una señal real
-  nueva del grupo (las pruebas hechas hasta ahora fueron manuales por
-  etapa).
 - **Ciclo de cierre y registro en Google Sheets** (Fase 7) — sin
-  empezar, depende de que la ejecución real en MT4 esté funcionando
-  primero (necesita que el EA reporte cierres, no solo aperturas).
+  empezar. Los cierres (BE/Cerrar) hoy se hacen manual desde el
+  dashboard, y no se registran en ningún lado fuera de Postgres.
 - **Loop de reintento de precio con Gemini** (protocolo sección 8) —
   depende de que exista la ejecución real en MT4.
 - **Ejecución 100% automática sin confirmación** (Fase 8, futuro) — todo
@@ -318,34 +367,34 @@ Sub-etapas de esta fase, con estado individual:
 
 ## Próximos pasos inmediatos (en orden)
 
-1. **[Manual, usuario]** Compilar `mt4-bridge/ea/KronosBridgeEA.mq4` con
-   MetaEditor (F7) dentro de MT4, revisar que compile sin errores.
-2. **[Manual, usuario]** Iniciar sesión en MT4 con la cuenta real
-   (servidor `VTMarkets-Live 9`), desde la red de casa.
-3. ✅ Etapa 4: nodo n8n que escribe `orders/pending/{signal_id}.json`
-   al confirmar una señal — completo.
-4. ✅ Etapa 5: nodo n8n que lee `orders/results/{signal_id}.json`,
-   actualiza Postgres y notifica — completo.
-5. Prueba end-to-end completa: señal real → confirmar en Telegram → EA
-   ejecuta en MT4 (demo o real, a decidir) → resultado vuelve a Telegram.
-6. Recién después de validar el flujo básico de ejecución: cálculo de
-   lotaje por slots, interpretación por Gemini, ciclo de cierre.
+1. **Conectar Gemini (Fase 4)** para interpretar instrucciones de
+   seguimiento en lenguaje libre y aplicarlas solo (hoy es 100% manual
+   vía dashboard — ver el aviso al principio de este documento). Es el
+   gap operativo más importante mientras se opera con dinero real.
+2. Cálculo de lotaje por slots (80/20, protocolo sección 5.3) — hoy
+   fijo en `0.01`.
+3. Ciclo de cierre y registro en Google Sheets (Fase 7).
+4. Recién después: evaluar ejecución 100% automática sin confirmación
+   (Fase 8), con el historial de v1 como respaldo de confianza.
 
 ## Fases (referencia de `CLAUDE.md`)
 
 - ✅ Fase 0 — credenciales Telegram, estructura de carpetas.
-- ✅ Fase 1 — microservicio Telethon capturando y enviando al webhook.
+- ✅ Fase 1 — microservicio Telethon capturando y enviando al webhook,
+  con polling de respaldo agregado por pérdida de eventos en canales
+  de alto tráfico.
 - ✅ Fase 2 — base de datos Postgres, auto-init vía
   `docker-entrypoint-initdb.d`.
 - ✅ Fase 3 — webhook + parser regex (incluye multi-TP), verificado
   end-to-end.
-- 🔲 Fase 4 — interpretación por Gemini. No iniciada.
+- 🔲 Fase 4 — interpretación por Gemini. No iniciada — gap operativo
+  activo (ver aviso al inicio del documento).
 - ✅ Fase 5 — botones de confirmar/rechazar funcionales, idempotentes,
   con mensaje de confirmación visible en el chat.
-- 🔶 Fase 6 — EA puente en MT4. Wine/MT4 instalados, formato de
-  archivos y symlinks verificados, EA escrito, compilado y ejecutando
-  órdenes reales; nodos n8n de las Etapas 4 y 5 (escribir orden pending
-  / leer resultado) completos y verificados. Pendiente solo la prueba
-  end-to-end disparada por una señal real nueva del grupo.
-- 🔲 Fase 7 — cierre y registro en Google Sheets.
-- 🔲 Fase 8 — ejecución 100% automática (futuro).
+- ✅ Fase 6 — EA puente en MT4. Completa y verificada end-to-end con
+  dinero real: Wine/MT4 con sesión real, EA compilado y ejecutando,
+  nodos n8n de escribir orden / leer resultado funcionando, tickets
+  reales confirmados en la cuenta `23096429`.
+- 🔲 Fase 7 — cierre y registro en Google Sheets. Cierres manuales hoy
+  vía dashboard, sin registro fuera de Postgres.
+- 🔲 Fase 8 — ejecución 100% automática (futuro, meta de v2).
