@@ -149,8 +149,21 @@ void ProcessPendingOrders()
    if(searchHandle == INVALID_HANDLE)
       return; // no hay órdenes pendientes en este ciclo, nada que hacer
 
+   bool isFirstFile = true;
    do
    {
+      if(!isFirstFile)
+      {
+         // Pausa corta entre órdenes consecutivas del mismo ciclo. Sin
+         // esto, cuando llegan 2+ archivos juntos (ej. señal multi-TP,
+         // sub-señales A y B) el segundo OrderSend puede rechazarse con
+         // error 4109 (trade not allowed) por mandarse demasiado pegado
+         // al primero — bug real detectado en pruebas en vivo (ticket
+         // exitoso en la primera sub-señal, 4109 en la segunda, mismo
+         // ciclo). No es un problema de permisos del EA/terminal.
+         Sleep(500);
+      }
+      isFirstFile = false;
       ProcessSingleFile(fileName);
    }
    while(FileFindNext(searchHandle, fileName));
