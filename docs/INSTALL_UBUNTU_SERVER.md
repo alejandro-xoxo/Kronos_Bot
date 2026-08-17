@@ -81,10 +81,6 @@ TELEGRAM_USER_CHAT_ID=
 # Puente n8n -> MT4 (ver sección 12 — se completa DESPUÉS de instalar
 # MT4 y correr scripts/setup-mt4-ubuntu.sh, no antes)
 MT4_ORDERS_HOST_PATH=
-
-# Dashboard web (Basic Auth — obligatorio antes de exponerlo por ngrok)
-DASHBOARD_USER=
-DASHBOARD_PASSWORD=
 ```
 
 - `N8N_API_KEY` se genera desde la propia UI de n8n (Settings → n8n
@@ -94,10 +90,6 @@ DASHBOARD_PASSWORD=
   los IDs reales de Telegram (grupo de señales y tu chat privado con
   el bot, respectivamente).
 - `MT4_ORDERS_HOST_PATH` se completa en la sección 12.
-- `DASHBOARD_USER`/`DASHBOARD_PASSWORD` protegen el dashboard web
-  (puerto 8088) con HTTP Basic Auth — obligatorio completarlas antes de
-  levantar el servicio `dashboard`, si quedan vacías el dashboard
-  responde 503 a todo (falla cerrado, no abierto).
 
 ## 4. Levantar el stack de Docker
 
