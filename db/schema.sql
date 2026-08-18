@@ -86,7 +86,9 @@ CREATE TABLE IF NOT EXISTS signal_modifications (
         'SL_TO_BE',
         'CANCEL',
         'TP_UPDATE',
-        'CLOSE_AT_PRICE'
+        'CLOSE_AT_PRICE',
+        'CLOSE_ALL_TO_BE',
+        'UNCLASSIFIED'
     )),
 
     interpreted_by         TEXT NOT NULL CHECK (interpreted_by IN ('REGEX', 'AI')),
