@@ -149,6 +149,40 @@ posición se podría cerrar ahora mismo (Bid para BUY, Ask para SELL).
 Archivo de solo lectura para consumidores externos (dashboard); el EA
 nunca lo lee, solo lo escribe.
 
+## 5.1 Motivo de cierre — `mt4-bridge/orders/closed/<ticket>.json` (lado EA)
+
+**EA implementado, consumidor de n8n pendiente** (ver `STATUS.md`). En
+cada ciclo de `OnTimer()`, `DetectClosedPositions()` recorre el
+historial de órdenes (`OrdersHistoryTotal()`) buscando tickets propios
+(`InpMagicNumber`) que ya cerraron y todavía no se reportaron (control
+vía variable global de terminal `KronosClosedReported_<ticket>`, para
+no reescribir el archivo en cada ciclo). Por cada ticket nuevo escribe
+un archivo — no se sobrescribe, es un archivo por ticket, igual patrón
+que `pending/`:
+
+```json
+{
+  "ticket": 24854868,
+  "signal_uid": "9681-A",
+  "symbol": "XAUUSD-STD",
+  "reason": "TP_REACHED",
+  "close_price": 4397.0,
+  "profit": 5.42,
+  "close_time": "2026-08-18T12:03:11Z"
+}
+```
+
+`reason` se infiere comparando `close_price` contra el TP/SL de la
+orden con una tolerancia de 3 puntos (spread/slippage al momento del
+cierre): `TP_REACHED`, `SL_REACHED`, o `CLOSED_MANUAL` si no coincide
+con ninguno (cierre manual desde MT4, o vía `CLOSE` del dashboard).
+
+**Falta implementar** el lado de n8n: un `Schedule Trigger` que lea
+`closed/*.json` (mismo patrón que la sección 6 para `results/`),
+actualice `signals.status` a `reason` (`WHERE status = 'OPEN'`,
+UPDATE idempotente), y borre el archivo siempre. Sin este paso, los
+archivos se acumulan en `orders/closed/` sin que nada los consuma.
+
 ## 6. Convención de limpieza
 
 - El EA, tras leer un archivo de `pending/`, lo **borra inmediatamente**
