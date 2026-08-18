@@ -161,7 +161,10 @@ dashboard para no encolar comandos que nunca se van a ejecutar.
 
 ## 5.1 Motivo de cierre — `mt4-bridge/orders/closed/<ticket>.json` (lado EA)
 
-**EA implementado, consumidor de n8n pendiente** (ver `STATUS.md`). En
+**EA implementado (codigo fuente), consumidor de n8n implementado en el
+JSON del repo** (`n8n-workflows/webhook-mvp-workflow.json`) — falta
+recompilar el `.ex4` en MT4 y subir el workflow a la instancia real de
+n8n antes de que esto tenga efecto en produccion (ver `STATUS.md`). En
 cada ciclo de `OnTimer()`, `DetectClosedPositions()` recorre el
 historial de órdenes (`OrdersHistoryTotal()`) buscando tickets propios
 (`InpMagicNumber`) que ya cerraron y todavía no se reportaron (control
@@ -187,11 +190,55 @@ orden con una tolerancia de 3 puntos (spread/slippage al momento del
 cierre): `TP_REACHED`, `SL_REACHED`, o `CLOSED_MANUAL` si no coincide
 con ninguno (cierre manual desde MT4, o vía `CLOSE` del dashboard).
 
-**Falta implementar** el lado de n8n: un `Schedule Trigger` que lea
-`closed/*.json` (mismo patrón que la sección 6 para `results/`),
-actualice `signals.status` a `reason` (`WHERE status = 'OPEN'`,
-UPDATE idempotente), y borre el archivo siempre. Sin este paso, los
-archivos se acumulan en `orders/closed/` sin que nada los consuma.
+**Lado de n8n implementado** en el JSON del repo (siete nodos nuevos,
+mismo patrón que la sección 6 para `results/`, sin tocar la instancia
+viva de n8n todavía — pendiente de que el usuario los suba tras
+revisarlos):
+
+`Trigger: leer cierres MT4` (`scheduleTrigger`, cada 5s) →
+`Leer cierres (MT4)` (`readWriteFile`, operation `read`,
+`fileSelector = {{ $env.MT4_ORDERS_DIR }}/closed/*.json`, soporta
+glob) → `Parsear cierre (MT4)` (Code, mismo patrón que `Parsear
+resultado (MT4)`: lee el binario con
+`this.helpers.getBinaryDataBuffer` porque esta versión de n8n usa
+`filesystem-v2`) → `Actualizar status: cierre TP/SL` (Postgres,
+`UPDATE` idempotente) → `¿Se actualizó cierre ahora?` (IF sobre
+`updated_count`) → rama `true`: `Avisar en chat: Cierre TP/SL`
+(Telegram, texto distinto según `reason`) → ambas ramas confluyen en
+`Borrar archivo de cierre` (Code, `fs.promises.unlink`, siempre).
+
+**Diferencia clave respecto al consumidor de `results/`:** `closed/*.json`
+no trae el `id` numérico de Postgres (solo `signal_uid`), así que el
+`UPDATE` correlaciona por `signal_uid` en vez de `id`:
+
+```sql
+WITH updated AS (
+  UPDATE signals SET
+    status = $2,
+    close_price = $3,
+    profit_loss = $4,
+    close_timestamp = $5::timestamp,
+    mt4_ticket = COALESCE(mt4_ticket, $6),
+    updated_at = NOW()
+  WHERE signal_uid = $1 AND status = 'OPEN'
+  RETURNING id
+)
+SELECT (SELECT COUNT(*) FROM updated) AS updated_count, $1::text AS signal_uid;
+```
+
+con `$1..$6` = `[signal_uid, reason, close_price, profit, close_time, ticket]`.
+El `WHERE status = 'OPEN'` es lo que garantiza la idempotencia: si el
+mismo `closed/<ticket>.json` se procesa dos veces (reintento del
+trigger, o el archivo tarda en borrarse), el segundo `UPDATE` no
+encuentra ninguna fila en `status = 'OPEN'` (ya quedó en
+`TP_REACHED`/`SL_REACHED`/`CLOSED_MANUAL`) y no rompe nada — igual
+criterio que el `WHERE status = 'CONFIRMED'` del consumidor de
+`results/`.
+
+`mt4_ticket` se actualiza con `COALESCE` (no pisa un valor ya escrito
+por el consumidor de `results/`, solo lo completa si por algún motivo
+llegara nulo). El archivo se borra siempre en `Borrar archivo de
+cierre`, haya notificado o no — mismo criterio que `results/`.
 
 ## 6. Convención de limpieza
 
