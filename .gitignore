@@ -6,4 +6,5 @@ db/*.db
 mt4-bridge/orders/pending/*
 mt4-bridge/orders/results/*
 !mt4-bridge/orders/pending/.gitkeep
-!mt4-bridge/orders/results/.gitkeep__pycache__/
+!mt4-bridge/orders/results/.gitkeep
+__pycache__/
