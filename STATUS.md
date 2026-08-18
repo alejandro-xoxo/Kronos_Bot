@@ -364,9 +364,29 @@ Sub-etapas de esta fase, con estado individual:
 - **Ejecución 100% automática sin confirmación** (Fase 8, futuro) — todo
   el diseño actual asume confirmación humana obligatoria (protocolo,
   principio no negociable #3).
+- **Detección de motivo de cierre (TP vs SL)** — **lado EA
+  implementado** (`DetectClosedPositions()` en `KronosBridgeEA.mq4`,
+  ver `mt4-bridge/FORMATO_ARCHIVOS.md` sección 5.1): compara
+  `OrderClosePrice()` contra TP/SL y escribe
+  `orders/closed/<ticket>.json` con `TP_REACHED`/`SL_REACHED`/
+  `CLOSED_MANUAL`. **Sin probar en real todavía** — requiere
+  recompilar el `.ex4` con MetaEditor (GUI) antes de tomar efecto.
+  **Falta el lado de n8n**: un nodo que lea `closed/*.json` (mismo
+  patrón que `results/`, sección 6) y actualice `signals.status` en
+  Postgres — sin esto los archivos se acumulan sin consumirse. No se
+  tocó el workflow de n8n en vivo en esta pasada por ser un sistema
+  operando con dinero real y sin forma de probar el workflow importado
+  en este entorno; ver sección 5.1 del formato para el detalle exacto
+  de los nodos que faltan.
 
 ## Próximos pasos inmediatos (en orden)
 
+0. **Cerrar el lazo de cierre (TP/SL) recién añadido** — recompilar
+   `KronosBridgeEA.mq4` con MetaEditor y agregar el nodo de n8n que
+   consume `orders/closed/*.json` (sección 5.1 de
+   `mt4-bridge/FORMATO_ARCHIVOS.md`). Bajo riesgo (no toca lógica de
+   entrada/lotaje), alto valor: hoy toda operación cerrada queda
+   `OPEN` para siempre en el dashboard/BD.
 1. **Conectar Gemini (Fase 4)** para interpretar instrucciones de
    seguimiento en lenguaje libre y aplicarlas solo (hoy es 100% manual
    vía dashboard — ver el aviso al principio de este documento). Es el
@@ -376,6 +396,20 @@ Sub-etapas de esta fase, con estado individual:
 3. Ciclo de cierre y registro en Google Sheets (Fase 7).
 4. Recién después: evaluar ejecución 100% automática sin confirmación
    (Fase 8), con el historial de v1 como respaldo de confianza.
+
+## Qué es "v2" para este proyecto (recomendación)
+
+No hay un salto de versión mayor pendiente de diseño — el roadmap de
+`CLAUDE.md` (Fases 0–8) ya es, en efecto, el plan de v2: v1 fue el
+sistema manual/semi-manual anterior (mencionado como respaldo de
+confianza en el punto 4 de arriba); v2 es este bot con confirmación
+humana + ejecución real en MT4. Cerrar los 4 puntos de la lista de
+arriba (en ese orden) **es** completar v2. No conviene inventar un
+roadmap paralelo — el existente ya está priorizado por riesgo/impacto
+y validado en una operación con dinero real, y el punto más importante
+sigue siendo el mismo desde el "gap operativo" al principio de este
+documento: Gemini (Fase 4) para no depender de gestión 100% manual de
+SL/BE/cierres mientras hay posiciones reales abiertas.
 
 ## Fases (referencia de `CLAUDE.md`)
 

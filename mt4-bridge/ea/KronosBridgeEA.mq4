@@ -37,6 +37,8 @@ input string InpSymbolSuffix        = "-VIP";     // Sufijo del símbolo real: "
 #define ACTIONS_DIR_PATTERN "orders\\actions\\*.json"
 #define ACTIONS_DIR_PREFIX  "orders\\actions\\"
 #define ACTION_RESULTS_DIR_PREFIX "orders\\action_results\\"
+#define CLOSED_DIR_PREFIX   "orders\\closed\\"
+#define CLOSED_GVAR_PREFIX  "KronosClosedReported_"
 
 //--- Sufijo de símbolo efectivo: arranca con InpSymbolSuffix (fallback) y
 //    puede actualizarse en caliente vía orders/config.json (ver
@@ -125,6 +127,70 @@ void OnTimer()
    ProcessPendingOrders();
    ProcessPositionActions();
    WritePositionsStatus();
+   DetectClosedPositions();
+}
+
+//+------------------------------------------------------------------+
+//| Detecta posiciones de este EA (InpMagicNumber) que aparecen en el|
+//| historial como cerradas y todavía no fueron reportadas — escribe |
+//| orders/closed/<ticket>.json con el motivo inferido (TP_REACHED / |
+//| SL_REACHED / CLOSED_MANUAL) para que n8n actualice signals.status.|
+//| El "ya reportado" se marca con una variable global de terminal    |
+//| (persiste entre reinicios del EA, se resetea solo si se borra la  |
+//| plataforma) para no reescribir el mismo archivo en cada ciclo.    |
+//+------------------------------------------------------------------+
+void DetectClosedPositions()
+{
+   int total = OrdersHistoryTotal();
+   for(int i = total - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+
+      int orderType = OrderType();
+      if(orderType != OP_BUY && orderType != OP_SELL)
+         continue; // ignora cancelaciones de pendientes, no son cierres de mercado
+
+      int ticket = OrderTicket();
+      string gvarName = CLOSED_GVAR_PREFIX + IntegerToString(ticket);
+      if(GlobalVariableCheck(gvarName))
+         continue; // ya reportado en un ciclo anterior
+
+      double closePrice = OrderClosePrice();
+      double tp          = OrderTakeProfit();
+      double sl           = OrderStopLoss();
+      double pointTolerance = 3 * Point; // margen por slippage/spread al momento del cierre
+
+      string reason = "CLOSED_MANUAL";
+      if(tp > 0 && MathAbs(closePrice - tp) <= pointTolerance)
+         reason = "TP_REACHED";
+      else if(sl > 0 && MathAbs(closePrice - sl) <= pointTolerance)
+         reason = "SL_REACHED";
+
+      string signalUid = OrderComment();
+      string prefix     = "KronosBot:";
+      if(StringFind(signalUid, prefix) == 0)
+         signalUid = StringSubstr(signalUid, StringLen(prefix));
+
+      string json = "{\n";
+      json += "  \"ticket\": " + IntegerToString(ticket) + ",\n";
+      json += "  \"signal_uid\": \"" + JsonEscape(signalUid) + "\",\n";
+      json += "  \"symbol\": \"" + OrderSymbol() + "\",\n";
+      json += "  \"reason\": \"" + reason + "\",\n";
+      json += "  \"close_price\": " + DoubleToString(closePrice, 5) + ",\n";
+      json += "  \"profit\": " + DoubleToString(OrderProfit() + OrderSwap() + OrderCommission(), 2) + ",\n";
+      json += "  \"close_time\": \"" + ToIso8601Utc(OrderCloseTime()) + "\"\n";
+      json += "}\n";
+
+      string closedPath = CLOSED_DIR_PREFIX + IntegerToString(ticket) + ".json";
+      if(WriteEntireFile(closedPath, json))
+         GlobalVariableSet(gvarName, 1);
+      else
+         Print("Kronos EA: ERROR al escribir ", closedPath, " — revisar permisos de Common\\Files");
+   }
 }
 
 //+------------------------------------------------------------------+
