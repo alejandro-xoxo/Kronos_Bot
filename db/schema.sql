@@ -166,6 +166,16 @@ BEGIN
         RETURN NULL;
     END IF;
 
+    -- DROP explícito antes de crear: "ON COMMIT DROP" solo limpia la
+    -- tabla temporal si la transacción efectivamente hace COMMIT. Si
+    -- una conexión pooled (ej. el nodo Postgres de n8n) deja una
+    -- transacción sin cerrar, la tabla persiste en esa sesión y el
+    -- próximo INSERT en signals revienta con "relation already
+    -- exists", bloqueando TODA inserción nueva hasta reiniciar n8n
+    -- (incidente real, 2026-08-18). Este DROP hace que la función sea
+    -- inmune a esa sesión colgada sin depender de por qué quedó así.
+    DROP TABLE IF EXISTS _signals_to_archive;
+
     CREATE TEMP TABLE _signals_to_archive ON COMMIT DROP AS
     SELECT id, created_at, status, instrument, profit_loss
     FROM signals
