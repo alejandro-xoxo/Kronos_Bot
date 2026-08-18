@@ -5,45 +5,133 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kronos Bot — Dashboard</title>
 <style>
+  :root {
+    /* Superficies — negros y azules oscuros */
+    --bg-deep: #05070D;
+    --bg-nebula: #0D1B2A;
+    --surface: #0B0F1A;
+    --surface-raised: #10182B;
+
+    /* Texto */
+    --text-main: #E6E9F0;
+    --text-dim: #8892A6;
+
+    /* Acentos estructurales — azules medios, moderados, estado normal */
+    --line: #1E3A8A;
+    --accent: #2563EB;
+    --accent-soft: #3B82F6;
+    --purple: #8B5CF6;
+
+    /* Pasteles brillantes — SOLO hover/focus/active */
+    --pastel-lavender: #C4B5FD;
+    --pastel-sky: #A5F3FC;
+    --pastel-pink: #FBCFE8;
+    --pastel-mint: #A7F3D0;
+
+    /* Semántico (siempre visible, no depende de hover) */
+    --profit-pos: #6EE7B7;
+    --profit-neg: #FDA4AF;
+    --warn: #FCD34D;
+
+    --border: rgba(30, 58, 138, 0.45);
+    --row-border: rgba(30, 58, 138, 0.25);
+  }
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
     font-family: system-ui, -apple-system, sans-serif;
-    background: #12151a;
-    color: #e6e6e6;
+    background: linear-gradient(165deg, var(--bg-deep) 0%, var(--bg-nebula) 100%);
+    background-attachment: fixed;
+    color: var(--text-main);
     margin: 0;
-    padding: 24px;
+    padding: 0;
+    line-height: 1.5;
   }
-  h1 { font-size: 1.4rem; margin-bottom: 4px; }
-  h2 { font-size: 1.1rem; margin-top: 32px; margin-bottom: 8px; }
-  .subtitle { color: #9aa0a6; margin-top: 0; margin-bottom: 24px; }
-  .subtitle a { color: #6fa8ff; }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px 64px;
+  }
+  .page-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+    background: linear-gradient(135deg, var(--accent-soft), var(--purple));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  h2 {
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-top: 44px;
+    margin-bottom: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  h2:first-of-type { margin-top: 0; }
+  .subtitle { color: var(--text-dim); margin-top: 0; margin-bottom: 28px; font-size: 0.9rem; }
+  .subtitle a {
+    color: var(--accent-soft);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: color 0.25s ease, border-color 0.25s ease;
+  }
+  .subtitle a:hover { color: var(--pastel-sky); border-color: var(--pastel-sky); }
   .panel {
-    background: #1c2028;
-    border: 1px solid #2c3138;
-    border-radius: 8px;
-    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    transition: border-color 0.25s ease;
+  }
+  .panel:hover { border-color: var(--pastel-lavender); }
+  .table-scroll {
+    width: 100%;
   }
   table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
-    font-size: 0.9rem;
+    font-size: 0.76rem;
   }
   th, td {
     text-align: left;
-    padding: 6px 10px;
-    border-bottom: 1px solid #2c3138;
-    white-space: nowrap;
+    padding: 5px 4px;
+    border-bottom: 1px solid var(--row-border);
+    white-space: normal;
+    overflow-wrap: break-word;
   }
-  th { color: #9aa0a6; font-weight: 600; }
-  .profit-pos { color: #4caf50; }
-  .profit-neg { color: #ef5350; }
+  th { color: var(--text-dim); font-weight: 600; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.02em; }
+  #positions-table th:last-child, #positions-table td:last-child { width: 24%; }
+  #positions-table th:nth-child(2), #positions-table td:nth-child(2) { width: 8%; }
+  #signals-table th:last-child, #signals-table td:last-child { width: 14%; }
+  tbody tr { transition: background-color 0.25s ease, box-shadow 0.25s ease; }
+  tbody tr:hover {
+    background-color: rgba(196, 181, 253, 0.05);
+    box-shadow: inset 2px 0 0 var(--pastel-lavender);
+  }
+  .profit-pos { color: var(--profit-pos); }
+  .profit-neg { color: var(--profit-neg); }
   .warning {
-    background: #3a2f12;
-    border: 1px solid #6b5416;
-    color: #f0c14b;
+    background: rgba(252, 211, 77, 0.08);
+    border: 1px solid rgba(252, 211, 77, 0.35);
+    color: var(--warn);
     padding: 10px 14px;
     border-radius: 6px;
     margin-bottom: 12px;
+    font-size: 0.9rem;
   }
   .config-row {
     display: flex;
@@ -52,59 +140,84 @@
     margin-bottom: 8px;
   }
   button {
-    background: #2c3138;
-    color: #e6e6e6;
-    border: 1px solid #3a4048;
+    background: var(--surface-raised);
+    color: var(--text-main);
+    border: 1px solid var(--line);
     border-radius: 6px;
     padding: 8px 14px;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
+    transition: border-color 0.25s ease, color 0.25s ease, background-color 0.25s ease;
   }
   button.active {
-    background: #3a6bd6;
-    border-color: #3a6bd6;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    border-color: transparent;
+    color: #fff;
   }
-  button:hover { border-color: #5a626c; }
-  .status-msg { color: #9aa0a6; font-size: 0.85rem; }
-  .status-msg.ok { color: #4caf50; }
-  .status-msg.error { color: #ef5350; }
-  .empty-msg { color: #9aa0a6; padding: 12px 0; }
+  button.active:hover { filter: brightness(1.1); border-color: transparent; color: #fff; }
+  button:hover { border-color: var(--pastel-sky); color: var(--pastel-sky); }
+  button:focus-visible { outline: none; border-color: var(--pastel-sky); box-shadow: 0 0 0 2px rgba(165, 243, 252, 0.25); }
+  .status-msg { color: var(--text-dim); font-size: 0.85rem; }
+  .status-msg.ok { color: var(--profit-pos); }
+  .status-msg.error { color: var(--profit-neg); }
+  .empty-msg { color: var(--text-dim); padding: 14px 0; }
   .btn-retry {
-    background: #6b4a16;
-    border-color: #a5701f;
-    padding: 4px 10px;
-    font-size: 0.8rem;
+    padding: 3px 7px;
+    font-size: 0.7rem;
   }
-  .btn-retry:hover { border-color: #d18f2c; }
-  .btn-retry:disabled { opacity: 0.5; cursor: default; }
-  .retry-status { margin-left: 8px; }
-  .position-actions { display: flex; gap: 6px; align-items: center; }
+  .btn-retry:hover { border-color: var(--pastel-lavender); color: var(--pastel-lavender); }
+  .btn-retry:disabled { opacity: 0.4; cursor: default; }
+  .retry-status { margin-left: 6px; font-size: 0.7rem; }
+  .position-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .btn-be {
-    background: #1f4a3a;
-    border-color: #2f7a5a;
-    padding: 4px 10px;
-    font-size: 0.8rem;
+    padding: 3px 7px;
+    font-size: 0.7rem;
   }
-  .btn-be:hover { border-color: #4caf50; }
+  .btn-be:hover { border-color: var(--pastel-mint); color: var(--pastel-mint); }
   .btn-be-tp {
-    background: #1f3a4a;
-    border-color: #2f6a7a;
-    padding: 4px 10px;
-    font-size: 0.8rem;
+    padding: 3px 7px;
+    font-size: 0.7rem;
   }
-  .btn-be-tp:hover { border-color: #4cb8af; }
+  .btn-be-tp:hover { border-color: var(--pastel-sky); color: var(--pastel-sky); }
   .btn-close {
-    background: #4a1f1f;
-    border-color: #7a2f2f;
-    padding: 4px 10px;
-    font-size: 0.8rem;
+    padding: 3px 7px;
+    font-size: 0.7rem;
   }
-  .btn-close:hover { border-color: #ef5350; }
-  .btn-be:disabled, .btn-be-tp:disabled, .btn-close:disabled { opacity: 0.5; cursor: default; }
+  .btn-close:hover { border-color: var(--pastel-pink); color: var(--pastel-pink); }
+  .btn-be:disabled, .btn-be-tp:disabled, .btn-close:disabled { opacity: 0.4; cursor: default; }
+  .position-action-status { font-size: 0.68rem; white-space: normal; }
+  .badge-auto, .badge-manual {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px 2px 6px;
+    border-radius: 100px;
+    font-size: 0.66rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    border: 1px solid;
+    transition: border-color 0.25s ease, color 0.25s ease;
+  }
+  .badge-auto::before, .badge-manual::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .badge-auto { background: rgba(139, 92, 246, 0.10); border-color: var(--line); color: var(--accent-soft); }
+  .badge-auto::before { background: var(--purple); box-shadow: 0 0 6px var(--purple); }
+  .badge-auto:hover { border-color: var(--pastel-sky); color: var(--pastel-sky); }
+  .badge-manual { background: rgba(252, 211, 77, 0.08); border-color: rgba(252, 211, 77, 0.4); color: var(--warn); }
+  .badge-manual::before { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+  .badge-manual:hover { border-color: var(--pastel-pink); color: var(--pastel-pink); }
 </style>
 </head>
 <body>
-  <h1>Kronos Bot — Dashboard</h1>
+<div class="page">
+  <div class="page-header">
+    <h1>Kronos Bot — Dashboard</h1>
+  </div>
   <p class="subtitle">
     Posiciones abiertas en MT4 y configuración del bróker
     &nbsp;·&nbsp;
@@ -126,25 +239,26 @@
   <h2>Posiciones abiertas</h2>
   <div class="panel">
     <div id="positions-warning"></div>
-    <table id="positions-table">
-      <thead>
-        <tr>
-          <th>Ticket</th>
-          <th>Señal</th>
-          <th>Símbolo</th>
-          <th>Dirección</th>
-          <th>Lote</th>
-          <th>Precio apertura</th>
-          <th>Precio actual</th>
-          <th>SL</th>
-          <th>TP</th>
-          <th>Profit</th>
-          <th>Apertura</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody id="positions-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table id="positions-table">
+        <thead>
+          <tr>
+            <th>Ticket</th>
+            <th>Origen</th>
+            <th>Símbolo</th>
+            <th>Dirección</th>
+            <th>Lote</th>
+            <th>Precio apertura</th>
+            <th>Precio actual</th>
+            <th>SL</th>
+            <th>TP</th>
+            <th>Profit</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="positions-body"></tbody>
+      </table>
+    </div>
   </div>
 
   <h2>Historial de señales</h2>
@@ -154,43 +268,47 @@
       no es el id real de la base. Cada vez que se acumulan más de 20
       señales, las más viejas se resumen en la fila "#0" de abajo.
     </p>
-    <table id="summary-table" style="margin-bottom:20px;">
-      <thead>
-        <tr>
-          <th>N°</th>
-          <th>Período</th>
-          <th>Cantidad</th>
-          <th>Por estado</th>
-          <th>Instrumentos</th>
-          <th>P/L total</th>
-        </tr>
-      </thead>
-      <tbody id="summary-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table id="summary-table" style="margin-bottom:20px;">
+        <thead>
+          <tr>
+            <th>N°</th>
+            <th>Período</th>
+            <th>Cantidad</th>
+            <th>Por estado</th>
+            <th>Instrumentos</th>
+            <th>P/L total</th>
+          </tr>
+        </thead>
+        <tbody id="summary-body"></tbody>
+      </table>
+    </div>
     <div class="config-row" id="signals-filter">
       <button data-range="today">Hoy</button>
       <button data-range="week">Esta semana</button>
       <button data-range="month">Este mes</button>
       <button data-range="all" class="active">Todas</button>
     </div>
-    <table id="signals-table">
-      <thead>
-        <tr>
-          <th>N°</th>
-          <th>Instrumento</th>
-          <th>Dirección</th>
-          <th>Estado</th>
-          <th>Ticket</th>
-          <th>Entrada</th>
-          <th>SL</th>
-          <th>TP</th>
-          <th>Fecha</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody id="signals-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table id="signals-table">
+        <thead>
+          <tr>
+            <th>Instrumento</th>
+            <th>Dirección</th>
+            <th>Estado</th>
+            <th>Ticket</th>
+            <th>Entrada</th>
+            <th>SL</th>
+            <th>TP</th>
+            <th>Fecha</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="signals-body"></tbody>
+      </table>
+    </div>
   </div>
+</div>
 
   <script src="app.js"></script>
 </body>

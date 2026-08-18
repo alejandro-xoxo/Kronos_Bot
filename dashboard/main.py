@@ -65,19 +65,45 @@ def api_positions():
 VALID_POSITION_ACTIONS = ("SET_BE", "SET_TP_BE", "CLOSE")
 
 
-def _load_current_tickets():
-    """Tickets que el EA reportó como abiertos en el último status.json.
-    Se usa para no dejar escribir comandos sobre tickets inventados o
-    ya cerrados — mismo criterio de "solo lo que el EA ya conoce" que
-    orders/status.json."""
+def _load_managed_positions():
+    """Posiciones manejadas por el EA (managed=true) del último
+    status.json, con su ticket y signal_uid. Se usa para no dejar
+    escribir comandos sobre tickets inventados, ya cerrados, o
+    abiertos manualmente fuera de la automatización — el EA de todos
+    modos ignora acciones sobre tickets sin su InpMagicNumber (ver
+    ProcessActionFile), pero rechazarlas acá evita encolar un archivo
+    de acción que nunca se va a ejecutar."""
     if not os.path.isfile(STATUS_PATH):
-        return set()
+        return []
     try:
         with open(STATUS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return set()
-    return {p.get("ticket") for p in data.get("positions", [])}
+        return []
+    return [p for p in data.get("positions", []) if p.get("managed", True)]
+
+
+def _load_current_tickets():
+    return {p.get("ticket") for p in _load_managed_positions()}
+
+
+def _related_tickets(ticket, positions):
+    """Tickets de sub-señales relacionadas con `ticket` — mismo
+    signal_uid base (ej. "1424-A" y "1424-B" comparten "1424", ver
+    protocolo sección 4.2 regla 6: TP1/TP2 de una misma señal generan
+    sub-señales independientes con el mismo instrumento/entrada/SL,
+    solo el TP difiere). Se usa para propagar SET_BE a todas las
+    sub-señales de una misma señal cuando el usuario mueve una a BE."""
+    by_ticket = {p.get("ticket"): p.get("signal_uid") for p in positions}
+    signal_uid = by_ticket.get(ticket)
+    if not signal_uid or "-" not in signal_uid:
+        return []
+    base_id = signal_uid.rsplit("-", 1)[0]
+    return [
+        t
+        for t, uid in by_ticket.items()
+        if t != ticket and uid and uid.rsplit("-", 1)[0] == base_id
+    ]
 
 
 @app.route("/api/positions/<int:ticket>/action", methods=["POST"])
@@ -97,7 +123,9 @@ def api_position_action(ticket):
             400,
         )
 
-    if ticket not in _load_current_tickets():
+    positions = _load_managed_positions()
+    current_tickets = {p.get("ticket") for p in positions}
+    if ticket not in current_tickets:
         return (
             jsonify(
                 {
@@ -107,6 +135,15 @@ def api_position_action(ticket):
             ),
             404,
         )
+
+    # SET_BE se propaga a todas las sub-señales relacionadas (mismo
+    # signal_uid base, ej. TP1/TP2 de una misma señal, protocolo
+    # sección 4.2 regla 6): mover una a BE sin mover la otra deja una
+    # pata de la misma señal con riesgo mientras la otra ya no lo
+    # tiene, que no es lo que el usuario espera al pedir "BE".
+    tickets_to_queue = [ticket]
+    if action == "SET_BE":
+        tickets_to_queue += [t for t in _related_tickets(ticket, positions) if t in current_tickets]
 
     actions_dir = os.path.join(ORDERS_DIR, "actions")
     os.makedirs(actions_dir, exist_ok=True)
@@ -118,22 +155,33 @@ def api_position_action(ticket):
     # a internet (ver docstring del módulo).
     os.chmod(actions_dir, 0o777)
 
-    # Un archivo por ticket+acción: si mandás BE y CLOSE casi juntos no se
-    # pisan entre sí: el EA procesa los dos en el mismo ciclo.
-    action_path = os.path.join(actions_dir, f"{ticket}-{action}.json")
-    with open(action_path, "w", encoding="utf-8") as f:
-        json.dump({"ticket": ticket, "action": action}, f)
-    os.chmod(action_path, 0o666)
+    for t in tickets_to_queue:
+        # Un archivo por ticket+acción: si mandás BE y CLOSE casi juntos no
+        # se pisan entre sí: el EA procesa los dos en el mismo ciclo.
+        action_path = os.path.join(actions_dir, f"{t}-{action}.json")
+        with open(action_path, "w", encoding="utf-8") as f:
+            json.dump({"ticket": t, "action": action}, f)
+        os.chmod(action_path, 0o666)
 
-    # Borra cualquier resultado viejo del mismo ticket+acción (de un
-    # intento anterior) para que el polling del frontend no lea un
-    # "success" desactualizado antes de que el EA procese este comando
-    # nuevo — ver api_position_action_result.
-    result_path = _action_result_path(ticket, action)
-    if os.path.isfile(result_path):
-        os.remove(result_path)
+        # Borra cualquier resultado viejo del mismo ticket+acción (de un
+        # intento anterior) para que el polling del frontend no lea un
+        # "success" desactualizado antes de que el EA procese este comando
+        # nuevo — ver api_position_action_result.
+        result_path = _action_result_path(t, action)
+        if os.path.isfile(result_path):
+            os.remove(result_path)
 
-    return jsonify({"ticket": ticket, "action": action, "queued": True}), 200
+    return (
+        jsonify(
+            {
+                "ticket": ticket,
+                "action": action,
+                "queued": True,
+                "related_tickets": tickets_to_queue[1:],
+            }
+        ),
+        200,
+    )
 
 
 def _action_result_path(ticket, action):
