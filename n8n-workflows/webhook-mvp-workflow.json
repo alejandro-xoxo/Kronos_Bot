@@ -858,7 +858,11 @@
         -1184,
         900
       ],
-      "notes": "Structured output forzado via responseSchema (Fase 4, punto Gemini del diseño) — no se confia en que el modelo respete un prompt de texto libre. Unico punto con costo de tokens del arbol de decision. Retry/backoff de Gemini (seccion 4.4 del protocolo, 1 reintento inmediato + PENDING_MANUAL) queda pendiente de conectar aca — no implementado en esta primera pasada, ver resumen final."
+      "notes": "Structured output forzado via responseSchema (Fase 4, punto Gemini del diseño) — no se confia en que el modelo respete un prompt de texto libre. Unico punto con costo de tokens del arbol de decision. Retry: retryOnFail+maxTries=2+waitBetweenTries=500ms (1 reintento inmediato, sin backoff largo, protocolo seccion 4.4). Si falla tras el reintento, onError=continueErrorOutput manda el item a la 2da salida -> 'Insertar modificación: Gemini falló (PENDING_MANUAL)'.",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -1007,6 +1011,52 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signal_modifications (signal_id, message_id, raw_text, modification_type, interpreted_by, status) VALUES ($1, $2, $3, 'UNCLASSIFIED', 'AI', 'PENDING_MANUAL') RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$('Enrutar clasificación').item.json.matched_signals[0].id, $('Enrutar clasificación').item.json.message_id, $('Enrutar clasificación').item.json.raw_text] }}"
+        }
+      },
+      "id": "f4a1c8e2-9b3d-4e7a-8c1f-2d5e6a7b8c9d",
+      "name": "Insertar modificación: Gemini falló (PENDING_MANUAL)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -928,
+        1060
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Protocolo seccion 4.4: si Gemini falla incluso tras el reintento inmediato, se registra la modificacion como PENDING_MANUAL con modification_type='UNCLASSIFIED' (valor nuevo agregado al CHECK de db/schema.sql especificamente para este caso, ya que el tipo real nunca se determino) y se notifica urgente por Telegram en el nodo siguiente. Toma los datos de 'Enrutar clasificación' (el ultimo item con datos completos antes del nodo HTTP que fallo), no del item de error de 'Interpretar con Gemini' cuyo shape de error no es confiable entre versiones de n8n."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🚨 No se pudo interpretar este mensaje, revisar manualmente: {{ $('Enrutar clasificación').item.json.raw_text }}",
+        "additionalFields": {}
+      },
+      "id": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "name": "Avisar en chat: Gemini no interpretó",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -672,
+        1060
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Texto exacto de PROTOCOLOS_KRONOS_BOT.md sección 4.4 para el caso de fallo de Gemini tras el reintento."
     }
   ],
   "connections": {
@@ -1363,6 +1413,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Insertar modificación: Gemini falló (PENDING_MANUAL)",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1422,6 +1479,17 @@
         [
           {
             "node": "Avisar en chat: Modificación aplicada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar modificación: Gemini falló (PENDING_MANUAL)": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Gemini no interpretó",
             "type": "main",
             "index": 0
           }
