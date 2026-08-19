@@ -13,6 +13,13 @@
 #     usa producción, o vas a mezclar órdenes reales con órdenes de
 #     prueba en el mismo EA/carpeta.
 #
+# Captura de mensajes: este stack NO tiene servicio "telethon". Usa un
+# Bot de Telegram normal (Bot API, no MTProto) agregado como miembro
+# del grupo de pruebas — ver DEV_SETUP.md sección 5. El nodo de
+# entrada en el workflow de n8n dev es un "Telegram Trigger", no el
+# Webhook que usa producción — ver la regla permanente en CLAUDE.md
+# sobre por qué esto NUNCA se sincroniza con producción.
+#
 # Uso: siempre con -f docker-compose.dev.yml Y --env-file .env.dev
 # explícitos (ver comandos al final del archivo .env.dev / README).
 # NUNCA correr esto con el .env de producción por accidente.
@@ -84,23 +91,6 @@ services:
     networks:
       - trading_net_dev
 
-  telethon:
-    build: ./telethon-service
-    restart: unless-stopped
-    environment:
-      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
-      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
-      - TELEGRAM_PHONE=${TELEGRAM_PHONE}
-      - TELEGRAM_GROUP_ID=${TELEGRAM_GROUP_ID}
-      - N8N_WEBHOOK_URL=http://n8n:5678/webhook/kronos-telethon-signal
-      - KRONOS_WEBHOOK_SECRET=${KRONOS_WEBHOOK_SECRET}
-    volumes:
-      - telethon_session_dev:/app/session
-    depends_on:
-      - n8n
-    networks:
-      - trading_net_dev
-
   dashboard:
     build: ./dashboard
     restart: unless-stopped
@@ -119,7 +109,6 @@ services:
 
 volumes:
   n8n_data_dev:
-  telethon_session_dev:
   postgres_data_dev:
 
 networks:

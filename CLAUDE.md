@@ -204,6 +204,26 @@ El stack dev (`docker-compose.dev.yml`) puede correr desde `develop` o
 cualquier `feature/*` sin restricción. La restricción de "solo desde
 `main`" aplica **únicamente** al stack de producción.
 
+### Regla no negociable: los nodos de entrada del workflow de n8n nunca se sincronizan entre dev y producción
+
+El workflow de n8n en **producción** captura señales vía el nodo
+`Webhook` que llama Telethon (MTProto, cuenta de usuario — ver
+`## Qué es esto`). El workflow de n8n en **dev** captura señales vía
+un nodo `Telegram Trigger` (Bot API normal, el usuario es admin del
+grupo de pruebas — ver `DEV_SETUP.md` sección 5). Estos dos nodos de
+entrada/captura son **estructuralmente distintos y permanentes por
+ambiente** — nunca se sincronizan entre sí, nunca se "restauran" uno
+desde el otro, ni antes ni después de un merge.
+
+Al promover un cambio de **lógica** (ej. `Parsear señal (regex)`,
+o cualquier nodo posterior a la captura inicial) desde el workflow
+dev hacia el de producción, se copia/aplica **solo ese nodo
+específico** — nunca se exporta/importa el workflow completo de dev
+sobre producción. Hacerlo reemplazaría el mecanismo de entrada real
+de producción (Webhook+Telethon) por el de dev (Bot Trigger),
+rompiendo la captura de señales reales del grupo, sin ningún error
+visible hasta que la próxima señal real simplemente no llegue.
+
 ## Estado actual del proyecto
 
 - ✅ Fase 0: credenciales de Telegram, estructura de carpetas.
