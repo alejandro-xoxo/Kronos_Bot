@@ -2,8 +2,11 @@
 Kronos Bot — Dashboard web local.
 
 Sirve una página simple para ver posiciones abiertas en MT4 (via
-status.json escrito por el EA) y cambiar el sufijo de símbolo del
-bróker (via config.json leído por el EA). Ver
+status.json escrito por el EA) y cambiar el perfil de cuenta activo
+del EA (via config.json leído por el EA — ver ENUM_KRONOS_PROFILE en
+KronosBridgeEA.mq4). El EA valida siempre el perfil recibido contra
+AccountNumber() antes de operar; el dashboard no tiene ninguna
+lógica de seguridad propia, solo persiste la elección. Ver
 mt4-bridge/FORMATO_ARCHIVOS.md para el contrato exacto de ambos
 archivos.
 
@@ -26,7 +29,7 @@ ORDERS_DIR = os.environ.get("MT4_ORDERS_DIR", "/mt4-bridge/orders")
 STATUS_PATH = os.path.join(ORDERS_DIR, "status.json")
 CONFIG_PATH = os.path.join(ORDERS_DIR, "config.json")
 
-VALID_SYMBOL_SUFFIXES = ("-VIP", "-STD")
+VALID_PROFILES = ("PROD_STD", "DEMO_VIP")
 
 
 def get_db_connection():
@@ -367,29 +370,29 @@ def api_signal_retry(signal_id):
 @app.route("/api/config", methods=["GET"])
 def api_config_get():
     if not os.path.isfile(CONFIG_PATH):
-        return jsonify({"symbol_suffix": None}), 200
+        return jsonify({"profile": None}), 200
 
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return jsonify({"symbol_suffix": None}), 200
+        return jsonify({"profile": None}), 200
 
-    return jsonify({"symbol_suffix": data.get("symbol_suffix")}), 200
+    return jsonify({"profile": data.get("profile")}), 200
 
 
 @app.route("/api/config", methods=["POST"])
 def api_config_post():
     body = request.get_json(silent=True) or {}
-    symbol_suffix = body.get("symbol_suffix")
+    profile = body.get("profile")
 
-    if symbol_suffix not in VALID_SYMBOL_SUFFIXES:
+    if profile not in VALID_PROFILES:
         return (
             jsonify(
                 {
                     "error": (
-                        "symbol_suffix inválido: '{}'. Valores permitidos: {}".format(
-                            symbol_suffix, ", ".join(VALID_SYMBOL_SUFFIXES)
+                        "profile inválido: '{}'. Valores permitidos: {}".format(
+                            profile, ", ".join(VALID_PROFILES)
                         )
                     )
                 }
@@ -399,9 +402,9 @@ def api_config_post():
 
     os.makedirs(ORDERS_DIR, exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump({"symbol_suffix": symbol_suffix}, f)
+        json.dump({"profile": profile}, f)
 
-    return jsonify({"symbol_suffix": symbol_suffix}), 200
+    return jsonify({"profile": profile}), 200
 
 
 if __name__ == "__main__":

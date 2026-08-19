@@ -65,13 +65,15 @@ alcance"; fue un error de alcance, no una decisión de producto.)
    formato fijo de señal nueva: `INSTRUMENTO`, `BUY`/`SELL`,
    `[LIMIT]` opcional, `TP`, `SL`.
 3. Si coincide, extraer por regex: instrumento, dirección, tipo de
-   ejecución (market/limit), precio de entrada, SL, y **hasta 2 TP**
-   si la señal trae varios (según protocolo, sección 4.2 regla 6):
-   TP1 y TP2 generan cada uno una **sub-señal independiente**
-   (misma señal original, mismo instrumento/dirección/entrada/SL,
-   solo el TP difiere). TP3 en adelante se ignora — máximo 2
-   operaciones por señal. Si solo hay 1 TP, se genera una única
-   sub-señal (comportamiento sin cambios).
+   ejecución (market/limit), precio de entrada, SL, y **todos los TP**
+   que traiga la señal (según protocolo, sección 4.2 regla 6,
+   actualizada — **sin tope**, corrige una versión anterior de este
+   documento que limitaba a 2): cada TP genera su propia
+   **sub-señal independiente** (misma señal original, mismo
+   instrumento/dirección/entrada/SL, solo el TP difiere), con sufijo
+   `A`, `B`, `C`... (y `AA`, `AB`... si hiciera falta pasar de `Z`).
+   Si solo hay 1 TP, se genera una única sub-señal (comportamiento sin
+   cambios).
 4. Validar antigüedad: si `ahora - signal_timestamp > 5 minutos`,
    descartar (status `EXPIRED`), sin excepciones. La validación de
    antigüedad aplica igual a cada sub-señal.
@@ -97,11 +99,6 @@ alcance"; fue un error de alcance, no una decisión de producto.)
   aislada y probada, pero no conectada al flujo de ejecución real
   todavía. Ambas sub-señales de una misma señal usan el lotaje fijo
   `0.01` sin ningún mecanismo de "competencia por slot" entre ellas.
-- División de una señal en más de 2 sub-señales (TP3 en adelante) —
-  el tope es 2 por gestión de riesgo, aunque el tutorial oficial del
-  grupo indica abrir una operación por cada TP que traiga la señal.
-  Se revisita en una fase posterior, no antes de validar el flujo
-  de 2 sub-señales.
 
 ## Ejemplos reales de mensajes del grupo (para calibrar el regex)
 
@@ -140,6 +137,16 @@ niveles, así que el riesgo de "condición de carrera" del protocolo
 de la sección 8 no aplica de la misma forma (cerrar a mercado casi
 siempre se acepta, salvo error de conexión).
 
+El schema real (`db/schema.sql`, tabla `signal_modifications`) agrega
+además `CLOSE_ALL_TO_BE` (mover a BE todas las sub-señales de una
+misma señal original, ej. una instrucción de seguimiento que aplica a
+la señal completa y no a una sub-señal puntual) y `UNCLASSIFIED`
+(cuando Gemini no logra interpretar la instrucción — cae a
+`PENDING_MANUAL`, ver Fase 4). Lista completa de
+`modification_type`: `ENTRY_CHANGE`, `SL_CHANGE`, `SL_TO_BE`,
+`CANCEL`, `TP_UPDATE`, `CLOSE_AT_PRICE`, `CLOSE_ALL_TO_BE`,
+`UNCLASSIFIED`.
+
 ## Flujo de trabajo con git — Git Flow
 
 Trabajar siempre sobre ramas, nunca commitear directo a `main`.
@@ -168,6 +175,55 @@ Trabajar siempre sobre ramas, nunca commitear directo a `main`.
    de la base de datos, señalarlo explícitamente antes de aplicar el
    cambio — son piezas compartidas que afectan todo el sistema.
 
+### Regla no negociable: qué código puede llegar al stack de producción
+
+**El stack de PRODUCCIÓN (`docker-compose.yml`, la instancia real de
+n8n, el EA en `~/.wine-mt4`) SOLO se actualiza con código que ya está
+en la rama `main`.** Nunca se sube a producción código de `develop` ni
+de ninguna rama `feature/*`, sin importar cuán probado esté en el
+stack dev.
+
+El flujo correcto:
+
+```
+feature/*  →  develop  →  main  →  producción
+```
+
+- `feature/*` → `develop`: una vez lista la unidad de trabajo (regla 3
+  de arriba).
+- `develop` → probarse en el **stack dev** (`docker-compose.dev.yml`,
+  ver `DEV_SETUP.md`), con cuenta demo — es precisamente el lugar
+  seguro para esto, sin restricción de qué rama corre ahí.
+- `develop` → `main`: solo cuando el usuario aprueba explícitamente el
+  paso a producción.
+- `main` → producción: recién ahí se sube el workflow a la instancia
+  real de n8n (`PUT /api/v1/workflows/{id}`) y se recompila el EA de
+  producción (`~/.wine-mt4`) — nunca antes.
+
+El stack dev (`docker-compose.dev.yml`) puede correr desde `develop` o
+cualquier `feature/*` sin restricción. La restricción de "solo desde
+`main`" aplica **únicamente** al stack de producción.
+
+### Regla no negociable: los nodos de entrada del workflow de n8n nunca se sincronizan entre dev y producción
+
+El workflow de n8n en **producción** captura señales vía el nodo
+`Webhook` que llama Telethon (MTProto, cuenta de usuario — ver
+`## Qué es esto`). El workflow de n8n en **dev** captura señales vía
+un nodo `Telegram Trigger` (Bot API normal, el usuario es admin del
+grupo de pruebas — ver `DEV_SETUP.md` sección 5). Estos dos nodos de
+entrada/captura son **estructuralmente distintos y permanentes por
+ambiente** — nunca se sincronizan entre sí, nunca se "restauran" uno
+desde el otro, ni antes ni después de un merge.
+
+Al promover un cambio de **lógica** (ej. `Parsear señal (regex)`,
+o cualquier nodo posterior a la captura inicial) desde el workflow
+dev hacia el de producción, se copia/aplica **solo ese nodo
+específico** — nunca se exporta/importa el workflow completo de dev
+sobre producción. Hacerlo reemplazaría el mecanismo de entrada real
+de producción (Webhook+Telethon) por el de dev (Bot Trigger),
+rompiendo la captura de señales reales del grupo, sin ningún error
+visible hasta que la próxima señal real simplemente no llegue.
+
 ## Estado actual del proyecto
 
 - ✅ Fase 0: credenciales de Telegram, estructura de carpetas.
@@ -178,8 +234,8 @@ Trabajar siempre sobre ramas, nunca commitear directo a `main`.
   init script del contenedor de Postgres (`docker-entrypoint-initdb.d`)
   para que se auto-ejecute si el volumen se recrea desde cero.
 - ✅ Fase 3: webhook + parser regex en n8n — **verificado end-to-end**:
-  Telethon → webhook → parser regex (hasta 2 sub-señales por múltiples
-  TP, protocolo sección 4.2 regla 6) → inserción en Postgres
+  Telethon → webhook → parser regex (una sub-señal por cada TP,
+  sin tope, protocolo sección 4.2 regla 6) → inserción en Postgres
   (`signal_uid` por sub-señal) → notificación por Telegram con botones.
 - ✅ Fase 5: botones de confirmar/rechazar — **funcionales y
   verificados**: callback vía `Trigger Callback Telegram`, `UPDATE`
@@ -188,8 +244,14 @@ Trabajar siempre sobre ramas, nunca commitear directo a `main`.
   Fase 4 (Gemini), fuera de orden respecto a la numeración original,
   porque era la pieza que faltaba para validar el flujo completo de
   confirmación humana antes de tocar MT4.
-- 🔲 Fase 4: interpretación por Gemini de instrucciones de seguimiento
-  (mover SL, BE, cerrar) — no iniciada.
+- 🔶 Fase 4: interpretación por Gemini de instrucciones de seguimiento
+  — código implementado y mergeado a `develop`
+  (`feature/fase4-seguimiento`), pero BLOQUEADO explícitamente por
+  decisión del usuario: el diseño se construyó sin su aprobación paso
+  a paso, a diferencia del resto del sistema. NO se sube a producción
+  ni se continúa desarrollando hasta rediseñar el árbol de decisión en
+  conjunto con el usuario, punto por punto. Ver `STATUS.md` para el
+  detalle completo.
 - 🔶 Fase 6: EA puente en MT4 — **en progreso, ver detalle completo y
   próximos pasos en `STATUS.md`.** Resumen: Wine + MT4 instalados,
   formato de archivos y symlinks a `Common/Files` verificados, EA en

@@ -1,0 +1,3660 @@
+{
+  "id": "JIhLUNnlolVQmRC8",
+  "name": "Kronos Bot - DEV (Bot Telegram, sin Telethon)",
+  "description": null,
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 1. Captura y parseo de señales nuevas\nWebhook Telethon -> valida secreto -> parsea con regex -> inserta en Postgres -> notifica por Telegram.",
+        "height": 420,
+        "width": 1700,
+        "color": 4
+      },
+      "id": "685ad544-da77-4351-882c-404682051120",
+      "name": "Nota: 1. Captura y parseo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Confirmación por Telegram (botones + callback)\nCallback del botón Confirmar/Rechazar -> UPDATE idempotente en Postgres -> respuesta al callback + aviso en el chat.",
+        "height": 720,
+        "width": 1750,
+        "color": 5
+      },
+      "id": "914b900d-d98e-4b11-8a54-fa33f73488f1",
+      "name": "Nota: 2. Confirmación Telegram",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Seguimiento / modificaciones (regex + Gemini)\nMensaje que responde a una señal -> clasifica por regex; si no matchea, interpreta con Gemini -> inserta modificación -> si requiere acción EA, la escribe para MT4.",
+        "height": 750,
+        "width": 2500,
+        "color": 3
+      },
+      "id": "bd960aa9-3649-48d1-ba53-245b5508fbce",
+      "name": "Nota: 3. Seguimiento (Fase 4)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1930,
+        1430
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Ejecución en MT4\nAl confirmar, arma y escribe la orden pending para el EA puente. Un trigger periódico lee los resultados desde MT4, actualiza Postgres y notifica el ticket/motivo de fallo.",
+        "height": 480,
+        "width": 2750,
+        "color": 6
+      },
+      "id": "c711f303-b13f-469a-8bdb-cf56c1f8cf48",
+      "name": "Nota: 4. Ejecución en MT4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        2400
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Detección de cierres (TP/SL)\nTrigger periódico lee los cierres reportados por el EA (TP o SL alcanzado), actualiza el status en Postgres y notifica el resultado por Telegram.",
+        "height": 500,
+        "width": 1700,
+        "color": 2
+      },
+      "id": "b65e381d-1960-40b4-a44a-3d96812198ef",
+      "name": "Nota: 5. Detección de cierres TP-SL",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        3330
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Nodo Function (n8n): parser regex de señales nuevas\n// Fuente de reglas: PROTOCOLOS_KRONOS_BOT.md (secciones 4.1, 4.2, 4.3)\n//\n// Entrada esperada: el nodo Webhook de n8n anida el payload real\n// dentro de un campo \"body\" (item.json.body.text, item.json.body.\n// timestamp, etc.), no en el nivel raíz de item.json. Por eso se lee\n// todo desde `body` en vez de `payload` directo — de lo contrario\n// ningún mensaje matchea nunca (bug real detectado en producción).\n// Campos esperados dentro de body: message_id, chat_id, sender,\n// text, timestamp, reply_to_message_id\n//\n// Este nodo SOLO detecta y parsea señales nuevas de formato fijo.\n// No calcula lotaje, no inserta en la base de datos, no envía\n// notificaciones — eso lo hacen otros nodos del workflow.\n\nconst MAX_AGE_MINUTES = 5;\n// Sin tope de sub-señales (protocolo sección 4.2 regla 6, actualizada):\n// se genera una sub-señal por cada TP que traiga el mensaje, sin límite.\nfunction subSignalSuffix(index) {\n  // A, B, C... Z, AA, AB... para no depender de un array fijo de 26.\n  let n = index, s = '';\n  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);\n  return s;\n}\n\n// Formato fijo esperado:\n//   INSTRUMENTO BUY|SELL [LIMIT] PRECIO TP VALOR [TP VALOR ...] SL VALOR\n// El label \"TP\" se repite una vez por cada take profit, sin número pegado\n// (no existe \"TP1\"/\"TP2\" en los mensajes reales del grupo). Puede venir\n// en una sola línea o con saltos de línea entre campos — el código\n// colapsa los saltos de línea en espacios antes de aplicar el regex.\n// Ejemplos reales:\n//   \"XAUUSD BUY 4372  TP 4376  SL 4347\"\n//   \"XAUUSD SELL 4388\\nTP 4386\\nTP 4385\\nTP 4380\\nTP 4370\\nSL 4414\"\n// Sin ancla $ al final: los mensajes reales a veces traen texto\n// adicional después del SL (emojis, comentarios). \\b asegura que el\n// valor de SL termine en límite de palabra, sin exigir fin de string.\nconst SIGNAL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+(\\d+(?:\\.\\d+)?))?(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\s+SL:?\\s+(\\d+(?:\\.\\d+)?)\\b/i;\n\n// Regex secundario: mismo formato pero sin exigir SL. Se usa solo para\n// distinguir \"señal con SL faltante\" (sección 4.2 regla 5 — no se\n// inventa el SL, la señal no se ejecuta hasta tenerlo) de un mensaje\n// que directamente no es una señal nueva.\nconst SIGNAL_WITHOUT_SL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\b/i;\n\n// Extrae TODOS los TP presentes en el texto, en orden de aparición.\n// Cada uno genera su propia sub-señal, sin tope (protocolo sección\n// 4.2 regla 6, actualizada).\nconst TP_GLOBAL_REGEX = /TP:?\\s+(\\d+(?:\\.\\d+)?)/gi;\n\nfunction parseTimestamp(rawTimestamp) {\n  if (typeof rawTimestamp === 'number') {\n    // Segundos unix -> ms si el valor es demasiado pequeño para ser ms\n    return new Date(rawTimestamp < 1e12 ? rawTimestamp * 1000 : rawTimestamp);\n  }\n  return new Date(rawTimestamp);\n}\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  // El Webhook de n8n envuelve el payload real en `body`.\n  const body = item.json.body || item.json;\n  const rawText = (body.text || '').trim().replace(/\\s+/g, ' ');\n\n  const match = rawText.match(SIGNAL_REGEX);\n\n  if (!match) {\n    // No coincide con el formato completo de señal nueva. Puede ser\n    // una instrucción de seguimiento, un mensaje no relacionado, o\n    // una señal real con el SL faltante — se distinguen para no\n    // perder de vista este último caso (protocolo sección 4.2 regla 5).\n    const partialMatch = rawText.match(SIGNAL_WITHOUT_SL_REGEX);\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: partialMatch ? 'MISSING_SL' : 'NO_MATCH_FIXED_FORMAT',\n      },\n    });\n    continue;\n  }\n\n  const [, instrument, direction, limitFlag, entryPrice, , , sl] = match;\n\n  const signalDate = parseTimestamp(body.timestamp);\n  body.timestamp = signalDate.toISOString();\n  if (isNaN(signalDate.getTime())) {\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: 'INVALID_TIMESTAMP',\n      },\n    });\n    continue;\n  }\n\n  const ageMinutes = (Date.now() - signalDate.getTime()) / 60000;\n\n  if (ageMinutes > MAX_AGE_MINUTES) {\n    // Regla de antigüedad (sección 4.3): binaria, sin excepciones.\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'EXPIRED',\n        interpreted_by: 'REGEX',\n      },\n    });\n    continue;\n  }\n\n  // Una sub-señal independiente por cada TP del mensaje, sin tope\n  // (protocolo sección 4.2 regla 6, actualizada). Comparten todo\n  // excepto el TP y el signal_uid.\n  const tpValues = [...rawText.matchAll(TP_GLOBAL_REGEX)]\n    .map((m) => parseFloat(m[1]));\n\n  for (let i = 0; i < tpValues.length; i++) {\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'PENDING_CONFIRMATION',\n        interpreted_by: 'REGEX',\n        signal_uid: `${body.message_id}-${subSignalSuffix(i)}`,\n        instrument: instrument.toUpperCase(),\n        direction: direction.toUpperCase(),\n        execution_type: limitFlag ? 'LIMIT' : 'MARKET',\n        entry_price: parseFloat(entryPrice),\n        tp: tpValues[i], // TP propio de esta sub-señal\n        sl: parseFloat(sl),\n        raw_text: rawText,\n      },\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "f27bd27e-dee9-43ec-a430-7feeab94b31e",
+      "name": "Parsear señal (regex)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.matched }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "PENDING_CONFIRMATION",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6e5eea28-70f8-47f7-9d7c-6a234aabadb2",
+      "name": "¿Señal válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1850,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signals (signal_uid, message_id, chat_id, sender, raw_text, signal_timestamp, reply_to_message_id, instrument, direction, execution_type, entry_price, sl, tp, interpreted_by, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.signal_uid, $json.message_id, $json.chat_id, $json.sender, $json.raw_text, $json.timestamp, $json.reply_to_message_id, $json.instrument, $json.direction, $json.execution_type, $json.entry_price, $json.sl, $json.tp, $json.interpreted_by, $json.status] }}"
+        }
+      },
+      "id": "12cc7923-075d-4144-8f62-8de4e62fe1bd",
+      "name": "Insertar señal (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1600,
+        -120
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      },
+      "notes": "Parámetros $1..$14 mapeados 1:1 en el mismo orden que las columnas del INSERT (ver columnas de la tabla signals en db/schema.sql). Credencial: host=postgres, port=5432, database/user/password según .env."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Parsear señal (regex)').item.json.instrument }}\nDirección: {{ $('Parsear señal (regex)').item.json.direction }}\nTipo: {{ $('Parsear señal (regex)').item.json.execution_type }}\nEntrada: {{ $('Parsear señal (regex)').item.json.entry_price }}\nTP: {{ $('Parsear señal (regex)').item.json.tp }}\nSL: {{ $('Parsear señal (regex)').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Confirmar",
+                    "additionalFields": {
+                      "callback_data": "=confirm:{{ $json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Rechazar",
+                    "additionalFields": {
+                      "callback_data": "=reject:{{ $json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "id": "d6926da1-b0d0-4ba8-93ce-e268cbdb0e6f",
+      "name": "Notificar Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        -120
+      ],
+      "notesInFlow": true,
+      "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Nodo Function: parsear callback_query de los botones\n// Fase A (solo botones, sin EA/MT4 todavía)\nconst callbackQuery = $input.first().json.callback_query;\nconst [action, signalIdRaw] = (callbackQuery.data || '').split(':');\nreturn [{\n  json: {\n    action, // 'confirm' o 'reject'\n    signalId: parseInt(signalIdRaw, 10),\n    callbackQueryId: callbackQuery.id,\n  },\n}];"
+      },
+      "id": "63d58f09-1098-456b-b3ca-fb7b520e5d7f",
+      "name": "Parsear callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2350,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-confirm-reject",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "confirm",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d97957e1-2d85-4bf7-a25c-bf97c2e348e0",
+      "name": "¿Confirmar o rechazar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2100,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "486d0a2e-5dd1-48ef-9791-43c9017ac2f6",
+      "name": "Actualizar status: CONFIRMED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1850,
+        660
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'REJECTED_BY_USER', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "71b6a6a1-bb0d-45f3-8df5-9bbb1cc52e12",
+      "name": "Actualizar status: REJECTED_BY_USER",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1850,
+        960
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "9246bde6-2458-499d-a4e9-79ce26b5059e",
+      "name": "Responder callback: Confirmada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        560
+      ],
+      "webhookId": "698f7aab-769d-4a4f-acda-6907949c6972",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "c8ecbb95-09ac-4b2f-bff4-1970461e3fe0",
+      "name": "Responder callback: Rechazada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        860
+      ],
+      "webhookId": "b86332d9-8802-453b-8361-6a14ae4d10e4",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=✅ Señal #{{ $('Parsear callback').item.json.signalId }} confirmada. Se procederá con la ejecución.",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "1a1b1c1d-0012-4a1a-8a1a-000000000012",
+      "name": "Avisar en chat: Confirmada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1100,
+        560
+      ],
+      "webhookId": "5148d035-4bfe-4d10-b578-e57468c74e69",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=❌ Señal #{{ $('Parsear callback').item.json.signalId }} rechazada. No se ejecutará.",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "1a1b1c1d-0013-4a1a-8a1a-000000000013",
+      "name": "Avisar en chat: Rechazada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1100,
+        860
+      ],
+      "webhookId": "44603ea8-6600-4b56-9ebc-f99a04ddf707",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2b2c2d2e-0001-4a1a-8a1a-000000000021",
+      "name": "¿Se confirmó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2b2c2d2e-0002-4a1a-8a1a-000000000022",
+      "name": "¿Se rechazó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "2b2c2d2e-0003-4a1a-8a1a-000000000023",
+      "name": "Responder callback: Ya procesada (confirmar)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        740
+      ],
+      "webhookId": "a98bf3de-61c1-4345-95fb-473ddfaf17cd",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "2b2c2d2e-0004-4a1a-8a1a-000000000024",
+      "name": "Responder callback: Ya procesada (rechazar)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        1060
+      ],
+      "webhookId": "41c7fbac-b070-4359-8b16-efe262ac1b73",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, signal_uid, instrument, direction, execution_type, entry_price, sl, tp FROM signals WHERE id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "3c3d3e3f-0001-4a1a-8a1a-000000000031",
+      "name": "Obtener señal confirmada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -2600,
+        2700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      },
+      "notes": "Trae los campos que necesita la orden MT4 (FORMATO_ARCHIVOS.md) — el UPDATE de 'Actualizar status: CONFIRMED' solo devuelve updated_count/current_status, no la señal completa."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT capital_real FROM settings ORDER BY id DESC LIMIT 1;",
+        "options": {}
+      },
+      "id": "3c3d3e3f-0001-4a1a-8a1a-000000000034",
+      "name": "Obtener capital real (settings)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -2350,
+        2700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      },
+      "notes": "capital_real lo reporta el EA (AccountBalance() - AccountCredit()) y n8n lo guarda en settings. Se lee justo antes de armar la orden para calcular el lotaje contra el capital ACTUAL, no uno viejo (PROTOCOLOS_KRONOS_BOT.md sección 5.1/5.2)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Etapa 4 (puente MT4): arma el JSON de orden pendiente\n// según el contrato exacto de mt4-bridge/FORMATO_ARCHIVOS.md.\n// Lotaje dinámico (PROTOCOLOS_KRONOS_BOT.md sección 5.2): floor(capital_real / 100) * 0.01,\n// con piso de 0.01 si el cálculo da 0 o negativo. NO es el cálculo de slots 80/20 de la\n// sección 5.3 (ese sigue sin implementar) — acá no hay competencia entre sub-señales.\nconst row = $('Obtener señal confirmada').item.json;\nconst capitalRow = $input.first().json;\nconst capitalReal = Number(capitalRow.capital_real);\n\nlet lot = Math.floor(capitalReal / 100) * 0.01;\nif (!(lot > 0)) {\n  lot = 0.01;\n}\nlot = Number(lot.toFixed(2));\n\nconst order = {\n  signal_id: row.id,\n  signal_uid: row.signal_uid,\n  instrument: row.instrument,\n  direction: row.direction,\n  execution_type: row.execution_type,\n  entry_price: Number(row.entry_price),\n  sl: Number(row.sl),\n  tp: Number(row.tp),\n  lot,\n  created_at: new Date().toISOString(),\n};\n\nconst buffer = Buffer.from(JSON.stringify(order, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${row.id}.json`, 'application/json');\n\nreturn [{\n  json: order,\n  binary: { data: binary },\n}];"
+      },
+      "id": "3c3d3e3f-0002-4a1a-8a1a-000000000032",
+      "name": "Preparar orden pending (JSON)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2100,
+        2700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $env.MT4_ORDERS_DIR }}/pending/{{ $json.signal_id }}.json",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "3c3d3e3f-0003-4a1a-8a1a-000000000033",
+      "name": "Escribir orden pending (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -1850,
+        2700
+      ],
+      "notes": "MT4_ORDERS_DIR (env) = /mt4-bridge/orders dentro del contenedor n8n, montado en docker-compose.yml desde MT4_ORDERS_HOST_PATH (ruta real de Common/Files/orders en el prefijo de Wine de esta máquina)."
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "5c5d5e5f-0001-4a1a-8a1a-000000000041",
+      "name": "Trigger: leer resultados MT4",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1600,
+        2700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $env.MT4_ORDERS_DIR }}/results/*.json",
+        "options": {}
+      },
+      "id": "5c5d5e5f-0002-4a1a-8a1a-000000000042",
+      "name": "Leer resultados (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -1350,
+        2700
+      ],
+      "notes": "Lee mt4-bridge/orders/results/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Etapa 5 (puente MT4): parsea cada resultado leído de\n// mt4-bridge/orders/results/{signal_id}.json (formato en\n// mt4-bridge/FORMATO_ARCHIVOS.md sección 2).\n// El nodo 'Leer resultados (MT4)' guarda el binario en modo\n// filesystem-v2 (no viene en base64 dentro de item.binary.data.data),\n// por eso se usa this.helpers.getBinaryDataBuffer para leer el\n// contenido real del archivo.\nconst results = [];\nconst items = $input.all();\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const binaryMeta = item.binary.data;\n  const fullPath = `${binaryMeta.directory}/${binaryMeta.fileName}`;\n  const buffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const parsed = JSON.parse(buffer.toString('utf-8'));\n\n  results.push({\n    json: {\n      signal_id: parsed.signal_id,\n      success: parsed.success,\n      ticket: parsed.ticket,\n      executed_price: parsed.executed_price,\n      error_code: parsed.error_code,\n      error_message: parsed.error_message,\n      fileName: fullPath,\n    },\n  });\n}\n\nreturn results;"
+      },
+      "id": "5c5d5e5f-0003-4a1a-8a1a-000000000043",
+      "name": "Parsear resultado (MT4)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1100,
+        2700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET\n    status = CASE WHEN $2::boolean THEN 'OPEN' ELSE 'PENDING_MANUAL' END,\n    mt4_ticket = $3, updated_at = NOW()\n  WHERE id = $1 AND status = 'CONFIRMED'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, (SELECT signal_uid FROM signals WHERE id = $1) AS signal_uid;",
+        "options": {
+          "queryReplacement": "={{ [$json.signal_id, $json.success, $json.ticket] }}"
+        }
+      },
+      "id": "5c5d5e5f-0004-4a1a-8a1a-000000000044",
+      "name": "Actualizar status: OPEN/PENDING_MANUAL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -850,
+        2700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      },
+      "notes": "UPDATE idempotente (mismo patrón que 'Actualizar status: CONFIRMED'): solo actualiza si status='CONFIRMED', evita reprocesar."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated-exec",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5c5d5e5f-0005-4a1a-8a1a-000000000045",
+      "name": "¿Se actualizó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        2700
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "={{ $('Parsear resultado (MT4)').item.json.success ? '✅ Señal #' + $('Parsear resultado (MT4)').item.json.signal_id + ' ejecutada — ticket ' + $('Parsear resultado (MT4)').item.json.ticket + ', precio ' + $('Parsear resultado (MT4)').item.json.executed_price : '⚠️ Señal #' + $('Parsear resultado (MT4)').item.json.signal_id + ' no se pudo ejecutar: ' + $('Parsear resultado (MT4)').item.json.error_message }}",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "5c5d5e5f-0006-4a1a-8a1a-000000000046",
+      "name": "Avisar en chat: Resultado MT4",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -350,
+        2600
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Etapa 5 (puente MT4): borra el archivo de\n// mt4-bridge/orders/results/{signal_id}.json ya procesado.\n// Se ejecuta siempre (haya notificado o no), igual que el EA nunca\n// reprocesa pending/. fileName se recupera del nodo 'Parsear\n// resultado (MT4)' porque el nodo Postgres intermedio reemplaza\n// item.json por las columnas devueltas por la query.\nconst fs = require('fs');\n\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const paired = items[i].pairedItem;\n  const idx = Array.isArray(paired) ? paired[0].item : paired.item;\n  const fileName = $('Parsear resultado (MT4)').all()[idx].json.fileName;\n  await fs.promises.unlink(fileName);\n}\n\nreturn items;"
+      },
+      "id": "5c5d5e5f-0007-4a1a-8a1a-000000000047",
+      "name": "Borrar archivo de resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        2700
+      ],
+      "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml."
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "7d7e7f70-0001-4a1a-8a1a-000000000051",
+      "name": "Trigger: leer cierres MT4",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2600,
+        3600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $env.MT4_ORDERS_DIR }}/closed/*.json",
+        "options": {}
+      },
+      "id": "7d7e7f70-0002-4a1a-8a1a-000000000052",
+      "name": "Leer cierres (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -2350,
+        3600
+      ],
+      "notes": "Lee mt4-bridge/orders/closed/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — cierre TP/SL (puente MT4): parsea cada archivo leído de\n// mt4-bridge/orders/closed/{ticket}.json (formato en\n// mt4-bridge/FORMATO_ARCHIVOS.md sección 5.1).\n// Mismo patrón que 'Parsear resultado (MT4)': binario en modo\n// filesystem-v2, se lee con this.helpers.getBinaryDataBuffer.\nconst results = [];\nconst items = $input.all();\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const binaryMeta = item.binary.data;\n  const fullPath = `${binaryMeta.directory}/${binaryMeta.fileName}`;\n  const buffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const parsed = JSON.parse(buffer.toString('utf-8'));\n\n  results.push({\n    json: {\n      ticket: parsed.ticket,\n      signal_uid: parsed.signal_uid,\n      symbol: parsed.symbol,\n      reason: parsed.reason,\n      close_price: parsed.close_price,\n      profit: parsed.profit,\n      close_time: parsed.close_time,\n      fileName: fullPath,\n    },\n  });\n}\n\nreturn results;"
+      },
+      "id": "7d7e7f70-0003-4a1a-8a1a-000000000053",
+      "name": "Parsear cierre (MT4)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2100,
+        3600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET\n    status = $2,\n    close_price = $3,\n    profit_loss = $4,\n    close_timestamp = $5::timestamp,\n    mt4_ticket = COALESCE(mt4_ticket, $6),\n    updated_at = NOW()\n  WHERE signal_uid = $1 AND status = 'OPEN'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, $1::text AS signal_uid;",
+        "options": {
+          "queryReplacement": "={{ [$json.signal_uid, $json.reason, $json.close_price, $json.profit, $json.close_time, $json.ticket] }}"
+        }
+      },
+      "id": "7d7e7f70-0004-4a1a-8a1a-000000000054",
+      "name": "Actualizar status: cierre TP/SL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1850,
+        3600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      },
+      "notes": "UPDATE idempotente (mismo patron que 'Actualizar status: OPEN/PENDING_MANUAL'): solo actualiza si status='OPEN', correlaciona por signal_uid (closed/*.json no trae el id numerico de Postgres, solo signal_uid). Si el mismo archivo se reprocesa, el segundo UPDATE no encuentra fila en status='OPEN' y no hace nada."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated-closed",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7d7e7f70-0005-4a1a-8a1a-000000000055",
+      "name": "¿Se actualizó cierre ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        3600
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "={{ ($('Parsear cierre (MT4)').item.json.reason === 'TP_REACHED' ? '🎯 TP alcanzado — señal ' : ($('Parsear cierre (MT4)').item.json.reason === 'SL_REACHED' ? '🛑 SL alcanzado — señal ' : '✋ Cierre manual — señal ')) + $('Parsear cierre (MT4)').item.json.signal_uid + ' (ticket ' + $('Parsear cierre (MT4)').item.json.ticket + '), precio ' + $('Parsear cierre (MT4)').item.json.close_price + ', resultado ' + $('Parsear cierre (MT4)').item.json.profit }}",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "7d7e7f70-0006-4a1a-8a1a-000000000056",
+      "name": "Avisar en chat: Cierre TP/SL",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        3500
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — cierre TP/SL: borra el archivo de\n// mt4-bridge/orders/closed/{ticket}.json ya procesado.\n// Se ejecuta siempre (haya notificado o no) — mismo criterio que\n// 'Borrar archivo de resultado'. fileName se recupera del nodo\n// 'Parsear cierre (MT4)' porque el nodo Postgres intermedio reemplaza\n// item.json por las columnas devueltas por la query.\nconst fs = require('fs');\n\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const paired = items[i].pairedItem;\n  const idx = Array.isArray(paired) ? paired[0].item : paired.item;\n  const fileName = $('Parsear cierre (MT4)').all()[idx].json.fileName;\n  await fs.promises.unlink(fileName);\n}\n\nreturn items;"
+      },
+      "id": "7d7e7f70-0007-4a1a-8a1a-000000000057",
+      "name": "Borrar archivo de cierre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1350,
+        3700
+      ],
+      "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml (ya habilitado para 'Borrar archivo de resultado')."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT json_agg(s.*) FROM signals s WHERE s.message_id = $1) AS matched_signals, (SELECT json_agg(m.*) FROM signal_modifications m  WHERE m.signal_id IN (SELECT id FROM signals WHERE message_id = $1)    AND m.modification_type = 'SL_TO_BE' AND m.status = 'SUCCESS') AS prior_sl_to_be;",
+        "options": {
+          "queryReplacement": "={{ [$('¿Señal válida?').item.json.reply_to_message_id] }}"
+        }
+      },
+      "id": "e0c52cae-dc3d-4493-865f-c44d2862c2a5",
+      "name": "Buscar señal referenciada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1850,
+        1750
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      },
+      "notes": "Fase 4 (seguimiento). json_agg garantiza SIEMPRE 1 fila de salida (incluso 0 coincidencias -> array vacio/null), preservando 1:1 con el item del webhook para el Code node siguiente. Agrupa por message_id, que ya cubre TODAS las sub-señales A/B/... de la señal original (equivalente a cortar el sufijo del signal_uid, mismo criterio que _related_tickets() en dashboard/main.py)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Fase 4: arbol de decision para instrucciones de seguimiento\n// sobre señales ya confirmadas/abiertas. Fuente de reglas: PROTOCOLOS_KRONOS_BOT.md\n// secciones 3.2, 4.2 regla 7, 8.4, y el diseño de la tarea Fase 4.\n//\n// Entrada: este nodo corre despues de \"Buscar señal referenciada\" (Postgres),\n// que devuelve SIEMPRE 1 fila con matched_signals (json_agg) y prior_sl_to_be\n// (json_agg) para el message_id al que responde este mensaje (o null/[] si no\n// hay match). Los campos originales del webhook (text, reply_to_message_id,\n// message_id, chat_id...) se leen del nodo IF previo, no de este item.\n\nconst original = $('¿Señal válida?').item.json;\nconst row = $json;\nconst matched = row.matched_signals || [];\nconst priorSlToBe = row.prior_sl_to_be || [];\n\nconst rawText = (original.text || '').trim().replace(/\\s+/g, ' ');\n\nfunction skip(reason) {\n  return [{\n    json: {\n      outcome: 'SKIP',\n      skip_reason: reason,\n      raw_text: rawText,\n      message_id: original.message_id,\n    },\n  }];\n}\n\n// 1. PRE-FILTRO GRATIS: sin reply válido, o el reply no corresponde a\n// ninguna fila existente en `signals` -> NO_RELACIONADO. No se guarda nada.\nif (!original.reply_to_message_id || matched.length === 0) {\n  return skip('NO_RELACIONADO');\n}\n\n// 2. FILTRO DE LONGITUD: mensajes largos son comentario/analisis, no\n// instrucciones reales de este caller. No llega a regex ni a Gemini.\nif (rawText.length > 200) {\n  return skip('COMENTARIO_LARGO');\n}\n\n// 3. REGEX, en orden exacto -------------------------------------------------\n\n// a) Informativo/no-op: TPx +N PIPS, o \"BE\" suelto (BE informativo, NUNCA\n//    se interpreta como refuerzo del comando \"mover SL a BE\" — protocolo\n//    seccion 4.2 regla 7).\nif (/^TP\\d?,?\\s*\\+?\\d+\\s*PIPS/i.test(rawText)) {\n  return skip('INFORMATIVO_TP_PIPS');\n}\nif (/^BE$/i.test(rawText)) {\n  return skip('INFORMATIVO_BE_SUELTO');\n}\n\n// b) Ignorar sin registro: TP3/TP4+ — el sistema solo trackea A=TP1, B=TP2\n//    (protocolo seccion 13, tope de sub-señales trackeadas por este flujo).\nif (/\\bTP\\s*[3-9]\\b/i.test(rawText)) {\n  return skip('TP_NO_TRACKEADO');\n}\n\nlet modification_type = null;\nlet target_price = null;\n\n// c) CANCEL\nif (/ELIMINAR\\s+ESTA\\s+OPERACI[OÓ]N/i.test(rawText)) {\n  modification_type = 'CANCEL';\n}\n\n// d) CLOSE_ALL_TO_BE — aplica a TODAS las sub-señales OPEN del message_id\n//    referenciado (ya agrupadas por la query de \"Buscar señal referenciada\",\n//    mismo criterio que _related_tickets() en dashboard/main.py).\nif (!modification_type && /CERRAR\\s+(ESTA\\s+OPERACI[OÓ]N\\s+)?A\\s+BE(\\s+ESTA\\s+OPERACI[OÓ]N)?/i.test(rawText)) {\n  modification_type = 'CLOSE_ALL_TO_BE';\n}\n\n// e) CLOSE_AT_PRICE\nif (!modification_type) {\n  const m = rawText.match(/CERRAR\\s+(AHORA\\s+)?A\\s+(\\d+(?:\\.\\d+)?)/i);\n  if (m) {\n    modification_type = 'CLOSE_AT_PRICE';\n    target_price = parseFloat(m[2]);\n  }\n}\n\n// f) TP_UPDATE\nif (!modification_type) {\n  const m = rawText.match(/MOVER\\s+(EL\\s+)?TP\\s+A\\s+(\\d+(?:\\.\\d+)?)/i);\n  if (m) {\n    modification_type = 'TP_UPDATE';\n    target_price = parseFloat(m[2]);\n  }\n}\n\n// g) SL_TO_BE — con guard de idempotencia (no reprocesar refuerzo duplicado).\nif (!modification_type && /MOVER\\s+(EL\\s+)?SL\\s+A\\s+BE/i.test(rawText)) {\n  modification_type = 'SL_TO_BE';\n}\n\n// Si no matcheo ningun regex -> Gemini (unico punto con costo de tokens).\nif (!modification_type) {\n  const ref = matched[0];\n  return [{\n    json: {\n      outcome: 'GEMINI',\n      raw_text: rawText,\n      message_id: original.message_id,\n      instrument: ref.instrument,\n      direction: ref.direction,\n      entry_price: ref.entry_price,\n      sl: ref.sl,\n      tp: ref.tp,\n      matched_signals: matched,\n    },\n  }];\n}\n\nif (modification_type === 'SL_TO_BE' && priorSlToBe.length > 0) {\n  return skip('SL_TO_BE_DUPLICADO');\n}\n\n// Targets segun tipo — solo se actua sobre filas en el estado que tiene\n// sentido para esa accion (no se inventa una accion sobre una operacion\n// que todavia no existe en ese estado en MT4).\nlet targets;\nif (modification_type === 'CLOSE_ALL_TO_BE' || modification_type === 'SL_TO_BE'\n    || modification_type === 'CLOSE_AT_PRICE' || modification_type === 'TP_UPDATE') {\n  targets = matched.filter((s) => s.status === 'OPEN');\n} else if (modification_type === 'CANCEL') {\n  targets = matched.filter((s) => ['PENDING_CONFIRMATION', 'CONFIRMED'].includes(s.status));\n} else {\n  targets = [];\n}\n\nif (targets.length === 0) {\n  return skip('SIN_OPERACION_APLICABLE_' + modification_type);\n}\n\nreturn [{\n  json: {\n    outcome: 'INSERT',\n    modification_type,\n    target_price,\n    raw_text: rawText,\n    message_id: original.message_id,\n    targets,\n  },\n}];\n"
+      },
+      "id": "ea6fd9b8-dd88-4f7c-8b86-323a620a5f94",
+      "name": "Clasificar seguimiento (regex)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        1750
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "INSERT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "INSERT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r2",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "GEMINI",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GEMINI"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "fe41eb14-9dfa-42de-934c-55614a3e5dc2",
+      "name": "Enrutar clasificación",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -1350,
+        1750
+      ],
+      "notes": "Salida SKIP (fallback) no se conecta a nada: no se guarda nada en BD (NO_RELACIONADO, comentario largo, informativo, duplicado, TP no trackeado, sin operacion aplicable)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fase 4: una fila de signal_modifications (y una posible accion de EA) por\n// cada señal objetivo (normalmente 1, o todas las sub-señales OPEN para\n// CLOSE_ALL_TO_BE). Mapeo modification_type -> accion EA, solo para las\n// acciones que el EA YA soporta hoy (mt4-bridge/FORMATO_ARCHIVOS.md 4.3,\n// confirmado contra dashboard/main.py VALID_POSITION_ACTIONS = SET_BE,\n// SET_TP_BE, CLOSE):\n//   SL_TO_BE / CLOSE_ALL_TO_BE -> SET_BE (mueve el SL al precio de apertura)\n//   CLOSE_AT_PRICE             -> CLOSE  (cierra a mercado, precio real\n//                                          puede diferir del target_price,\n//                                          que es solo referencia/auditoria)\n// CANCEL y TP_UPDATE (con target_price arbitrario) NO tienen accion de EA\n// equivalente hoy — se registran en signal_modifications sin ea_action,\n// ver nota en el resumen final de la tarea.\nconst parent = $json;\n\nconst results = [];\nfor (const t of parent.targets) {\n  let ea_action = null;\n  if ((parent.modification_type === 'SL_TO_BE' || parent.modification_type === 'CLOSE_ALL_TO_BE') && t.mt4_ticket) {\n    ea_action = 'SET_BE';\n  } else if (parent.modification_type === 'CLOSE_AT_PRICE' && t.mt4_ticket) {\n    ea_action = 'CLOSE';\n  }\n  results.push({\n    json: {\n      signal_id: t.id,\n      signal_uid: t.signal_uid,\n      mt4_ticket: t.mt4_ticket,\n      modification_type: parent.modification_type,\n      target_price: parent.target_price,\n      raw_text: parent.raw_text,\n      message_id: parent.message_id,\n      interpreted_by: 'REGEX',\n      ea_action,\n    },\n  });\n}\nreturn results;\n"
+      },
+      "id": "cfad9dce-ff5f-4b3c-9801-c943c559829b",
+      "name": "Expandir targets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1100,
+        1630
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text:\n    'Instrucción de seguimiento sobre una señal de trading ya confirmada. ' +\n    'Señal original: instrumento ' + $json.instrument + ', dirección ' + $json.direction +\n    ', entrada ' + $json.entry_price + ', SL ' + $json.sl + ', TP ' + $json.tp + '. ' +\n    'Mensaje de seguimiento (reply a esa señal): \\'' + $json.raw_text + '\\'. ' +\n    'Clasificá modification_type entre ENTRY_CHANGE, SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE. ' +\n    'target_price solo si el mensaje trae un precio explícito, si no null. No inventes valores.'\n  }] }],\n  generationConfig: {\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        modification_type: { type: 'STRING', enum: ['ENTRY_CHANGE','SL_CHANGE','CANCEL','TP_UPDATE','CLOSE_AT_PRICE'] },\n        target_price: { type: 'NUMBER', nullable: true }\n      },\n      required: ['modification_type']\n    }\n  }\n}) }}",
+        "options": {}
+      },
+      "id": "b32b1fc3-c0c4-4b55-ba5b-5c55a45a3787",
+      "name": "Interpretar con Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1100,
+        1910
+      ],
+      "notes": "Structured output forzado via responseSchema (Fase 4, punto Gemini del diseño) — no se confia en que el modelo respete un prompt de texto libre. Unico punto con costo de tokens del arbol de decision. Retry: retryOnFail+maxTries=2+waitBetweenTries=500ms (1 reintento inmediato, sin backoff largo, protocolo seccion 4.4). Si falla tras el reintento, onError=continueErrorOutput manda el item a la 2da salida -> 'Insertar modificación: Gemini falló (PENDING_MANUAL)'.",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza la respuesta de Gemini (structured JSON via responseSchema) al\n// mismo shape que produce \"Expandir targets\" para la rama regex, y la\n// enchufa al mismo INSERT/EA-action que la rama regex.\n//\n// Limitacion conocida (a reportar): a diferencia de la rama regex, esta\n// rama NO reintenta 1 vez en caso de error de Gemini (seccion 4.4 del\n// protocolo) ni marca PENDING_MANUAL si Gemini falla — el nodo HTTP\n// simplemente fallaria el workflow. Falta ese manejo de error, ver\n// resumen final de la tarea.\n//\n// Tambien: solo aplica sobre la PRIMERA sub-señal encontrada\n// (matched_signals[0]) — no reparte a multiples sub-señales como\n// CLOSE_ALL_TO_BE, porque los tipos que llegan por Gemini (ENTRY_CHANGE,\n// SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE) no tienen ese requisito\n// en el diseño de la tarea.\n\nconst context = $('Enrutar clasificación').item.json;\nconst raw = $json;\n\nlet parsed;\ntry {\n  const text = raw.candidates[0].content.parts[0].text;\n  parsed = JSON.parse(text);\n} catch (e) {\n  throw new Error('Fase 4: no se pudo parsear la respuesta estructurada de Gemini: ' + e.message);\n}\n\nconst target = context.matched_signals[0];\n\nlet ea_action = null; // ninguno de los tipos que llegan por Gemini tiene\n                       // accion de EA equivalente hoy (ver notas de la tarea).\n\nreturn [{\n  json: {\n    signal_id: target.id,\n    signal_uid: target.signal_uid,\n    mt4_ticket: target.mt4_ticket,\n    modification_type: parsed.modification_type,\n    target_price: parsed.target_price != null ? Number(parsed.target_price) : null,\n    raw_text: context.raw_text,\n    message_id: context.message_id,\n    interpreted_by: 'AI',\n    ea_action,\n  },\n}];\n"
+      },
+      "id": "0cd9fef6-b311-4a09-92f5-a7ad6c72d9f9",
+      "name": "Parsear respuesta Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -850,
+        1910
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signal_modifications (signal_id, message_id, raw_text, modification_type, interpreted_by, target_price, status) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING') RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.signal_id, $json.message_id, $json.raw_text, $json.modification_type, $json.interpreted_by, $json.target_price] }}"
+        }
+      },
+      "id": "5bfbea84-0e28-4b50-9846-3191b9a5299c",
+      "name": "Insertar modificación (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -600,
+        1750
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      },
+      "notes": "Recibe items tanto de 'Expandir targets' (REGEX) como de 'Parsear respuesta Gemini' (AI) — mismo shape normalizado en ambas ramas."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "e1",
+              "leftValue": "={{ $json.ea_action }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8edec4a8-ffe7-4eff-bc2e-b7b333953b18",
+      "name": "¿Tiene acción EA?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -350,
+        1750
+      ],
+      "notes": "IMPORTANTE (verificar en runtime): 'Insertar modificación (Postgres)' con RETURNING id devuelve un item nuevo cuyo unico campo es 'id' — ea_action, mt4_ticket, signal_id, signal_uid, modification_type NO viajan automaticamente en $json desde aca en adelante. Antes de activar en produccion, cambiar las expresiones de este nodo y de los siguientes (Preparar acción EA, Escribir acción EA, ambos Avisar en chat) para leer esos campos con referencia cruzada ($('Expandir targets').item.json / $('Parsear respuesta Gemini').item.json) en vez de $json, igual patron que 'Preparar orden pending (JSON)' usa $('Obtener señal confirmada').item.json en la rama de confirmacion existente."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fase 4: arma el JSON de comando sobre posicion abierta, mismo contrato\n// que ya usa el dashboard (mt4-bridge/FORMATO_ARCHIVOS.md seccion 4.3):\n// mt4-bridge/orders/actions/{ticket}-{action}.json\nconst ticket = $json.mt4_ticket;\nconst action = $json.ea_action;\n\nconst payload = { ticket, action };\nconst buffer = Buffer.from(JSON.stringify(payload, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${ticket}-${action}.json`, 'application/json');\n\nreturn [{\n  json: { ...$json, action_ticket: ticket },\n  binary: { data: binary },\n}];\n"
+      },
+      "id": "94447e98-601b-41e7-8e6b-8fe6e65487af",
+      "name": "Preparar acción EA (JSON)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        1630
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $env.MT4_ORDERS_DIR }}/actions/{{ $json.mt4_ticket }}-{{ $json.ea_action }}.json",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "2b284d4e-9cb1-40f8-8b22-17170c02b661",
+      "name": "Escribir acción EA (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        150,
+        1630
+      ],
+      "notes": "Mismo directorio/simlink que 'Escribir orden pending (MT4)', subcarpeta actions/ (FORMATO_ARCHIVOS.md 4.3)."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "={{ '✅ Modificación aplicada — señal #' + $json.signal_id + ' (' + $json.signal_uid + '), ' + $json.modification_type + ' -> acción EA ' + $json.ea_action + ' encolada para ticket #' + $json.mt4_ticket }}",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "abedce91-1419-4549-b713-c51b495fa209",
+      "name": "Avisar en chat: Modificación aplicada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        1630
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "396e420a-d14e-40d7-baaa-59ab2429a54b"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "={{ 'ℹ️ Modificación registrada — señal #' + $json.signal_id + ' (' + $json.signal_uid + '), ' + $json.modification_type + '. Sin acción automática en MT4 (revisar manualmente).' }}",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "d946b545-20b5-4226-956b-bfa63eb6ac12",
+      "name": "Avisar en chat: Registrada sin acción EA",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -100,
+        1850
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "e12ba3ab-52b9-43be-924d-5f82931d3fa1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signal_modifications (signal_id, message_id, raw_text, modification_type, interpreted_by, status) VALUES ($1, $2, $3, 'UNCLASSIFIED', 'AI', 'PENDING_MANUAL') RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$('Enrutar clasificación').item.json.matched_signals[0].id, $('Enrutar clasificación').item.json.message_id, $('Enrutar clasificación').item.json.raw_text] }}"
+        }
+      },
+      "id": "f4a1c8e2-9b3d-4e7a-8c1f-2d5e6a7b8c9d",
+      "name": "Insertar modificación: Gemini falló (PENDING_MANUAL)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -600,
+        2050
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      },
+      "notes": "Protocolo seccion 4.4: si Gemini falla incluso tras el reintento inmediato, se registra la modificacion como PENDING_MANUAL con modification_type='UNCLASSIFIED' (valor nuevo agregado al CHECK de db/schema.sql especificamente para este caso, ya que el tipo real nunca se determino) y se notifica urgente por Telegram en el nodo siguiente. Toma los datos de 'Enrutar clasificación' (el ultimo item con datos completos antes del nodo HTTP que fallo), no del item de error de 'Interpretar con Gemini' cuyo shape de error no es confiable entre versiones de n8n."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🚨 No se pudo interpretar este mensaje, revisar manualmente: {{ $('Enrutar clasificación').item.json.raw_text }}",
+        "additionalFields": {}
+      },
+      "id": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "name": "Avisar en chat: Gemini no interpretó",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -350,
+        2050
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Texto exacto de PROTOCOLOS_KRONOS_BOT.md sección 4.4 para el caso de fallo de Gemini tras el reintento.",
+      "webhookId": "051fea50-6e70-4e44-912c-b3fcac82794c"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "de8f5cbd-9874-4a17-b561-3ad43152e8b8",
+      "name": "Telegram Trigger (unificado dev)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2600,
+        0
+      ],
+      "webhookId": "kronos-dev-telegram-trigger",
+      "notesInFlow": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Unifica mensajes del grupo y callback_query de los botones — un solo bot solo puede tener un webhook registrado en Telegram, asi que no pueden ser dos nodos Telegram Trigger separados con la misma credencial. Se separan por tipo de update con el nodo IF ¿Es callback_query?."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot (DEV) — adapta el payload del Telegram Trigger (Bot API)\n// al mismo formato plano que 'Parsear señal (regex)' espera de\n// producción (antes lo armaba Telethon dentro de `body`). Acá no hay\n// wrapper `body`: el nodo Code de abajo ya hace\n// `item.json.body || item.json`, así que alcanza con dejarlo en la\n// raíz de json.\nreturn $input.all().map((item) => {\n  const msg = item.json.message;\n  return {\n    json: {\n      message_id: msg.message_id,\n      chat_id: msg.chat.id,\n      sender: msg.from.username || msg.from.first_name,\n      text: msg.text,\n      timestamp: msg.date, // segundos unix, parseTimestamp() ya lo maneja\n      reply_to_message_id: msg.reply_to_message ? msg.reply_to_message.message_id : null,\n    },\n  };\n});"
+      },
+      "id": "da557440-4027-41c8-b69d-d47beca9e333",
+      "name": "Adaptar mensaje del bot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2350,
+        0
+      ],
+      "notes": "Exclusivo del stack dev. KRONOS_WEBHOOK_SECRET no aplica en esta rama — la validación de origen la hace el registro de webhook único de Telegram para el token del bot, no un header compartido (ver nota del nodo anterior)."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.callback_query }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-if-callback-router",
+      "name": "¿Es callback_query?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2340,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Parsear señal (regex)": {
+      "main": [
+        [
+          {
+            "node": "¿Señal válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Señal válida?": {
+      "main": [
+        [
+          {
+            "node": "Insertar señal (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar señal referenciada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar señal (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "Notificar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear callback": {
+      "main": [
+        [
+          {
+            "node": "¿Confirmar o rechazar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Confirmar o rechazar?": {
+      "main": [
+        [
+          {
+            "node": "Actualizar status: CONFIRMED",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar status: REJECTED_BY_USER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: CONFIRMED": {
+      "main": [
+        [
+          {
+            "node": "¿Se confirmó ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: REJECTED_BY_USER": {
+      "main": [
+        [
+          {
+            "node": "¿Se rechazó ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder callback: Confirmada": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder callback: Rechazada": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se confirmó ahora?": {
+      "main": [
+        [
+          {
+            "node": "Responder callback: Confirmada",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Obtener señal confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder callback: Ya procesada (confirmar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se rechazó ahora?": {
+      "main": [
+        [
+          {
+            "node": "Responder callback: Rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder callback: Ya procesada (rechazar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener señal confirmada": {
+      "main": [
+        [
+          {
+            "node": "Obtener capital real (settings)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar orden pending (JSON)": {
+      "main": [
+        [
+          {
+            "node": "Escribir orden pending (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger: leer resultados MT4": {
+      "main": [
+        [
+          {
+            "node": "Leer resultados (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer resultados (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Parsear resultado (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear resultado (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Actualizar status: OPEN/PENDING_MANUAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: OPEN/PENDING_MANUAL": {
+      "main": [
+        [
+          {
+            "node": "¿Se actualizó ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se actualizó ahora?": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Resultado MT4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Borrar archivo de resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar en chat: Resultado MT4": {
+      "main": [
+        [
+          {
+            "node": "Borrar archivo de resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener capital real (settings)": {
+      "main": [
+        [
+          {
+            "node": "Preparar orden pending (JSON)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger: leer cierres MT4": {
+      "main": [
+        [
+          {
+            "node": "Leer cierres (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer cierres (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Parsear cierre (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear cierre (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Actualizar status: cierre TP/SL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: cierre TP/SL": {
+      "main": [
+        [
+          {
+            "node": "¿Se actualizó cierre ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se actualizó cierre ahora?": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Cierre TP/SL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Borrar archivo de cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar en chat: Cierre TP/SL": {
+      "main": [
+        [
+          {
+            "node": "Borrar archivo de cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar señal referenciada": {
+      "main": [
+        [
+          {
+            "node": "Clasificar seguimiento (regex)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clasificar seguimiento (regex)": {
+      "main": [
+        [
+          {
+            "node": "Enrutar clasificación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrutar clasificación": {
+      "main": [
+        [
+          {
+            "node": "Expandir targets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Interpretar con Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expandir targets": {
+      "main": [
+        [
+          {
+            "node": "Insertar modificación (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpretar con Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parsear respuesta Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insertar modificación: Gemini falló (PENDING_MANUAL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear respuesta Gemini": {
+      "main": [
+        [
+          {
+            "node": "Insertar modificación (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar modificación (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "¿Tiene acción EA?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Tiene acción EA?": {
+      "main": [
+        [
+          {
+            "node": "Preparar acción EA (JSON)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar en chat: Registrada sin acción EA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar acción EA (JSON)": {
+      "main": [
+        [
+          {
+            "node": "Escribir acción EA (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escribir acción EA (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Modificación aplicada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar modificación: Gemini falló (PENDING_MANUAL)": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Gemini no interpretó",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adaptar mensaje del bot": {
+      "main": [
+        [
+          {
+            "node": "Parsear señal (regex)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger (unificado dev)": {
+      "main": [
+        [
+          {
+            "node": "¿Es callback_query?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es callback_query?": {
+      "main": [
+        [
+          {
+            "node": "Parsear callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Adaptar mensaje del bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {
+    "node:Trigger: leer resultados MT4": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "node:Trigger: leer cierres MT4": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "activeVersionId": "7532f8bb-fdba-4fd0-a728-7b306a9c4742",
+  "versionCounter": 5,
+  "sourceWorkflowId": null,
+  "activeVersion": {
+    "updatedAt": "2026-08-19T23:00:50.672Z",
+    "createdAt": "2026-08-19T23:00:50.672Z",
+    "versionId": "7532f8bb-fdba-4fd0-a728-7b306a9c4742",
+    "workflowId": "JIhLUNnlolVQmRC8",
+    "nodes": [
+      {
+        "parameters": {
+          "content": "## 1. Captura y parseo de señales nuevas\nWebhook Telethon -> valida secreto -> parsea con regex -> inserta en Postgres -> notifica por Telegram.",
+          "height": 420,
+          "width": 1700,
+          "color": 4
+        },
+        "id": "685ad544-da77-4351-882c-404682051120",
+        "name": "Nota: 1. Captura y parseo",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -2680,
+          -260
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 2. Confirmación por Telegram (botones + callback)\nCallback del botón Confirmar/Rechazar -> UPDATE idempotente en Postgres -> respuesta al callback + aviso en el chat.",
+          "height": 720,
+          "width": 1750,
+          "color": 5
+        },
+        "id": "914b900d-d98e-4b11-8a54-fa33f73488f1",
+        "name": "Nota: 2. Confirmación Telegram",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -2680,
+          480
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 3. Seguimiento / modificaciones (regex + Gemini)\nMensaje que responde a una señal -> clasifica por regex; si no matchea, interpreta con Gemini -> inserta modificación -> si requiere acción EA, la escribe para MT4.",
+          "height": 750,
+          "width": 2500,
+          "color": 3
+        },
+        "id": "bd960aa9-3649-48d1-ba53-245b5508fbce",
+        "name": "Nota: 3. Seguimiento (Fase 4)",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -1930,
+          1430
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 4. Ejecución en MT4\nAl confirmar, arma y escribe la orden pending para el EA puente. Un trigger periódico lee los resultados desde MT4, actualiza Postgres y notifica el ticket/motivo de fallo.",
+          "height": 480,
+          "width": 2750,
+          "color": 6
+        },
+        "id": "c711f303-b13f-469a-8bdb-cf56c1f8cf48",
+        "name": "Nota: 4. Ejecución en MT4",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -2680,
+          2400
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 5. Detección de cierres (TP/SL)\nTrigger periódico lee los cierres reportados por el EA (TP o SL alcanzado), actualiza el status en Postgres y notifica el resultado por Telegram.",
+          "height": 500,
+          "width": 1700,
+          "color": 2
+        },
+        "id": "b65e381d-1960-40b4-a44a-3d96812198ef",
+        "name": "Nota: 5. Detección de cierres TP-SL",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -2680,
+          3330
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot — Nodo Function (n8n): parser regex de señales nuevas\n// Fuente de reglas: PROTOCOLOS_KRONOS_BOT.md (secciones 4.1, 4.2, 4.3)\n//\n// Entrada esperada: el nodo Webhook de n8n anida el payload real\n// dentro de un campo \"body\" (item.json.body.text, item.json.body.\n// timestamp, etc.), no en el nivel raíz de item.json. Por eso se lee\n// todo desde `body` en vez de `payload` directo — de lo contrario\n// ningún mensaje matchea nunca (bug real detectado en producción).\n// Campos esperados dentro de body: message_id, chat_id, sender,\n// text, timestamp, reply_to_message_id\n//\n// Este nodo SOLO detecta y parsea señales nuevas de formato fijo.\n// No calcula lotaje, no inserta en la base de datos, no envía\n// notificaciones — eso lo hacen otros nodos del workflow.\n\nconst MAX_AGE_MINUTES = 5;\n// Sin tope de sub-señales (protocolo sección 4.2 regla 6, actualizada):\n// se genera una sub-señal por cada TP que traiga el mensaje, sin límite.\nfunction subSignalSuffix(index) {\n  // A, B, C... Z, AA, AB... para no depender de un array fijo de 26.\n  let n = index, s = '';\n  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);\n  return s;\n}\n\n// Formato fijo esperado:\n//   INSTRUMENTO BUY|SELL [LIMIT] PRECIO TP VALOR [TP VALOR ...] SL VALOR\n// El label \"TP\" se repite una vez por cada take profit, sin número pegado\n// (no existe \"TP1\"/\"TP2\" en los mensajes reales del grupo). Puede venir\n// en una sola línea o con saltos de línea entre campos — el código\n// colapsa los saltos de línea en espacios antes de aplicar el regex.\n// Ejemplos reales:\n//   \"XAUUSD BUY 4372  TP 4376  SL 4347\"\n//   \"XAUUSD SELL 4388\\nTP 4386\\nTP 4385\\nTP 4380\\nTP 4370\\nSL 4414\"\n// Sin ancla $ al final: los mensajes reales a veces traen texto\n// adicional después del SL (emojis, comentarios). \\b asegura que el\n// valor de SL termine en límite de palabra, sin exigir fin de string.\nconst SIGNAL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+(\\d+(?:\\.\\d+)?))?(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\s+SL:?\\s+(\\d+(?:\\.\\d+)?)\\b/i;\n\n// Regex secundario: mismo formato pero sin exigir SL. Se usa solo para\n// distinguir \"señal con SL faltante\" (sección 4.2 regla 5 — no se\n// inventa el SL, la señal no se ejecuta hasta tenerlo) de un mensaje\n// que directamente no es una señal nueva.\nconst SIGNAL_WITHOUT_SL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\b/i;\n\n// Extrae TODOS los TP presentes en el texto, en orden de aparición.\n// Cada uno genera su propia sub-señal, sin tope (protocolo sección\n// 4.2 regla 6, actualizada).\nconst TP_GLOBAL_REGEX = /TP:?\\s+(\\d+(?:\\.\\d+)?)/gi;\n\nfunction parseTimestamp(rawTimestamp) {\n  if (typeof rawTimestamp === 'number') {\n    // Segundos unix -> ms si el valor es demasiado pequeño para ser ms\n    return new Date(rawTimestamp < 1e12 ? rawTimestamp * 1000 : rawTimestamp);\n  }\n  return new Date(rawTimestamp);\n}\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  // El Webhook de n8n envuelve el payload real en `body`.\n  const body = item.json.body || item.json;\n  const rawText = (body.text || '').trim().replace(/\\s+/g, ' ');\n\n  const match = rawText.match(SIGNAL_REGEX);\n\n  if (!match) {\n    // No coincide con el formato completo de señal nueva. Puede ser\n    // una instrucción de seguimiento, un mensaje no relacionado, o\n    // una señal real con el SL faltante — se distinguen para no\n    // perder de vista este último caso (protocolo sección 4.2 regla 5).\n    const partialMatch = rawText.match(SIGNAL_WITHOUT_SL_REGEX);\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: partialMatch ? 'MISSING_SL' : 'NO_MATCH_FIXED_FORMAT',\n      },\n    });\n    continue;\n  }\n\n  const [, instrument, direction, limitFlag, entryPrice, , , sl] = match;\n\n  const signalDate = parseTimestamp(body.timestamp);\n  body.timestamp = signalDate.toISOString();\n  if (isNaN(signalDate.getTime())) {\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: 'INVALID_TIMESTAMP',\n      },\n    });\n    continue;\n  }\n\n  const ageMinutes = (Date.now() - signalDate.getTime()) / 60000;\n\n  if (ageMinutes > MAX_AGE_MINUTES) {\n    // Regla de antigüedad (sección 4.3): binaria, sin excepciones.\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'EXPIRED',\n        interpreted_by: 'REGEX',\n      },\n    });\n    continue;\n  }\n\n  // Una sub-señal independiente por cada TP del mensaje, sin tope\n  // (protocolo sección 4.2 regla 6, actualizada). Comparten todo\n  // excepto el TP y el signal_uid.\n  const tpValues = [...rawText.matchAll(TP_GLOBAL_REGEX)]\n    .map((m) => parseFloat(m[1]));\n\n  for (let i = 0; i < tpValues.length; i++) {\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'PENDING_CONFIRMATION',\n        interpreted_by: 'REGEX',\n        signal_uid: `${body.message_id}-${subSignalSuffix(i)}`,\n        instrument: instrument.toUpperCase(),\n        direction: direction.toUpperCase(),\n        execution_type: limitFlag ? 'LIMIT' : 'MARKET',\n        entry_price: parseFloat(entryPrice),\n        tp: tpValues[i], // TP propio de esta sub-señal\n        sl: parseFloat(sl),\n        raw_text: rawText,\n      },\n    });\n  }\n}\n\nreturn results;"
+        },
+        "id": "f27bd27e-dee9-43ec-a430-7feeab94b31e",
+        "name": "Parsear señal (regex)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -2100,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "c1",
+                "leftValue": "={{ $json.matched }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              },
+              {
+                "id": "c2",
+                "leftValue": "={{ $json.status }}",
+                "rightValue": "PENDING_CONFIRMATION",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "6e5eea28-70f8-47f7-9d7c-6a234aabadb2",
+        "name": "¿Señal válida?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -1850,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO signals (signal_uid, message_id, chat_id, sender, raw_text, signal_timestamp, reply_to_message_id, instrument, direction, execution_type, entry_price, sl, tp, interpreted_by, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id;",
+          "options": {
+            "queryReplacement": "={{ [$json.signal_uid, $json.message_id, $json.chat_id, $json.sender, $json.raw_text, $json.timestamp, $json.reply_to_message_id, $json.instrument, $json.direction, $json.execution_type, $json.entry_price, $json.sl, $json.tp, $json.interpreted_by, $json.status] }}"
+          }
+        },
+        "id": "12cc7923-075d-4144-8f62-8de4e62fe1bd",
+        "name": "Insertar señal (Postgres)",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -1600,
+          -120
+        ],
+        "notesInFlow": true,
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        },
+        "notes": "Parámetros $1..$14 mapeados 1:1 en el mismo orden que las columnas del INSERT (ver columnas de la tabla signals en db/schema.sql). Credencial: host=postgres, port=5432, database/user/password según .env."
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+          "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Parsear señal (regex)').item.json.instrument }}\nDirección: {{ $('Parsear señal (regex)').item.json.direction }}\nTipo: {{ $('Parsear señal (regex)').item.json.execution_type }}\nEntrada: {{ $('Parsear señal (regex)').item.json.entry_price }}\nTP: {{ $('Parsear señal (regex)').item.json.tp }}\nSL: {{ $('Parsear señal (regex)').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
+          "replyMarkup": "inlineKeyboard",
+          "inlineKeyboard": {
+            "rows": [
+              {
+                "row": {
+                  "buttons": [
+                    {
+                      "text": "✅ Confirmar",
+                      "additionalFields": {
+                        "callback_data": "=confirm:{{ $json.id }}"
+                      }
+                    },
+                    {
+                      "text": "❌ Rechazar",
+                      "additionalFields": {
+                        "callback_data": "=reject:{{ $json.id }}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "additionalFields": {
+            "appendAttribution": false,
+            "parse_mode": "none"
+          }
+        },
+        "id": "d6926da1-b0d0-4ba8-93ce-e268cbdb0e6f",
+        "name": "Notificar Telegram",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -1350,
+          -120
+        ],
+        "notesInFlow": true,
+        "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        },
+        "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot — Nodo Function: parsear callback_query de los botones\n// Fase A (solo botones, sin EA/MT4 todavía)\nconst callbackQuery = $input.first().json.callback_query;\nconst [action, signalIdRaw] = (callbackQuery.data || '').split(':');\nreturn [{\n  json: {\n    action, // 'confirm' o 'reject'\n    signalId: parseInt(signalIdRaw, 10),\n    callbackQueryId: callbackQuery.id,\n  },\n}];"
+        },
+        "id": "63d58f09-1098-456b-b3ca-fb7b520e5d7f",
+        "name": "Parsear callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -2350,
+          800
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond-confirm-reject",
+                "leftValue": "={{ $json.action }}",
+                "rightValue": "confirm",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "d97957e1-2d85-4bf7-a25c-bf97c2e348e0",
+        "name": "¿Confirmar o rechazar?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -2100,
+          800
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+          "options": {
+            "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+          }
+        },
+        "id": "486d0a2e-5dd1-48ef-9791-43c9017ac2f6",
+        "name": "Actualizar status: CONFIRMED",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -1850,
+          660
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH updated AS (\n  UPDATE signals SET status = 'REJECTED_BY_USER', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+          "options": {
+            "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+          }
+        },
+        "id": "71b6a6a1-bb0d-45f3-8df5-9bbb1cc52e12",
+        "name": "Actualizar status: REJECTED_BY_USER",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -1850,
+          960
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "resource": "callback",
+          "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+          "additionalFields": {}
+        },
+        "id": "9246bde6-2458-499d-a4e9-79ce26b5059e",
+        "name": "Responder callback: Confirmada",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -1350,
+          560
+        ],
+        "webhookId": "698f7aab-769d-4a4f-acda-6907949c6972",
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "resource": "callback",
+          "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+          "additionalFields": {}
+        },
+        "id": "c8ecbb95-09ac-4b2f-bff4-1970461e3fe0",
+        "name": "Responder callback: Rechazada",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -1350,
+          860
+        ],
+        "webhookId": "b86332d9-8802-453b-8361-6a14ae4d10e4",
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+          "text": "=✅ Señal #{{ $('Parsear callback').item.json.signalId }} confirmada. Se procederá con la ejecución.",
+          "additionalFields": {
+            "parse_mode": "none"
+          }
+        },
+        "id": "1a1b1c1d-0012-4a1a-8a1a-000000000012",
+        "name": "Avisar en chat: Confirmada",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -1100,
+          560
+        ],
+        "webhookId": "5148d035-4bfe-4d10-b578-e57468c74e69",
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+          "text": "=❌ Señal #{{ $('Parsear callback').item.json.signalId }} rechazada. No se ejecutará.",
+          "additionalFields": {
+            "parse_mode": "none"
+          }
+        },
+        "id": "1a1b1c1d-0013-4a1a-8a1a-000000000013",
+        "name": "Avisar en chat: Rechazada",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -1100,
+          860
+        ],
+        "webhookId": "44603ea8-6600-4b56-9ebc-f99a04ddf707",
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond-updated",
+                "leftValue": "={{ Number($json.updated_count) }}",
+                "rightValue": 1,
+                "operator": {
+                  "type": "number",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "2b2c2d2e-0001-4a1a-8a1a-000000000021",
+        "name": "¿Se confirmó ahora?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -1600,
+          660
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond-updated",
+                "leftValue": "={{ Number($json.updated_count) }}",
+                "rightValue": 1,
+                "operator": {
+                  "type": "number",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "2b2c2d2e-0002-4a1a-8a1a-000000000022",
+        "name": "¿Se rechazó ahora?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -1600,
+          960
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "callback",
+          "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+          "additionalFields": {}
+        },
+        "id": "2b2c2d2e-0003-4a1a-8a1a-000000000023",
+        "name": "Responder callback: Ya procesada (confirmar)",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -1350,
+          740
+        ],
+        "webhookId": "a98bf3de-61c1-4345-95fb-473ddfaf17cd",
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "resource": "callback",
+          "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+          "additionalFields": {}
+        },
+        "id": "2b2c2d2e-0004-4a1a-8a1a-000000000024",
+        "name": "Responder callback: Ya procesada (rechazar)",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -1350,
+          1060
+        ],
+        "webhookId": "41c7fbac-b070-4359-8b16-efe262ac1b73",
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT id, signal_uid, instrument, direction, execution_type, entry_price, sl, tp FROM signals WHERE id = $1;",
+          "options": {
+            "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+          }
+        },
+        "id": "3c3d3e3f-0001-4a1a-8a1a-000000000031",
+        "name": "Obtener señal confirmada",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -2600,
+          2700
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        },
+        "notes": "Trae los campos que necesita la orden MT4 (FORMATO_ARCHIVOS.md) — el UPDATE de 'Actualizar status: CONFIRMED' solo devuelve updated_count/current_status, no la señal completa."
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT capital_real FROM settings ORDER BY id DESC LIMIT 1;",
+          "options": {}
+        },
+        "id": "3c3d3e3f-0001-4a1a-8a1a-000000000034",
+        "name": "Obtener capital real (settings)",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -2350,
+          2700
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        },
+        "notes": "capital_real lo reporta el EA (AccountBalance() - AccountCredit()) y n8n lo guarda en settings. Se lee justo antes de armar la orden para calcular el lotaje contra el capital ACTUAL, no uno viejo (PROTOCOLOS_KRONOS_BOT.md sección 5.1/5.2)."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot — Etapa 4 (puente MT4): arma el JSON de orden pendiente\n// según el contrato exacto de mt4-bridge/FORMATO_ARCHIVOS.md.\n// Lotaje dinámico (PROTOCOLOS_KRONOS_BOT.md sección 5.2): floor(capital_real / 100) * 0.01,\n// con piso de 0.01 si el cálculo da 0 o negativo. NO es el cálculo de slots 80/20 de la\n// sección 5.3 (ese sigue sin implementar) — acá no hay competencia entre sub-señales.\nconst row = $('Obtener señal confirmada').item.json;\nconst capitalRow = $input.first().json;\nconst capitalReal = Number(capitalRow.capital_real);\n\nlet lot = Math.floor(capitalReal / 100) * 0.01;\nif (!(lot > 0)) {\n  lot = 0.01;\n}\nlot = Number(lot.toFixed(2));\n\nconst order = {\n  signal_id: row.id,\n  signal_uid: row.signal_uid,\n  instrument: row.instrument,\n  direction: row.direction,\n  execution_type: row.execution_type,\n  entry_price: Number(row.entry_price),\n  sl: Number(row.sl),\n  tp: Number(row.tp),\n  lot,\n  created_at: new Date().toISOString(),\n};\n\nconst buffer = Buffer.from(JSON.stringify(order, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${row.id}.json`, 'application/json');\n\nreturn [{\n  json: order,\n  binary: { data: binary },\n}];"
+        },
+        "id": "3c3d3e3f-0002-4a1a-8a1a-000000000032",
+        "name": "Preparar orden pending (JSON)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -2100,
+          2700
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "write",
+          "fileName": "={{ $env.MT4_ORDERS_DIR }}/pending/{{ $json.signal_id }}.json",
+          "dataPropertyName": "data",
+          "options": {}
+        },
+        "id": "3c3d3e3f-0003-4a1a-8a1a-000000000033",
+        "name": "Escribir orden pending (MT4)",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1,
+        "position": [
+          -1850,
+          2700
+        ],
+        "notes": "MT4_ORDERS_DIR (env) = /mt4-bridge/orders dentro del contenedor n8n, montado en docker-compose.yml desde MT4_ORDERS_HOST_PATH (ruta real de Common/Files/orders en el prefijo de Wine de esta máquina)."
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "seconds",
+                "secondsInterval": 5
+              }
+            ]
+          }
+        },
+        "id": "5c5d5e5f-0001-4a1a-8a1a-000000000041",
+        "name": "Trigger: leer resultados MT4",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -1600,
+          2700
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "read",
+          "fileSelector": "={{ $env.MT4_ORDERS_DIR }}/results/*.json",
+          "options": {}
+        },
+        "id": "5c5d5e5f-0002-4a1a-8a1a-000000000042",
+        "name": "Leer resultados (MT4)",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1,
+        "position": [
+          -1350,
+          2700
+        ],
+        "notes": "Lee mt4-bridge/orders/results/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot — Etapa 5 (puente MT4): parsea cada resultado leído de\n// mt4-bridge/orders/results/{signal_id}.json (formato en\n// mt4-bridge/FORMATO_ARCHIVOS.md sección 2).\n// El nodo 'Leer resultados (MT4)' guarda el binario en modo\n// filesystem-v2 (no viene en base64 dentro de item.binary.data.data),\n// por eso se usa this.helpers.getBinaryDataBuffer para leer el\n// contenido real del archivo.\nconst results = [];\nconst items = $input.all();\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const binaryMeta = item.binary.data;\n  const fullPath = `${binaryMeta.directory}/${binaryMeta.fileName}`;\n  const buffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const parsed = JSON.parse(buffer.toString('utf-8'));\n\n  results.push({\n    json: {\n      signal_id: parsed.signal_id,\n      success: parsed.success,\n      ticket: parsed.ticket,\n      executed_price: parsed.executed_price,\n      error_code: parsed.error_code,\n      error_message: parsed.error_message,\n      fileName: fullPath,\n    },\n  });\n}\n\nreturn results;"
+        },
+        "id": "5c5d5e5f-0003-4a1a-8a1a-000000000043",
+        "name": "Parsear resultado (MT4)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1100,
+          2700
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH updated AS (\n  UPDATE signals SET\n    status = CASE WHEN $2::boolean THEN 'OPEN' ELSE 'PENDING_MANUAL' END,\n    mt4_ticket = $3, updated_at = NOW()\n  WHERE id = $1 AND status = 'CONFIRMED'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, (SELECT signal_uid FROM signals WHERE id = $1) AS signal_uid;",
+          "options": {
+            "queryReplacement": "={{ [$json.signal_id, $json.success, $json.ticket] }}"
+          }
+        },
+        "id": "5c5d5e5f-0004-4a1a-8a1a-000000000044",
+        "name": "Actualizar status: OPEN/PENDING_MANUAL",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -850,
+          2700
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        },
+        "notes": "UPDATE idempotente (mismo patrón que 'Actualizar status: CONFIRMED'): solo actualiza si status='CONFIRMED', evita reprocesar."
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond-updated-exec",
+                "leftValue": "={{ Number($json.updated_count) }}",
+                "rightValue": 1,
+                "operator": {
+                  "type": "number",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "5c5d5e5f-0005-4a1a-8a1a-000000000045",
+        "name": "¿Se actualizó ahora?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -600,
+          2700
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+          "text": "={{ $('Parsear resultado (MT4)').item.json.success ? '✅ Señal #' + $('Parsear resultado (MT4)').item.json.signal_id + ' ejecutada — ticket ' + $('Parsear resultado (MT4)').item.json.ticket + ', precio ' + $('Parsear resultado (MT4)').item.json.executed_price : '⚠️ Señal #' + $('Parsear resultado (MT4)').item.json.signal_id + ' no se pudo ejecutar: ' + $('Parsear resultado (MT4)').item.json.error_message }}",
+          "additionalFields": {
+            "parse_mode": "none"
+          }
+        },
+        "id": "5c5d5e5f-0006-4a1a-8a1a-000000000046",
+        "name": "Avisar en chat: Resultado MT4",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -350,
+          2600
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        },
+        "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot — Etapa 5 (puente MT4): borra el archivo de\n// mt4-bridge/orders/results/{signal_id}.json ya procesado.\n// Se ejecuta siempre (haya notificado o no), igual que el EA nunca\n// reprocesa pending/. fileName se recupera del nodo 'Parsear\n// resultado (MT4)' porque el nodo Postgres intermedio reemplaza\n// item.json por las columnas devueltas por la query.\nconst fs = require('fs');\n\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const paired = items[i].pairedItem;\n  const idx = Array.isArray(paired) ? paired[0].item : paired.item;\n  const fileName = $('Parsear resultado (MT4)').all()[idx].json.fileName;\n  await fs.promises.unlink(fileName);\n}\n\nreturn items;"
+        },
+        "id": "5c5d5e5f-0007-4a1a-8a1a-000000000047",
+        "name": "Borrar archivo de resultado",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -100,
+          2700
+        ],
+        "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml."
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "seconds",
+                "secondsInterval": 5
+              }
+            ]
+          }
+        },
+        "id": "7d7e7f70-0001-4a1a-8a1a-000000000051",
+        "name": "Trigger: leer cierres MT4",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -2600,
+          3600
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "read",
+          "fileSelector": "={{ $env.MT4_ORDERS_DIR }}/closed/*.json",
+          "options": {}
+        },
+        "id": "7d7e7f70-0002-4a1a-8a1a-000000000052",
+        "name": "Leer cierres (MT4)",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1,
+        "position": [
+          -2350,
+          3600
+        ],
+        "notes": "Lee mt4-bridge/orders/closed/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot — cierre TP/SL (puente MT4): parsea cada archivo leído de\n// mt4-bridge/orders/closed/{ticket}.json (formato en\n// mt4-bridge/FORMATO_ARCHIVOS.md sección 5.1).\n// Mismo patrón que 'Parsear resultado (MT4)': binario en modo\n// filesystem-v2, se lee con this.helpers.getBinaryDataBuffer.\nconst results = [];\nconst items = $input.all();\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const binaryMeta = item.binary.data;\n  const fullPath = `${binaryMeta.directory}/${binaryMeta.fileName}`;\n  const buffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const parsed = JSON.parse(buffer.toString('utf-8'));\n\n  results.push({\n    json: {\n      ticket: parsed.ticket,\n      signal_uid: parsed.signal_uid,\n      symbol: parsed.symbol,\n      reason: parsed.reason,\n      close_price: parsed.close_price,\n      profit: parsed.profit,\n      close_time: parsed.close_time,\n      fileName: fullPath,\n    },\n  });\n}\n\nreturn results;"
+        },
+        "id": "7d7e7f70-0003-4a1a-8a1a-000000000053",
+        "name": "Parsear cierre (MT4)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -2100,
+          3600
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH updated AS (\n  UPDATE signals SET\n    status = $2,\n    close_price = $3,\n    profit_loss = $4,\n    close_timestamp = $5::timestamp,\n    mt4_ticket = COALESCE(mt4_ticket, $6),\n    updated_at = NOW()\n  WHERE signal_uid = $1 AND status = 'OPEN'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, $1::text AS signal_uid;",
+          "options": {
+            "queryReplacement": "={{ [$json.signal_uid, $json.reason, $json.close_price, $json.profit, $json.close_time, $json.ticket] }}"
+          }
+        },
+        "id": "7d7e7f70-0004-4a1a-8a1a-000000000054",
+        "name": "Actualizar status: cierre TP/SL",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -1850,
+          3600
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        },
+        "notes": "UPDATE idempotente (mismo patron que 'Actualizar status: OPEN/PENDING_MANUAL'): solo actualiza si status='OPEN', correlaciona por signal_uid (closed/*.json no trae el id numerico de Postgres, solo signal_uid). Si el mismo archivo se reprocesa, el segundo UPDATE no encuentra fila en status='OPEN' y no hace nada."
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond-updated-closed",
+                "leftValue": "={{ Number($json.updated_count) }}",
+                "rightValue": 1,
+                "operator": {
+                  "type": "number",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "7d7e7f70-0005-4a1a-8a1a-000000000055",
+        "name": "¿Se actualizó cierre ahora?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -1600,
+          3600
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+          "text": "={{ ($('Parsear cierre (MT4)').item.json.reason === 'TP_REACHED' ? '🎯 TP alcanzado — señal ' : ($('Parsear cierre (MT4)').item.json.reason === 'SL_REACHED' ? '🛑 SL alcanzado — señal ' : '✋ Cierre manual — señal ')) + $('Parsear cierre (MT4)').item.json.signal_uid + ' (ticket ' + $('Parsear cierre (MT4)').item.json.ticket + '), precio ' + $('Parsear cierre (MT4)').item.json.close_price + ', resultado ' + $('Parsear cierre (MT4)').item.json.profit }}",
+          "additionalFields": {
+            "parse_mode": "none"
+          }
+        },
+        "id": "7d7e7f70-0006-4a1a-8a1a-000000000056",
+        "name": "Avisar en chat: Cierre TP/SL",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -1350,
+          3500
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        },
+        "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot — cierre TP/SL: borra el archivo de\n// mt4-bridge/orders/closed/{ticket}.json ya procesado.\n// Se ejecuta siempre (haya notificado o no) — mismo criterio que\n// 'Borrar archivo de resultado'. fileName se recupera del nodo\n// 'Parsear cierre (MT4)' porque el nodo Postgres intermedio reemplaza\n// item.json por las columnas devueltas por la query.\nconst fs = require('fs');\n\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const paired = items[i].pairedItem;\n  const idx = Array.isArray(paired) ? paired[0].item : paired.item;\n  const fileName = $('Parsear cierre (MT4)').all()[idx].json.fileName;\n  await fs.promises.unlink(fileName);\n}\n\nreturn items;"
+        },
+        "id": "7d7e7f70-0007-4a1a-8a1a-000000000057",
+        "name": "Borrar archivo de cierre",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1350,
+          3700
+        ],
+        "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml (ya habilitado para 'Borrar archivo de resultado')."
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT (SELECT json_agg(s.*) FROM signals s WHERE s.message_id = $1) AS matched_signals, (SELECT json_agg(m.*) FROM signal_modifications m  WHERE m.signal_id IN (SELECT id FROM signals WHERE message_id = $1)    AND m.modification_type = 'SL_TO_BE' AND m.status = 'SUCCESS') AS prior_sl_to_be;",
+          "options": {
+            "queryReplacement": "={{ [$('¿Señal válida?').item.json.reply_to_message_id] }}"
+          }
+        },
+        "id": "e0c52cae-dc3d-4493-865f-c44d2862c2a5",
+        "name": "Buscar señal referenciada",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -1850,
+          1750
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        },
+        "notes": "Fase 4 (seguimiento). json_agg garantiza SIEMPRE 1 fila de salida (incluso 0 coincidencias -> array vacio/null), preservando 1:1 con el item del webhook para el Code node siguiente. Agrupa por message_id, que ya cubre TODAS las sub-señales A/B/... de la señal original (equivalente a cortar el sufijo del signal_uid, mismo criterio que _related_tickets() en dashboard/main.py)."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot — Fase 4: arbol de decision para instrucciones de seguimiento\n// sobre señales ya confirmadas/abiertas. Fuente de reglas: PROTOCOLOS_KRONOS_BOT.md\n// secciones 3.2, 4.2 regla 7, 8.4, y el diseño de la tarea Fase 4.\n//\n// Entrada: este nodo corre despues de \"Buscar señal referenciada\" (Postgres),\n// que devuelve SIEMPRE 1 fila con matched_signals (json_agg) y prior_sl_to_be\n// (json_agg) para el message_id al que responde este mensaje (o null/[] si no\n// hay match). Los campos originales del webhook (text, reply_to_message_id,\n// message_id, chat_id...) se leen del nodo IF previo, no de este item.\n\nconst original = $('¿Señal válida?').item.json;\nconst row = $json;\nconst matched = row.matched_signals || [];\nconst priorSlToBe = row.prior_sl_to_be || [];\n\nconst rawText = (original.text || '').trim().replace(/\\s+/g, ' ');\n\nfunction skip(reason) {\n  return [{\n    json: {\n      outcome: 'SKIP',\n      skip_reason: reason,\n      raw_text: rawText,\n      message_id: original.message_id,\n    },\n  }];\n}\n\n// 1. PRE-FILTRO GRATIS: sin reply válido, o el reply no corresponde a\n// ninguna fila existente en `signals` -> NO_RELACIONADO. No se guarda nada.\nif (!original.reply_to_message_id || matched.length === 0) {\n  return skip('NO_RELACIONADO');\n}\n\n// 2. FILTRO DE LONGITUD: mensajes largos son comentario/analisis, no\n// instrucciones reales de este caller. No llega a regex ni a Gemini.\nif (rawText.length > 200) {\n  return skip('COMENTARIO_LARGO');\n}\n\n// 3. REGEX, en orden exacto -------------------------------------------------\n\n// a) Informativo/no-op: TPx +N PIPS, o \"BE\" suelto (BE informativo, NUNCA\n//    se interpreta como refuerzo del comando \"mover SL a BE\" — protocolo\n//    seccion 4.2 regla 7).\nif (/^TP\\d?,?\\s*\\+?\\d+\\s*PIPS/i.test(rawText)) {\n  return skip('INFORMATIVO_TP_PIPS');\n}\nif (/^BE$/i.test(rawText)) {\n  return skip('INFORMATIVO_BE_SUELTO');\n}\n\n// b) Ignorar sin registro: TP3/TP4+ — el sistema solo trackea A=TP1, B=TP2\n//    (protocolo seccion 13, tope de sub-señales trackeadas por este flujo).\nif (/\\bTP\\s*[3-9]\\b/i.test(rawText)) {\n  return skip('TP_NO_TRACKEADO');\n}\n\nlet modification_type = null;\nlet target_price = null;\n\n// c) CANCEL\nif (/ELIMINAR\\s+ESTA\\s+OPERACI[OÓ]N/i.test(rawText)) {\n  modification_type = 'CANCEL';\n}\n\n// d) CLOSE_ALL_TO_BE — aplica a TODAS las sub-señales OPEN del message_id\n//    referenciado (ya agrupadas por la query de \"Buscar señal referenciada\",\n//    mismo criterio que _related_tickets() en dashboard/main.py).\nif (!modification_type && /CERRAR\\s+(ESTA\\s+OPERACI[OÓ]N\\s+)?A\\s+BE(\\s+ESTA\\s+OPERACI[OÓ]N)?/i.test(rawText)) {\n  modification_type = 'CLOSE_ALL_TO_BE';\n}\n\n// e) CLOSE_AT_PRICE\nif (!modification_type) {\n  const m = rawText.match(/CERRAR\\s+(AHORA\\s+)?A\\s+(\\d+(?:\\.\\d+)?)/i);\n  if (m) {\n    modification_type = 'CLOSE_AT_PRICE';\n    target_price = parseFloat(m[2]);\n  }\n}\n\n// f) TP_UPDATE\nif (!modification_type) {\n  const m = rawText.match(/MOVER\\s+(EL\\s+)?TP\\s+A\\s+(\\d+(?:\\.\\d+)?)/i);\n  if (m) {\n    modification_type = 'TP_UPDATE';\n    target_price = parseFloat(m[2]);\n  }\n}\n\n// g) SL_TO_BE — con guard de idempotencia (no reprocesar refuerzo duplicado).\nif (!modification_type && /MOVER\\s+(EL\\s+)?SL\\s+A\\s+BE/i.test(rawText)) {\n  modification_type = 'SL_TO_BE';\n}\n\n// Si no matcheo ningun regex -> Gemini (unico punto con costo de tokens).\nif (!modification_type) {\n  const ref = matched[0];\n  return [{\n    json: {\n      outcome: 'GEMINI',\n      raw_text: rawText,\n      message_id: original.message_id,\n      instrument: ref.instrument,\n      direction: ref.direction,\n      entry_price: ref.entry_price,\n      sl: ref.sl,\n      tp: ref.tp,\n      matched_signals: matched,\n    },\n  }];\n}\n\nif (modification_type === 'SL_TO_BE' && priorSlToBe.length > 0) {\n  return skip('SL_TO_BE_DUPLICADO');\n}\n\n// Targets segun tipo — solo se actua sobre filas en el estado que tiene\n// sentido para esa accion (no se inventa una accion sobre una operacion\n// que todavia no existe en ese estado en MT4).\nlet targets;\nif (modification_type === 'CLOSE_ALL_TO_BE' || modification_type === 'SL_TO_BE'\n    || modification_type === 'CLOSE_AT_PRICE' || modification_type === 'TP_UPDATE') {\n  targets = matched.filter((s) => s.status === 'OPEN');\n} else if (modification_type === 'CANCEL') {\n  targets = matched.filter((s) => ['PENDING_CONFIRMATION', 'CONFIRMED'].includes(s.status));\n} else {\n  targets = [];\n}\n\nif (targets.length === 0) {\n  return skip('SIN_OPERACION_APLICABLE_' + modification_type);\n}\n\nreturn [{\n  json: {\n    outcome: 'INSERT',\n    modification_type,\n    target_price,\n    raw_text: rawText,\n    message_id: original.message_id,\n    targets,\n  },\n}];\n"
+        },
+        "id": "ea6fd9b8-dd88-4f7c-8b86-323a620a5f94",
+        "name": "Clasificar seguimiento (regex)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1600,
+          1750
+        ]
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "id": "r1",
+                      "leftValue": "={{ $json.outcome }}",
+                      "rightValue": "INSERT",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "INSERT"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "id": "r2",
+                      "leftValue": "={{ $json.outcome }}",
+                      "rightValue": "GEMINI",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "GEMINI"
+              }
+            ]
+          },
+          "options": {
+            "fallbackOutput": "none"
+          }
+        },
+        "id": "fe41eb14-9dfa-42de-934c-55614a3e5dc2",
+        "name": "Enrutar clasificación",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3,
+        "position": [
+          -1350,
+          1750
+        ],
+        "notes": "Salida SKIP (fallback) no se conecta a nada: no se guarda nada en BD (NO_RELACIONADO, comentario largo, informativo, duplicado, TP no trackeado, sin operacion aplicable)."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Fase 4: una fila de signal_modifications (y una posible accion de EA) por\n// cada señal objetivo (normalmente 1, o todas las sub-señales OPEN para\n// CLOSE_ALL_TO_BE). Mapeo modification_type -> accion EA, solo para las\n// acciones que el EA YA soporta hoy (mt4-bridge/FORMATO_ARCHIVOS.md 4.3,\n// confirmado contra dashboard/main.py VALID_POSITION_ACTIONS = SET_BE,\n// SET_TP_BE, CLOSE):\n//   SL_TO_BE / CLOSE_ALL_TO_BE -> SET_BE (mueve el SL al precio de apertura)\n//   CLOSE_AT_PRICE             -> CLOSE  (cierra a mercado, precio real\n//                                          puede diferir del target_price,\n//                                          que es solo referencia/auditoria)\n// CANCEL y TP_UPDATE (con target_price arbitrario) NO tienen accion de EA\n// equivalente hoy — se registran en signal_modifications sin ea_action,\n// ver nota en el resumen final de la tarea.\nconst parent = $json;\n\nconst results = [];\nfor (const t of parent.targets) {\n  let ea_action = null;\n  if ((parent.modification_type === 'SL_TO_BE' || parent.modification_type === 'CLOSE_ALL_TO_BE') && t.mt4_ticket) {\n    ea_action = 'SET_BE';\n  } else if (parent.modification_type === 'CLOSE_AT_PRICE' && t.mt4_ticket) {\n    ea_action = 'CLOSE';\n  }\n  results.push({\n    json: {\n      signal_id: t.id,\n      signal_uid: t.signal_uid,\n      mt4_ticket: t.mt4_ticket,\n      modification_type: parent.modification_type,\n      target_price: parent.target_price,\n      raw_text: parent.raw_text,\n      message_id: parent.message_id,\n      interpreted_by: 'REGEX',\n      ea_action,\n    },\n  });\n}\nreturn results;\n"
+        },
+        "id": "cfad9dce-ff5f-4b3c-9801-c943c559829b",
+        "name": "Expandir targets",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1100,
+          1630
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text:\n    'Instrucción de seguimiento sobre una señal de trading ya confirmada. ' +\n    'Señal original: instrumento ' + $json.instrument + ', dirección ' + $json.direction +\n    ', entrada ' + $json.entry_price + ', SL ' + $json.sl + ', TP ' + $json.tp + '. ' +\n    'Mensaje de seguimiento (reply a esa señal): \\'' + $json.raw_text + '\\'. ' +\n    'Clasificá modification_type entre ENTRY_CHANGE, SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE. ' +\n    'target_price solo si el mensaje trae un precio explícito, si no null. No inventes valores.'\n  }] }],\n  generationConfig: {\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        modification_type: { type: 'STRING', enum: ['ENTRY_CHANGE','SL_CHANGE','CANCEL','TP_UPDATE','CLOSE_AT_PRICE'] },\n        target_price: { type: 'NUMBER', nullable: true }\n      },\n      required: ['modification_type']\n    }\n  }\n}) }}",
+          "options": {}
+        },
+        "id": "b32b1fc3-c0c4-4b55-ba5b-5c55a45a3787",
+        "name": "Interpretar con Gemini",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -1100,
+          1910
+        ],
+        "notes": "Structured output forzado via responseSchema (Fase 4, punto Gemini del diseño) — no se confia en que el modelo respete un prompt de texto libre. Unico punto con costo de tokens del arbol de decision. Retry: retryOnFail+maxTries=2+waitBetweenTries=500ms (1 reintento inmediato, sin backoff largo, protocolo seccion 4.4). Si falla tras el reintento, onError=continueErrorOutput manda el item a la 2da salida -> 'Insertar modificación: Gemini falló (PENDING_MANUAL)'.",
+        "retryOnFail": true,
+        "maxTries": 2,
+        "waitBetweenTries": 500,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Normaliza la respuesta de Gemini (structured JSON via responseSchema) al\n// mismo shape que produce \"Expandir targets\" para la rama regex, y la\n// enchufa al mismo INSERT/EA-action que la rama regex.\n//\n// Limitacion conocida (a reportar): a diferencia de la rama regex, esta\n// rama NO reintenta 1 vez en caso de error de Gemini (seccion 4.4 del\n// protocolo) ni marca PENDING_MANUAL si Gemini falla — el nodo HTTP\n// simplemente fallaria el workflow. Falta ese manejo de error, ver\n// resumen final de la tarea.\n//\n// Tambien: solo aplica sobre la PRIMERA sub-señal encontrada\n// (matched_signals[0]) — no reparte a multiples sub-señales como\n// CLOSE_ALL_TO_BE, porque los tipos que llegan por Gemini (ENTRY_CHANGE,\n// SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE) no tienen ese requisito\n// en el diseño de la tarea.\n\nconst context = $('Enrutar clasificación').item.json;\nconst raw = $json;\n\nlet parsed;\ntry {\n  const text = raw.candidates[0].content.parts[0].text;\n  parsed = JSON.parse(text);\n} catch (e) {\n  throw new Error('Fase 4: no se pudo parsear la respuesta estructurada de Gemini: ' + e.message);\n}\n\nconst target = context.matched_signals[0];\n\nlet ea_action = null; // ninguno de los tipos que llegan por Gemini tiene\n                       // accion de EA equivalente hoy (ver notas de la tarea).\n\nreturn [{\n  json: {\n    signal_id: target.id,\n    signal_uid: target.signal_uid,\n    mt4_ticket: target.mt4_ticket,\n    modification_type: parsed.modification_type,\n    target_price: parsed.target_price != null ? Number(parsed.target_price) : null,\n    raw_text: context.raw_text,\n    message_id: context.message_id,\n    interpreted_by: 'AI',\n    ea_action,\n  },\n}];\n"
+        },
+        "id": "0cd9fef6-b311-4a09-92f5-a7ad6c72d9f9",
+        "name": "Parsear respuesta Gemini",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -850,
+          1910
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO signal_modifications (signal_id, message_id, raw_text, modification_type, interpreted_by, target_price, status) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING') RETURNING id;",
+          "options": {
+            "queryReplacement": "={{ [$json.signal_id, $json.message_id, $json.raw_text, $json.modification_type, $json.interpreted_by, $json.target_price] }}"
+          }
+        },
+        "id": "5bfbea84-0e28-4b50-9846-3191b9a5299c",
+        "name": "Insertar modificación (Postgres)",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -600,
+          1750
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        },
+        "notes": "Recibe items tanto de 'Expandir targets' (REGEX) como de 'Parsear respuesta Gemini' (AI) — mismo shape normalizado en ambas ramas."
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "e1",
+                "leftValue": "={{ $json.ea_action }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "8edec4a8-ffe7-4eff-bc2e-b7b333953b18",
+        "name": "¿Tiene acción EA?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -350,
+          1750
+        ],
+        "notes": "IMPORTANTE (verificar en runtime): 'Insertar modificación (Postgres)' con RETURNING id devuelve un item nuevo cuyo unico campo es 'id' — ea_action, mt4_ticket, signal_id, signal_uid, modification_type NO viajan automaticamente en $json desde aca en adelante. Antes de activar en produccion, cambiar las expresiones de este nodo y de los siguientes (Preparar acción EA, Escribir acción EA, ambos Avisar en chat) para leer esos campos con referencia cruzada ($('Expandir targets').item.json / $('Parsear respuesta Gemini').item.json) en vez de $json, igual patron que 'Preparar orden pending (JSON)' usa $('Obtener señal confirmada').item.json en la rama de confirmacion existente."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Fase 4: arma el JSON de comando sobre posicion abierta, mismo contrato\n// que ya usa el dashboard (mt4-bridge/FORMATO_ARCHIVOS.md seccion 4.3):\n// mt4-bridge/orders/actions/{ticket}-{action}.json\nconst ticket = $json.mt4_ticket;\nconst action = $json.ea_action;\n\nconst payload = { ticket, action };\nconst buffer = Buffer.from(JSON.stringify(payload, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${ticket}-${action}.json`, 'application/json');\n\nreturn [{\n  json: { ...$json, action_ticket: ticket },\n  binary: { data: binary },\n}];\n"
+        },
+        "id": "94447e98-601b-41e7-8e6b-8fe6e65487af",
+        "name": "Preparar acción EA (JSON)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -100,
+          1630
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "write",
+          "fileName": "={{ $env.MT4_ORDERS_DIR }}/actions/{{ $json.mt4_ticket }}-{{ $json.ea_action }}.json",
+          "dataPropertyName": "data",
+          "options": {}
+        },
+        "id": "2b284d4e-9cb1-40f8-8b22-17170c02b661",
+        "name": "Escribir acción EA (MT4)",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1,
+        "position": [
+          150,
+          1630
+        ],
+        "notes": "Mismo directorio/simlink que 'Escribir orden pending (MT4)', subcarpeta actions/ (FORMATO_ARCHIVOS.md 4.3)."
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+          "text": "={{ '✅ Modificación aplicada — señal #' + $json.signal_id + ' (' + $json.signal_uid + '), ' + $json.modification_type + ' -> acción EA ' + $json.ea_action + ' encolada para ticket #' + $json.mt4_ticket }}",
+          "additionalFields": {
+            "parse_mode": "none"
+          }
+        },
+        "id": "abedce91-1419-4549-b713-c51b495fa209",
+        "name": "Avisar en chat: Modificación aplicada",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          400,
+          1630
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        },
+        "webhookId": "396e420a-d14e-40d7-baaa-59ab2429a54b"
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+          "text": "={{ 'ℹ️ Modificación registrada — señal #' + $json.signal_id + ' (' + $json.signal_uid + '), ' + $json.modification_type + '. Sin acción automática en MT4 (revisar manualmente).' }}",
+          "additionalFields": {
+            "parse_mode": "none"
+          }
+        },
+        "id": "d946b545-20b5-4226-956b-bfa63eb6ac12",
+        "name": "Avisar en chat: Registrada sin acción EA",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -100,
+          1850
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        },
+        "webhookId": "e12ba3ab-52b9-43be-924d-5f82931d3fa1"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO signal_modifications (signal_id, message_id, raw_text, modification_type, interpreted_by, status) VALUES ($1, $2, $3, 'UNCLASSIFIED', 'AI', 'PENDING_MANUAL') RETURNING id;",
+          "options": {
+            "queryReplacement": "={{ [$('Enrutar clasificación').item.json.matched_signals[0].id, $('Enrutar clasificación').item.json.message_id, $('Enrutar clasificación').item.json.raw_text] }}"
+          }
+        },
+        "id": "f4a1c8e2-9b3d-4e7a-8c1f-2d5e6a7b8c9d",
+        "name": "Insertar modificación: Gemini falló (PENDING_MANUAL)",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          -600,
+          2050
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "zZQ5m2frFb94qTh2",
+            "name": "Postgres dev"
+          }
+        },
+        "notes": "Protocolo seccion 4.4: si Gemini falla incluso tras el reintento inmediato, se registra la modificacion como PENDING_MANUAL con modification_type='UNCLASSIFIED' (valor nuevo agregado al CHECK de db/schema.sql especificamente para este caso, ya que el tipo real nunca se determino) y se notifica urgente por Telegram en el nodo siguiente. Toma los datos de 'Enrutar clasificación' (el ultimo item con datos completos antes del nodo HTTP que fallo), no del item de error de 'Interpretar con Gemini' cuyo shape de error no es confiable entre versiones de n8n."
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+          "text": "=🚨 No se pudo interpretar este mensaje, revisar manualmente: {{ $('Enrutar clasificación').item.json.raw_text }}",
+          "additionalFields": {}
+        },
+        "id": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+        "name": "Avisar en chat: Gemini no interpretó",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          -350,
+          2050
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        },
+        "notes": "Texto exacto de PROTOCOLOS_KRONOS_BOT.md sección 4.4 para el caso de fallo de Gemini tras el reintento.",
+        "webhookId": "051fea50-6e70-4e44-912c-b3fcac82794c"
+      },
+      {
+        "parameters": {
+          "updates": [
+            "message",
+            "callback_query"
+          ],
+          "additionalFields": {}
+        },
+        "id": "de8f5cbd-9874-4a17-b561-3ad43152e8b8",
+        "name": "Telegram Trigger (unificado dev)",
+        "type": "n8n-nodes-base.telegramTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -2600,
+          0
+        ],
+        "webhookId": "kronos-dev-telegram-trigger",
+        "notesInFlow": true,
+        "credentials": {
+          "telegramApi": {
+            "id": "pOHN6mlpJzD7txtm",
+            "name": "Telegram account"
+          }
+        },
+        "notes": "Unifica mensajes del grupo y callback_query de los botones — un solo bot solo puede tener un webhook registrado en Telegram, asi que no pueden ser dos nodos Telegram Trigger separados con la misma credencial. Se separan por tipo de update con el nodo IF ¿Es callback_query?."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Kronos Bot (DEV) — adapta el payload del Telegram Trigger (Bot API)\n// al mismo formato plano que 'Parsear señal (regex)' espera de\n// producción (antes lo armaba Telethon dentro de `body`). Acá no hay\n// wrapper `body`: el nodo Code de abajo ya hace\n// `item.json.body || item.json`, así que alcanza con dejarlo en la\n// raíz de json.\nreturn $input.all().map((item) => {\n  const msg = item.json.message;\n  return {\n    json: {\n      message_id: msg.message_id,\n      chat_id: msg.chat.id,\n      sender: msg.from.username || msg.from.first_name,\n      text: msg.text,\n      timestamp: msg.date, // segundos unix, parseTimestamp() ya lo maneja\n      reply_to_message_id: msg.reply_to_message ? msg.reply_to_message.message_id : null,\n    },\n  };\n});"
+        },
+        "id": "da557440-4027-41c8-b69d-d47beca9e333",
+        "name": "Adaptar mensaje del bot",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -2350,
+          0
+        ],
+        "notes": "Exclusivo del stack dev. KRONOS_WEBHOOK_SECRET no aplica en esta rama — la validación de origen la hace el registro de webhook único de Telegram para el token del bot, no un header compartido (ver nota del nodo anterior)."
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "c1",
+                "leftValue": "={{ $json.callback_query }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "object",
+                  "operation": "exists",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "a1b2c3d4-if-callback-router",
+        "name": "¿Es callback_query?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -2340,
+          400
+        ]
+      }
+    ],
+    "connections": {
+      "Parsear señal (regex)": {
+        "main": [
+          [
+            {
+              "node": "¿Señal válida?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Señal válida?": {
+        "main": [
+          [
+            {
+              "node": "Insertar señal (Postgres)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Buscar señal referenciada",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insertar señal (Postgres)": {
+        "main": [
+          [
+            {
+              "node": "Notificar Telegram",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parsear callback": {
+        "main": [
+          [
+            {
+              "node": "¿Confirmar o rechazar?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Confirmar o rechazar?": {
+        "main": [
+          [
+            {
+              "node": "Actualizar status: CONFIRMED",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Actualizar status: REJECTED_BY_USER",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Actualizar status: CONFIRMED": {
+        "main": [
+          [
+            {
+              "node": "¿Se confirmó ahora?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Actualizar status: REJECTED_BY_USER": {
+        "main": [
+          [
+            {
+              "node": "¿Se rechazó ahora?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Responder callback: Confirmada": {
+        "main": [
+          [
+            {
+              "node": "Avisar en chat: Confirmada",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Responder callback: Rechazada": {
+        "main": [
+          [
+            {
+              "node": "Avisar en chat: Rechazada",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Se confirmó ahora?": {
+        "main": [
+          [
+            {
+              "node": "Responder callback: Confirmada",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Obtener señal confirmada",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Responder callback: Ya procesada (confirmar)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Se rechazó ahora?": {
+        "main": [
+          [
+            {
+              "node": "Responder callback: Rechazada",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Responder callback: Ya procesada (rechazar)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Obtener señal confirmada": {
+        "main": [
+          [
+            {
+              "node": "Obtener capital real (settings)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Preparar orden pending (JSON)": {
+        "main": [
+          [
+            {
+              "node": "Escribir orden pending (MT4)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Trigger: leer resultados MT4": {
+        "main": [
+          [
+            {
+              "node": "Leer resultados (MT4)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Leer resultados (MT4)": {
+        "main": [
+          [
+            {
+              "node": "Parsear resultado (MT4)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parsear resultado (MT4)": {
+        "main": [
+          [
+            {
+              "node": "Actualizar status: OPEN/PENDING_MANUAL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Actualizar status: OPEN/PENDING_MANUAL": {
+        "main": [
+          [
+            {
+              "node": "¿Se actualizó ahora?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Se actualizó ahora?": {
+        "main": [
+          [
+            {
+              "node": "Avisar en chat: Resultado MT4",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Borrar archivo de resultado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Avisar en chat: Resultado MT4": {
+        "main": [
+          [
+            {
+              "node": "Borrar archivo de resultado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Obtener capital real (settings)": {
+        "main": [
+          [
+            {
+              "node": "Preparar orden pending (JSON)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Trigger: leer cierres MT4": {
+        "main": [
+          [
+            {
+              "node": "Leer cierres (MT4)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Leer cierres (MT4)": {
+        "main": [
+          [
+            {
+              "node": "Parsear cierre (MT4)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parsear cierre (MT4)": {
+        "main": [
+          [
+            {
+              "node": "Actualizar status: cierre TP/SL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Actualizar status: cierre TP/SL": {
+        "main": [
+          [
+            {
+              "node": "¿Se actualizó cierre ahora?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Se actualizó cierre ahora?": {
+        "main": [
+          [
+            {
+              "node": "Avisar en chat: Cierre TP/SL",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Borrar archivo de cierre",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Avisar en chat: Cierre TP/SL": {
+        "main": [
+          [
+            {
+              "node": "Borrar archivo de cierre",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Buscar señal referenciada": {
+        "main": [
+          [
+            {
+              "node": "Clasificar seguimiento (regex)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Clasificar seguimiento (regex)": {
+        "main": [
+          [
+            {
+              "node": "Enrutar clasificación",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Enrutar clasificación": {
+        "main": [
+          [
+            {
+              "node": "Expandir targets",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Interpretar con Gemini",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Expandir targets": {
+        "main": [
+          [
+            {
+              "node": "Insertar modificación (Postgres)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Interpretar con Gemini": {
+        "main": [
+          [
+            {
+              "node": "Parsear respuesta Gemini",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Insertar modificación: Gemini falló (PENDING_MANUAL)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parsear respuesta Gemini": {
+        "main": [
+          [
+            {
+              "node": "Insertar modificación (Postgres)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insertar modificación (Postgres)": {
+        "main": [
+          [
+            {
+              "node": "¿Tiene acción EA?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Tiene acción EA?": {
+        "main": [
+          [
+            {
+              "node": "Preparar acción EA (JSON)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Avisar en chat: Registrada sin acción EA",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Preparar acción EA (JSON)": {
+        "main": [
+          [
+            {
+              "node": "Escribir acción EA (MT4)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Escribir acción EA (MT4)": {
+        "main": [
+          [
+            {
+              "node": "Avisar en chat: Modificación aplicada",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insertar modificación: Gemini falló (PENDING_MANUAL)": {
+        "main": [
+          [
+            {
+              "node": "Avisar en chat: Gemini no interpretó",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Adaptar mensaje del bot": {
+        "main": [
+          [
+            {
+              "node": "Parsear señal (regex)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Telegram Trigger (unificado dev)": {
+        "main": [
+          [
+            {
+              "node": "¿Es callback_query?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Es callback_query?": {
+        "main": [
+          [
+            {
+              "node": "Parsear callback",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Adaptar mensaje del bot",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Alejandro acevedo",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-08-19T23:00:52.897Z",
+        "id": 11,
+        "workflowId": "JIhLUNnlolVQmRC8",
+        "versionId": "7532f8bb-fdba-4fd0-a728-7b306a9c4742",
+        "event": "activated",
+        "userId": "85fddb40-2ef9-4f9c-8dd3-123a9a138053"
+      },
+      {
+        "createdAt": "2026-08-19T23:00:51.598Z",
+        "id": 10,
+        "workflowId": "JIhLUNnlolVQmRC8",
+        "versionId": "7532f8bb-fdba-4fd0-a728-7b306a9c4742",
+        "event": "deactivated",
+        "userId": "85fddb40-2ef9-4f9c-8dd3-123a9a138053"
+      }
+    ]
+  }
+}

@@ -1,24 +1,32 @@
 # Kronos Bot — Estado actual
 
-> Snapshot técnico del proyecto al 2026-08-17, rama `develop` (ya mergeado
-> — Etapas 1 a 6 completas, ver más abajo). Pensado para poder pegarse
-> completo a una sesión nueva de Claude Code (o de cualquier asistente)
-> sin depender de memoria de conversación previa. Para reglas de negocio
-> detalladas ver `PROTOCOLOS_KRONOS_BOT.md`; para contexto general y
-> reglas de trabajo, `CLAUDE.md`; para el detalle de alcance de v1 (qué
-> incluye y qué queda afuera a propósito), `docs/versions/v1.md`.
+> Snapshot técnico del proyecto al 2026-08-18, rama `develop`. Pensado
+> para poder pegarse completo a una sesión nueva de Claude Code (o de
+> cualquier asistente) sin depender de memoria de conversación previa.
+> Para reglas de negocio detalladas ver `PROTOCOLOS_KRONOS_BOT.md`; para
+> contexto general y reglas de trabajo, `CLAUDE.md`; para el detalle de
+> alcance de v1 (qué incluye y qué queda afuera a propósito),
+> `docs/versions/v1.md`.
 
 ## ⚠️ El gap operativo más importante ahora mismo
 
-**Fase 4 (Gemini) no está implementada.** El sistema ejecuta señales
-*nuevas* de formato fijo de punta a punta, con dinero real. Pero los
-mensajes de *seguimiento* del grupo — "mover el SL a BE", "cerrar a X
--Y PIPS", "TP alcanzado" — **no se interpretan ni se aplican solos**.
-Si el grupo pide cerrar o mover el SL de una operación ya abierta, hay
-que verlo en el chat y aplicarlo a mano con los botones **BE / Cerrar**
-del dashboard (`localhost:8088`). No hay ningún proceso automático
-mirando el grupo para eso todavía — es 100% responsabilidad manual del
-usuario mientras esta fase no esté conectada.
+**Fase 4 (Gemini) ya está mergeada a `develop`, pero NO está en
+producción todavía.** El código de interpretación de instrucciones de
+seguimiento ("mover el SL a BE", "cerrar a X -Y PIPS") y el consumidor
+de cierres TP/SL (`feature/cierre-tp-sl`) están en `develop`
+(`3f19e91`, `7e64a4b`), pero el workflow que corre en vivo
+(`QxXebyoPgTGmGH2B`, cuenta real VT Markets) **sigue siendo el viejo**
+— no se subió por API todavía. Además hay un bloqueante real
+confirmado: **`GEMINI_API_KEY` no existe ni en `.env` ni en
+`docker-compose.yml`** — sin eso, cada instrucción de seguimiento real
+fallaría al llamar a Gemini y caería a `PENDING_MANUAL` (no rompe el
+sistema gracias al fix de retry, pero Fase 4 no cumpliría su propósito
+real hasta agregar la key). Plan de subida completo, con riesgos de
+merge de JSON de n8n y comandos exactos, en `MERGE_PLAN.md` (raíz del
+repo, sin commitear — es un documento de trabajo, no un artefacto del
+repo). Mientras tanto, sigue siendo **100% responsabilidad manual del
+usuario** aplicar SL/BE/cierres vía los botones del dashboard
+(`localhost:8088`).
 
 ## Qué funciona probado de punta a punta (no solo diseñado)
 
@@ -93,6 +101,16 @@ Puntos ya verificados en ejecución real (no solo revisados en código):
   Telegram le llegue.
 - **`telethon`** — build local, apunta a
   `http://n8n:5678/webhook/kronos-telethon-signal`.
+
+**Reorganización visual del workflow (sin commitear):** el JSON de
+`n8n-workflows/webhook-mvp-workflow.json` en el working tree tiene 5
+notas adhesivas nuevas (`stickyNote`) agrupando el canvas en secciones
+(1. Captura y parseo, 2. Confirmación Telegram, 3. Seguimiento/Fase 4,
+4. Ejecución en MT4, 5. Detección de cierres TP/SL) y varios nodos
+reposicionados para que coincidan visualmente con esos grupos. Es solo
+reordenamiento/documentación del canvas — no cambia tipos de nodo, no
+agrega ni quita lógica (mismo conteo de nodos funcionales antes y
+después del diff).
 
 **Modificación manual de workflows vía API de n8n:** durante esta fase se
 detectó que el JSON de `n8n-workflows/webhook-mvp-workflow.json` en el
@@ -173,9 +191,17 @@ Sub-etapas de esta fase, con estado individual:
   `.gitkeep` siguen versionados porque son necesarios para que un clone
   nuevo (sin Wine configurado todavía) tenga las carpetas reales antes
   de correr el setup.
-- `.gitignore` excluye `mt4-bridge/orders/pending/*` y
-  `mt4-bridge/orders/results/*`, con excepción explícita de los
-  `.gitkeep`.
+- **Intento de cambio en `.gitignore` — revertido, ya no es tema
+  pendiente.** Hubo un cambio local sin commitear que reemplazaba el
+  patrón de ignorar el *contenido* de las carpetas
+  (`mt4-bridge/orders/pending/*` / `results/*`, con excepción explícita
+  de los `.gitkeep`) por ignorar directamente las rutas completas
+  (sin excepción de `.gitkeep`) — eso habría dejado a los `.gitkeep`
+  fuera del tracking la próxima vez que se tocara ese archivo, algo
+  que el usuario confirmó explícitamente que nunca quiso. Se revirtió
+  con `git checkout -- .gitignore`. El patrón vigente sigue siendo el
+  original: ignora contenido, con excepción explícita para los
+  `.gitkeep`, que siguen versionados tal como exige `CLAUDE.md`.
 
 ### 3. EA en MQL4 — ✅ compilado y ejecutando órdenes reales
 
@@ -205,6 +231,16 @@ Sub-etapas de esta fase, con estado individual:
     éxito como en fallo (con `error_code`/`error_message` de MQL4).
   - Logging con `Print()` en cada paso clave, visible en la pestaña
     **Experts** de MT4.
+  - `WritePositionsStatus()` reporta `account.balance`, `account.equity`
+    y **`account.capital_real`** (`AccountBalance() - AccountCredit()`,
+    protocolo sección 5.2 / regla no negociable de `CLAUDE.md`: nunca
+    usar `AccountBalance()` solo para capital, puede incluir crédito
+    del bróker) — pensado para que n8n actualice `settings.capital_real`
+    sin edición manual. **Cambio local sin commitear todavía** (no
+    subido a `develop` ni a producción); falta el lado de n8n que lo
+    consuma (el nodo `Obtener capital real (settings)` de las ramas de
+    `MERGE_PLAN.md` lee de la tabla `settings`, no de este campo del
+    EA directamente — falta conectar ambos).
 - Revisado en conjunto con el usuario (vía archivo enviado, no pegado en
   terminal — pegarlo corrompía el código).
 - **Compilado con MetaEditor** (`KronosBridgeEA.ex4` presente en
@@ -379,21 +415,175 @@ Sub-etapas de esta fase, con estado individual:
   en este entorno; ver sección 5.1 del formato para el detalle exacto
   de los nodos que faltan.
 
+## ⚠️ Errores persistentes / problemas abiertos que necesitan iteración
+
+Lista de problemas conocidos, reales o de diseño, que **no están
+resueltos** y no son un simple "próximo paso" — requieren decisión,
+prueba en real, o iteración adicional antes de darlos por cerrados.
+
+1. **`GEMINI_API_KEY` ausente — bloqueante confirmado para Fase 4.**
+   No está en `.env` ni referenciada en `docker-compose.yml`
+   (servicio `n8n`, sección `environment`). Sin esto, el nodo
+   `Interpretar con Gemini` falla siempre. Falta: conseguir la key
+   (capa gratuita, ver `CLAUDE.md`), agregarla en ambos lugares, y
+   reiniciar el contenedor de n8n para que la tome. Ver Paso 3 de
+   `MERGE_PLAN.md`.
+2. **Workflow de producción — verificado por `GET` en vivo el
+   2026-08-18, YA SINCRONIZADO (corrige la entrada anterior de este
+   punto).** Se consultó `GET /api/v1/workflows/QxXebyoPgTGmGH2B` y se
+   comparó nodo por nodo y `connections` completo contra el JSON local
+   (`develop` + working tree): **56 nodos en ambos, cero diferencias**
+   — Fase 4, consumidor de cierres TP/SL, y el fix de sin-tope de
+   sub-señales ya están todos en producción. El nombre del workflow
+   sigue diciendo "MVP Fase 3" (cosmético, no se actualizó al renombrar
+   fases) — no confundir el nombre con el contenido real. `MERGE_PLAN.md`
+   describía esto como pendiente; ya no lo está para el JSON del
+   workflow en sí (sigue pendiente el `GEMINI_API_KEY`, punto 1, y
+   recompilar el EA, punto 3, para que lo ya subido funcione de
+   punta a punta).
+3. **`DetectClosedPositions()` sin probar en real.** La función que
+   detecta motivo de cierre (TP/SL/manual) en `KronosBridgeEA.mq4`
+   está escrita pero el `.ex4` en producción no está recompilado con
+   ella todavía — requiere abrir MetaEditor (GUI) en la máquina con
+   Wine, compilar (`F7`), remover y volver a arrastrar el EA al
+   gráfico (MT4 no recarga el `.ex4` solo). Hasta que esto pase, el
+   nodo n8n que consume `orders/closed/*.json` no tiene nada que leer
+   en producción, aunque ya esté mergeado a `develop`.
+4. **`docs/INSTALL_WINDOWS.md` no verificado end-to-end.** A
+   diferencia de la guía Linux (probada en la máquina real del
+   usuario), la de Windows nunca se corrió de punta a punta — puede
+   tener pasos rotos o desactualizados si alguien la sigue tal cual.
+5. **Pérdida de eventos de Telethon — mitigado, no eliminado.** El
+   polling de respaldo cada 15s reduce el riesgo de perder mensajes
+   cuando Telegram fuerza un resync de "difference" en el grupo de
+   alto tráfico, pero sigue siendo un parche sobre un problema de
+   fondo (la librería no siempre re-dispara `events.NewMessage` tras
+   el resync). No hay alerta si el polling de respaldo también
+   fallara silenciosamente — nadie se entera salvo revisando logs.
+6. **Sin cálculo de lotaje real (80/20).** Todas las señales — incluida
+   cada sub-señal de una señal multi-TP — usan `0.01` fijo. La fórmula
+   de slots está definida en el protocolo (sección 5.3) pero no
+   implementada ni probada; hasta que exista, el sistema no gestiona
+   riesgo real de forma proporcional al capital.
+7. **`error 4109` (trade context busy) — mitigado con pausa fija, no
+   resuelto de raíz.** Al abrir 2 sub-señales del mismo instrumento
+   casi simultáneas, el bróker rechazaba la segunda `OrderSend`. Se
+   agregó una pausa corta entre órdenes consecutivas como parche; no
+   hay reintento automático si el error igual ocurriera bajo más
+   carga (ej. 3+ sub-señales si se saca el tope, ver punto de
+   `sin-tope-sub-senales` arriba).
+8. **Sin registro de cierres fuera de Postgres (Fase 7 completa).**
+   Aun cuando se cierre el lazo de detección TP/SL (punto 3), el
+   registro en Google Sheets sigue sin existir — los cierres viven
+   solo en la base de datos, sin respaldo externo ni reporte legible
+   fuera del dashboard.
+9. **Gemini / Fase 4 — PENDIENTE DE REDISEÑO CON APROBACIÓN EXPLÍCITA
+   DEL USUARIO. No subir a producción bajo ninguna circunstancia hasta
+   entonces, tiene prioridad sobre cualquier otro trabajo de Fase 4.**
+   El diseño actual (árbol de decisión regex + Gemini, ver
+   `MERGE_PLAN.md` sección 2 para el detalle de los 15 nodos) se
+   construyó sin que el usuario lo aprobara paso a paso como el resto
+   del sistema. Aunque el JSON ya está técnicamente en producción
+   (punto 2, arriba) y sigue bloqueado en la práctica por la falta de
+   `GEMINI_API_KEY` (punto 1), **eso no equivale a aprobación de
+   diseño** — no activarlo (ni conseguir la key, ni destrabarlo) sin
+   pasar antes por ese rediseño conjunto.
+10. **`error 4109` (trade context busy) — decisión de fix ya tomada,
+    falta implementar.** En vez del parche actual de pausa fija entre
+    `OrderSend()` consecutivos, el EA debe procesar **una sola orden**
+    de `orders/pending/` por ciclo de `OnTimer`, no todas las que
+    encuentre de una vez — elimina la causa raíz (varios `OrderSend()`
+    casi simultáneos) en lugar de mitigarla. Se implementa después de
+    confirmar el punto 11 (medir lentitud antes de tocar el timing del
+    EA, para no introducir un cambio de performance a ciegas).
+11. **Percepción de lentitud — sin medir todavía, no optimizar a
+    ciegas.** Hay percepción de que el sistema es lento, pero no hay
+    datos: falta agregar timestamps de diagnóstico en los puntos clave
+    del flujo (llegada del webhook, inicio/fin de cada nodo relevante,
+    latencia de Gemini si aplica) para identificar con datos reales
+    dónde está la lentitud, en vez de asumir que es por "muchos
+    listeners" u otra causa no verificada.
+12. **Límite de operaciones simultáneas según capital — diseño actual
+    en revisión, fórmula nueva AÚN NO DEFINIDA con precisión.** Hoy es
+    `floor(capital/100)` operaciones a lotaje fijo `0.01` (ver punto 6).
+    Propuesta del usuario en discusión: máximo 5 operaciones
+    simultáneas, escalando con el capital, con lotaje ligeramente
+    mayor en la primera operación al cruzar ciertos umbrales (ej.
+    $600) — falta una tabla completa de ejemplos confirmados por el
+    usuario antes de implementar cualquier cosa. No asumir la fórmula
+    todavía.
+13. **Crecimiento de la base de datos — pendiente de decisión sobre
+    pérdida de detalle al archivar.** El trigger de compactación
+    (`signals_archive_summary`, tope de 20 filas activas en `signals`,
+    ver `db/schema.sql`) ya funciona, pero pierde el detalle fila por
+    fila de lo archivado — solo queda el agregado. Falta decidir con
+    el usuario si importa poder auditar señales viejas en detalle
+    después de archivadas, o si el resumen agregado alcanza. Si
+    importa el detalle, evaluar exportar a Google Sheets (Fase 7)
+    **antes** de que el trigger las borre, no solo cuando el trigger
+    las toque.
+14. **Causa raíz encontrada de "las órdenes no se ejecutan al
+    confirmar" — DIAGNOSTICADO, pendiente de verificación del usuario
+    (no marcar resuelto hasta confirmar).** `orders/config.json` tenía
+    `{"symbol_suffix": "-VIP"}` mientras la cuenta real (`23096429`,
+    gráficos `-STD`) necesita `-STD`. Evidencia directa en
+    `MQL4/Logs/20260818.log`: múltiples `OrderSend falló, error 130`
+    (`ERR_INVALID_STOPS`) para señales reales confirmadas
+    (`signal_id` 2, 3, 12, 13, 19, 20 — señales `9695-B`, `77770001-A`,
+    `9719-A/B`, `9726-A/B`), y errores repetidos de "mover a
+    break-even" con el mismo símbolo mal configurado. El usuario está
+    corrigiendo `config.json` a `-STD` a mano desde el selector del
+    dashboard (`localhost:8088`) para verlo en vivo — **actualizar este
+    punto a "resuelto" recién cuando confirme que las próximas señales
+    ejecutan bien**, no antes.
+15. **Falta validación que impida repetir el error del punto 14 —
+    especialmente ahora que va a existir un segundo stack de pruebas
+    en paralelo (demo, `-VIP`, ver `docker-compose.dev.yml`) corriendo
+    junto al de producción (real, `-STD`) en la misma máquina.** Hoy
+    `config.json` es un archivo plano sin ningún chequeo — nada impide
+    que alguien deje el sufijo de un stack aplicado al otro. Ideas a
+    evaluar (sin implementar todavía, decidir con el usuario):
+    - **En el EA:** hardcodear (o leer de `orders/config.json`) el
+      número de cuenta esperado por sufijo (`23096429` → `-STD`,
+      `911260411` → `-STD` en la cuenta demo si mantiene el mismo
+      símbolo, o el que corresponda) y comparar contra
+      `AccountNumber()` al arrancar y en cada poll — si no coincide,
+      **no operar nada**, escribir un error explícito en
+      `orders/status.json` y loguear en **Experts** en vez de intentar
+      `OrderSend` con un símbolo probablemente inválido para esa
+      cuenta. Esto habría bloqueado el bug del punto 14 en vez de
+      dejarlo fallar en silencio con error 130.
+    - **En el dashboard:** mostrar siempre, junto al selector de
+      sufijo, el número de cuenta que reporta `WritePositionsStatus()`
+      (`account.number`) al lado del sufijo elegido, con una alerta
+      visual si la combinación cuenta/sufijo no es la esperada (mismo
+      chequeo que el EA, del lado humano).
+    - **Separación física ya ayuda pero no alcanza sola:** el stack de
+      pruebas usa un `MT4_ORDERS_HOST_PATH_DEV` distinto (otro prefijo
+      de Wine), así que un `config.json` mal puesto en un stack no
+      puede pisar el `config.json` del otro — el riesgo real es
+      humano (mirar el dashboard equivocado), no de archivo compartido.
+
 ## Próximos pasos inmediatos (en orden)
 
-0. **Cerrar el lazo de cierre (TP/SL) recién añadido** — recompilar
-   `KronosBridgeEA.mq4` con MetaEditor y agregar el nodo de n8n que
-   consume `orders/closed/*.json` (sección 5.1 de
-   `mt4-bridge/FORMATO_ARCHIVOS.md`). Bajo riesgo (no toca lógica de
-   entrada/lotaje), alto valor: hoy toda operación cerrada queda
-   `OPEN` para siempre en el dashboard/BD.
-1. **Conectar Gemini (Fase 4)** para interpretar instrucciones de
-   seguimiento en lenguaje libre y aplicarlas solo (hoy es 100% manual
-   vía dashboard — ver el aviso al principio de este documento). Es el
-   gap operativo más importante mientras se opera con dinero real.
-2. Cálculo de lotaje por slots (80/20, protocolo sección 5.3) — hoy
-   fijo en `0.01`.
-3. Ciclo de cierre y registro en Google Sheets (Fase 7).
+0. **Rediseñar Fase 4 (Gemini) en conjunto con el usuario, paso a
+   paso, antes de tocar código o `.env`.** Ver punto 9 de errores
+   persistentes: el diseño actual no fue aprobado así como el resto
+   del sistema. **No conseguir `GEMINI_API_KEY` ni destrabar el nodo
+   de Gemini hasta cerrar ese rediseño** — corrige el paso 0 anterior
+   de esta lista, que decía lo contrario.
+1. Medir la lentitud percibida antes de tocar timing (punto 11) — solo
+   después, implementar el fix real de `error 4109` (una orden por
+   ciclo de `OnTimer`, punto 10) y recompilar `KronosBridgeEA.mq4` con
+   MetaEditor (incluye también activar `DetectClosedPositions()`, ver
+   punto 3 de errores persistentes).
+2. Cerrar con el usuario la tabla de ejemplos del nuevo límite de
+   operaciones simultáneas por capital (punto 12) antes de implementar
+   nada — no asumir la fórmula de `floor(capital/100)` actual como
+   definitiva.
+3. Decidir con el usuario el punto 13 (exportar a Sheets antes de
+   archivar vs. quedarse con el resumen agregado) — ciclo de cierre y
+   registro en Google Sheets (Fase 7).
 4. Recién después: evaluar ejecución 100% automática sin confirmación
    (Fase 8), con el historial de v1 como respaldo de confianza.
 
@@ -421,14 +611,19 @@ SL/BE/cierres mientras hay posiciones reales abiertas.
   `docker-entrypoint-initdb.d`.
 - ✅ Fase 3 — webhook + parser regex (incluye multi-TP), verificado
   end-to-end.
-- 🔲 Fase 4 — interpretación por Gemini. No iniciada — gap operativo
-  activo (ver aviso al inicio del documento).
+- 🔶 Fase 4 — interpretación por Gemini. Código mergeado en `develop`
+  (rama `feature/fase4-seguimiento`), **no en producción** — falta
+  `GEMINI_API_KEY` y subir el workflow (ver aviso al inicio y sección
+  de errores persistentes).
 - ✅ Fase 5 — botones de confirmar/rechazar funcionales, idempotentes,
   con mensaje de confirmación visible en el chat.
 - ✅ Fase 6 — EA puente en MT4. Completa y verificada end-to-end con
   dinero real: Wine/MT4 con sesión real, EA compilado y ejecutando,
   nodos n8n de escribir orden / leer resultado funcionando, tickets
   reales confirmados en la cuenta `23096429`.
-- 🔲 Fase 7 — cierre y registro en Google Sheets. Cierres manuales hoy
-  vía dashboard, sin registro fuera de Postgres.
+- 🔶 Fase 7 — cierre y registro en Google Sheets. El consumidor de
+  `orders/closed/*.json` (detección TP/SL) ya está mergeado en
+  `develop` (`feature/cierre-tp-sl`) pero sin probar en real — falta
+  recompilar el EA. El registro en Google Sheets en sí no existe
+  todavía.
 - 🔲 Fase 8 — ejecución 100% automática (futuro, meta de v2).

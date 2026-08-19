@@ -49,7 +49,7 @@ confirmación). Se reutiliza este id en vez de inventar uno nuevo.
 | `sl` | number | Stop loss. |
 | `tp` | number | Take profit (ya resuelto a un solo valor por sub-señal — ver protocolo sección 4.2 regla 6). |
 | `lot` | number | Dinámico, calculado por n8n antes de escribir el archivo: `floor(capital_real / 100) * 0.01`, con piso `0.01` si el resultado da 0 o negativo (protocolo sección 5.2). Se recalcula contra el `capital_real` actual en `settings` en cada confirmación — no queda pegado a un máximo histórico. Redondeado a 2 decimales. Distinto del cálculo de slots 80/20 de la sección 5.3, que sigue sin conectar al flujo real. |
-| `created_at` | string | ISO 8601 UTC. Para logging/diagnóstico de antigüedad del lado del EA, no para revalidar los 5 minutos (esa regla ya se aplicó en n8n antes de confirmar). |
+| `created_at` | string | ISO 8601 UTC. **El EA sí lo usa para revalidar antigüedad** (`InpMaxSignalAgeMinutes`, default 5 — mismo umbral que ya valida n8n antes de confirmar, protocolo sección 4.3): si al procesar el archivo `created_at` excede ese umbral, el EA descarta la señal sin ejecutar (`STALE_SIGNAL`, `error_code: -3`), borra el `pending/*.json` y escribe el resultado de error en `results/`. Esto cubre el caso de señales acumuladas mientras el EA estuvo bloqueado o caído — evita ejecutar en cascada a precios ya desactualizados. Si el campo falta o no se puede parsear, el EA omite el chequeo (no bloquea la ejecución por eso). Aplica solo a `orders/pending/` — las acciones de `orders/actions/` (BE/cierre sobre posiciones ya abiertas) no expiran. |
 
 ## 2. Resultado de ejecución — `mt4-bridge/orders/results/{signal_id}.json`
 

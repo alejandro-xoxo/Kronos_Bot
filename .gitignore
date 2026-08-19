@@ -1,4 +1,5 @@
 .env
+.env.dev
 *.session
 *.session-journal
 telethon-service/session/
