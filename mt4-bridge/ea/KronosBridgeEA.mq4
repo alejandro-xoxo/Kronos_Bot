@@ -13,8 +13,8 @@
 #property description "modificaciones — solo abre órdenes nuevas con los datos que ya vienen"
 #property description "resueltos en el JSON (lote fijo 0.01, protocolo sección 5)."
 #property description ""
-#property description "También lee orders/config.json en cada ciclo (sufijo de símbolo"
-#property description "dinámico, sin recompilar) y escribe orders/status.json con las"
+#property description "Lee orders/config.json en cada ciclo (perfil de cuenta activo,"
+#property description "ver ENUM_KRONOS_PROFILE) y escribe orders/status.json con las"
 #property description "posiciones abiertas de este EA (magic number) en cada ciclo."
 #property description ""
 #property description "orders/actions/*.json: comandos de break-even (SET_BE), BE inverso sobre el TP (SET_TP_BE) y cierre"
@@ -22,27 +22,52 @@
 #property description "el dashboard web — solo actúa sobre tickets con el magic number"
 #property description "de este EA, nunca sobre operativa manual del usuario."
 
+//+------------------------------------------------------------------+
+//| Perfiles de cuenta soportados. Un único input tipo enum (no dos   |
+//| inputs de texto libre) para que cuenta esperada y sufijo de       |
+//| símbolo nunca puedan desincronizarse entre sí — bug real ya       |
+//| ocurrido: orders/config.json traía "-VIP" mientras la cuenta      |
+//| conectada era la real (23096429, "-STD"), causando OrderSend      |
+//| error 130 (ERR_INVALID_STOPS) en cada señal confirmada (ver       |
+//| STATUS.md, punto 14). Elegir el perfil correcto en Properties >   |
+//| Inputs al adjuntar el EA a un gráfico.                            |
+//+------------------------------------------------------------------+
+enum ENUM_KRONOS_PROFILE
+{
+   PROFILE_PROD_STD, // PROD — cuenta real 23096429, símbolo *-STD
+   PROFILE_DEMO_VIP  // DEMO — cuenta demo 911260411, símbolo *-VIP (sufijo sin verificar end-to-end todavía, ver DEV_SETUP.md)
+};
+
 //--- Parámetros configurables desde las propiedades del EA en MT4
-input int    InpPollIntervalSeconds = 1;          // Intervalo de polling de orders/pending/ y orders/actions/ (segundos)
-input int    InpSlippage            = 5;          // Slippage máximo en puntos
-input int    InpMagicNumber         = 20260814;   // Magic number para identificar órdenes de este EA
-input string InpSymbolSuffix        = "-VIP";     // Sufijo del símbolo real: "-VIP" (demo) / "-STD" (real, cuenta 23096429)
+input ENUM_KRONOS_PROFILE InpProfile           = PROFILE_PROD_STD; // Perfil de cuenta esperado — valor INICIAL, hasta que orders/config.json traiga un "profile" válido (ver UpdateProfileFromConfig); ver g_ActiveProfile
+input int                 InpPollIntervalSeconds = 1;              // Intervalo de polling de orders/pending/ y orders/actions/ (segundos)
+input int                 InpSlippage            = 5;              // Slippage máximo en puntos
+input int                 InpMagicNumber         = 20260814;       // Magic number para identificar órdenes de este EA
+input int                 InpMaxSignalAgeMinutes = 5;              // Antigüedad máxima (minutos) de orders/pending/*.json antes de descartarlo sin ejecutar (protocolo sección 4.3, mismo umbral que ya valida n8n)
 
 //--- Rutas relativas a Common\Files (todas via FILE_COMMON)
 #define PENDING_DIR_PATTERN "orders\\pending\\*.json"
 #define PENDING_DIR_PREFIX  "orders\\pending\\"
 #define RESULTS_DIR_PREFIX  "orders\\results\\"
-#define CONFIG_FILE_PATH    "orders\\config.json"
 #define STATUS_FILE_PATH    "orders\\status.json"
 #define ACTIONS_DIR_PATTERN "orders\\actions\\*.json"
 #define ACTIONS_DIR_PREFIX  "orders\\actions\\"
 #define ACTION_RESULTS_DIR_PREFIX "orders\\action_results\\"
 #define CLOSED_DIR_PREFIX   "orders\\closed\\"
 #define CLOSED_GVAR_PREFIX  "KronosClosedReported_"
+#define CONFIG_FILE_PATH    "orders\\config.json"
 
-//--- Sufijo de símbolo efectivo: arranca con InpSymbolSuffix (fallback) y
-//    puede actualizarse en caliente vía orders/config.json (ver
-//    UpdateSymbolSuffixFromConfig), sin necesidad de recompilar el EA.
+//--- Perfil efectivo en uso: arranca en InpProfile (OnInit) y puede
+//    actualizarse en caliente vía orders/config.json en cada OnTimer
+//    (ver UpdateProfileFromConfig). ValidateAccountProfile() SIEMPRE
+//    valida contra este valor, nunca contra InpProfile directamente
+//    — así el chequeo de seguridad corre igual sin importar de dónde
+//    salió el perfil.
+ENUM_KRONOS_PROFILE g_ActiveProfile;
+datetime            g_ProfileUpdatedAt = 0; // 0 = nunca actualizado desde config.json (sigue en el valor de InpProfile)
+
+//--- Sufijo de símbolo efectivo: derivado de g_ActiveProfile (ver
+//    GetProfileInfo), recalculado cada vez que g_ActiveProfile cambia.
 string g_SymbolSuffix;
 
 //--- Estructura de una orden pendiente ya parseada
@@ -57,16 +82,18 @@ struct PendingOrder
    double sl;
    double tp;
    double lot;
+   datetime created_at;      // UTC, desde el JSON ("created_at" ISO 8601); 0 si ausente o no se pudo parsear (ver STALE_SIGNAL en ProcessSingleFile)
 };
 
 //+------------------------------------------------------------------+
 //| Mapeo instrumento -> símbolo real del bróker. Solo los dos        |
 //| instrumentos que se operan hoy (XAUUSD, EURUSD) están permitidos  |
 //| — cualquier otro se rechaza explícitamente, sin intentar operar.  |
-//| El sufijo real (InpSymbolSuffix) depende del TIPO DE CUENTA, no   |
-//| del instrumento: "-VIP" en demo (911260411), "-STD" en real       |
-//| (23096429) — se cambia desde Properties > Inputs en MT4, sin      |
-//| recompilar.                                                       |
+//| El sufijo real depende del perfil de cuenta activo                |
+//| (g_ActiveProfile, ver GetProfileInfo), que puede venir de         |
+//| InpProfile o de orders/config.json (ver UpdateProfileFromConfig)  |
+//| — en ambos casos, siempre validado contra AccountNumber() antes   |
+//| de operar (ver ValidateAccountProfile).                           |
 //+------------------------------------------------------------------+
 bool ResolveBrokerSymbol(const string instrument, string &brokerSymbol)
 {
@@ -78,13 +105,151 @@ bool ResolveBrokerSymbol(const string instrument, string &brokerSymbol)
 }
 
 //+------------------------------------------------------------------+
+//| Mapeo perfil -> (cuenta esperada, sufijo esperado). Hardcodeado a |
+//| propósito (no configurable en runtime): el punto es que cuenta y  |
+//| sufijo NUNCA se puedan desincronizar entre sí, como pasó con el   |
+//| viejo InpSymbolSuffix suelto.                                     |
+//+------------------------------------------------------------------+
+struct KronosProfileInfo
+{
+   long   expectedAccount;
+   string expectedSuffix;
+   string label; // solo para logs legibles
+};
+
+KronosProfileInfo GetProfileInfo(ENUM_KRONOS_PROFILE profile)
+{
+   KronosProfileInfo info;
+   switch(profile)
+   {
+      case PROFILE_DEMO_VIP:
+         info.expectedAccount = 911260411;
+         info.expectedSuffix  = "-VIP";
+         info.label           = "DEMO_VIP";
+         break;
+      case PROFILE_PROD_STD:
+      default:
+         info.expectedAccount = 23096429;
+         info.expectedSuffix  = "-STD";
+         info.label           = "PROD_STD";
+         break;
+   }
+   return info;
+}
+
+//--- Estado de bloqueo por discrepancia de cuenta, consultado desde
+//    OnTimer() antes de operar nada, y reportado en
+//    WritePositionsStatus() como "account_mismatch".
+bool g_AccountMismatch         = false;
+long g_AccountMismatchExpected = 0;
+long g_AccountMismatchActual   = 0;
+
+//+------------------------------------------------------------------+
+//| Valida AccountNumber() contra el perfil activo (g_ActiveProfile). |
+//| Se llama desde OnInit() (para no arrancar mal configurado) y      |
+//| desde OnTimer() en cada ciclo (por si el usuario cambia de cuenta |
+//| sin reiniciar el EA — MT4 lo permite). Mientras hay discrepancia, |
+//| el llamador NO debe procesar orders/pending/ ni orders/actions/;  |
+//| a diferencia del caso de JSON inválido, los archivos de pending/  |
+//| NO se borran acá — la señal sigue siendo potencialmente válida,   |
+//| solo no se puede ejecutar todavía con seguridad (ver también el   |
+//| chequeo de antigüedad en ProcessSingleFile, que sí borra, pero es |
+//| un caso distinto).                                                |
+//+------------------------------------------------------------------+
+bool ValidateAccountProfile()
+{
+   KronosProfileInfo info    = GetProfileInfo(g_ActiveProfile);
+   long              actual  = AccountNumber();
+
+   if(actual != info.expectedAccount)
+   {
+      bool wasAlreadyMismatched = g_AccountMismatch;
+      g_AccountMismatch         = true;
+      g_AccountMismatchExpected = info.expectedAccount;
+      g_AccountMismatchActual   = actual;
+
+      if(!wasAlreadyMismatched)
+         Print("Kronos EA: ACCOUNT MISMATCH — perfil '", info.label,
+               "' espera cuenta ", info.expectedAccount,
+               " pero la cuenta conectada es ", actual,
+               ". No se ejecutará ninguna orden ni acción hasta resolverlo.");
+      return false;
+   }
+
+   if(g_AccountMismatch)
+      Print("Kronos EA: discrepancia de cuenta resuelta — perfil '", info.label,
+            "' confirmado, cuenta ", actual, ".");
+
+   g_AccountMismatch = false;
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Convierte el string de config.json a ENUM_KRONOS_PROFILE. Solo    |
+//| acepta los dos valores exactos soportados — cualquier otra cosa   |
+//| (typo, campo vacío, mayúsculas distintas) se rechaza sin          |
+//| intentar adivinar, devolviendo false.                             |
+//+------------------------------------------------------------------+
+bool StringToProfile(const string value, ENUM_KRONOS_PROFILE &profile)
+{
+   if(value == "PROD_STD")
+   {
+      profile = PROFILE_PROD_STD;
+      return true;
+   }
+   if(value == "DEMO_VIP")
+   {
+      profile = PROFILE_DEMO_VIP;
+      return true;
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Lee orders/config.json (si existe) y actualiza g_ActiveProfile    |
+//| cuando trae una clave "profile" válida ("PROD_STD" o "DEMO_VIP"). |
+//| Nunca rompe el ciclo: si el archivo no existe, no parsea, o el    |
+//| valor no es uno de los dos permitidos, se deja g_ActiveProfile    |
+//| como estaba (InpProfile o el último valor válido leído). El       |
+//| sufijo (g_SymbolSuffix) se recalcula junto con el perfil para que |
+//| nunca queden desincronizados entre sí.                            |
+//+------------------------------------------------------------------+
+void UpdateProfileFromConfig()
+{
+   string content;
+   if(!ReadEntireFile(CONFIG_FILE_PATH, content))
+      return; // no existe orders/config.json todavía — caso normal
+
+   string profileStr;
+   if(!JsonGetValue(content, "profile", profileStr))
+      return; // JSON sin la clave esperada, se ignora
+
+   ENUM_KRONOS_PROFILE newProfile;
+   if(!StringToProfile(profileStr, newProfile))
+      return; // valor no soportado, se ignora (validación estricta)
+
+   if(newProfile != g_ActiveProfile)
+   {
+      KronosProfileInfo oldInfo = GetProfileInfo(g_ActiveProfile);
+      KronosProfileInfo newInfo = GetProfileInfo(newProfile);
+      Print("Kronos EA: perfil actualizado desde orders/config.json: ",
+            oldInfo.label, " -> ", newInfo.label);
+      g_ActiveProfile    = newProfile;
+      g_SymbolSuffix      = newInfo.expectedSuffix;
+      g_ProfileUpdatedAt = TimeGMT();
+   }
+}
+
+//+------------------------------------------------------------------+
 //| OnInit / OnDeinit — arranca y detiene el polling por timer       |
 //| (punto de robustez 1: OnTimer, no OnTick — no depende de que     |
 //| lleguen ticks de precio para revisar archivos pendientes)        |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   g_SymbolSuffix = InpSymbolSuffix;
+   g_ActiveProfile = InpProfile;
+   g_SymbolSuffix  = GetProfileInfo(g_ActiveProfile).expectedSuffix;
+   ValidateAccountProfile(); // no bloquea el arranque del timer: solo loguea/marca estado, OnTimer respeta el bloqueo en cada ciclo
 
    // orders/pending, orders/results y orders/actions ya existen como
    // symlinks locales creados por scripts/setup-mt4.sh (ver CLAUDE.md);
@@ -123,7 +288,20 @@ void OnTick()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-   UpdateSymbolSuffixFromConfig();
+   UpdateProfileFromConfig();
+
+   // Mientras hay discrepancia de cuenta, no se toca orders/pending/ ni
+   // orders/actions/ (podrían corresponder a una cuenta distinta a la
+   // conectada ahora mismo) ni se corre DetectClosedPositions (leería
+   // el historial de la cuenta equivocada). WritePositionsStatus() SÍ
+   // sigue corriendo siempre — es lo que le avisa al dashboard del
+   // bloqueo (campo "account_mismatch").
+   if(!ValidateAccountProfile())
+   {
+      WritePositionsStatus();
+      return;
+   }
+
    ProcessPendingOrders();
    ProcessPositionActions();
    WritePositionsStatus();
@@ -194,34 +372,6 @@ void DetectClosedPositions()
 }
 
 //+------------------------------------------------------------------+
-//| Lee orders/config.json (si existe) y actualiza g_SymbolSuffix    |
-//| cuando trae un "symbol_suffix" válido ("-VIP" o "-STD"). Nunca   |
-//| rompe el ciclo: si el archivo no existe, no parsea, o el valor   |
-//| no es uno de los dos permitidos, se deja g_SymbolSuffix como     |
-//| estaba (input o último valor válido leído).                      |
-//+------------------------------------------------------------------+
-void UpdateSymbolSuffixFromConfig()
-{
-   string content;
-   if(!ReadEntireFile(CONFIG_FILE_PATH, content))
-      return; // no existe orders/config.json todavía — caso normal
-
-   string suffix;
-   if(!JsonGetValue(content, "symbol_suffix", suffix))
-      return; // JSON sin la clave esperada, se ignora
-
-   if(suffix != "-VIP" && suffix != "-STD")
-      return; // valor no soportado, se ignora (validación estricta)
-
-   if(suffix != g_SymbolSuffix)
-   {
-      Print("Kronos EA: symbol_suffix actualizado desde orders/config.json: ",
-            g_SymbolSuffix, " -> ", suffix);
-      g_SymbolSuffix = suffix;
-   }
-}
-
-//+------------------------------------------------------------------+
 //| Recorre orders/pending/*.json y procesa cada archivo encontrado  |
 //+------------------------------------------------------------------+
 void ProcessPendingOrders()
@@ -285,6 +435,30 @@ void ProcessSingleFile(string fileName)
       WriteResult(signalIdForResult, false, 0, 0.0, -1, "JSON inválido: " + parseError);
       FileDelete(pendingPath, FILE_COMMON); // punto de robustez 3: nunca se reprocesa un archivo ya leído
       return;
+   }
+
+   // STALE_SIGNAL: descarta (sin ejecutar) señales de apertura nueva
+   // demasiado viejas — mismo umbral de 5 min que ya valida n8n antes
+   // de confirmar (protocolo sección 4.3). Evita ejecutar en cascada,
+   // a precio ya desactualizado, señales acumuladas en pending/ mientras
+   // el EA estuvo bloqueado (ej. por ACCOUNT MISMATCH) o caído. Solo
+   // aplica a orders/pending/ (aperturas nuevas) — NO a
+   // orders/actions/ (BE/cierre sobre posiciones ya abiertas, que
+   // siguen siendo válidas sin importar cuánto tiempo pasó).
+   if(order.created_at > 0)
+   {
+      double ageMinutes = (double)(TimeGMT() - order.created_at) / 60.0;
+      if(ageMinutes > InpMaxSignalAgeMinutes)
+      {
+         string staleMsg = StringFormat(
+            "STALE_SIGNAL: created_at hace %.1f min, excede InpMaxSignalAgeMinutes=%d",
+            ageMinutes, InpMaxSignalAgeMinutes);
+         Print("Kronos EA: signal_id=", order.signal_id, " (", order.signal_uid,
+               ") descartada sin ejecutar: ", staleMsg);
+         WriteResult(order.signal_id, false, 0, 0.0, -3, staleMsg);
+         FileDelete(pendingPath, FILE_COMMON);
+         return;
+      }
    }
 
    int    ticket        = -1;
@@ -677,8 +851,21 @@ void WritePositionsStatus()
    json += "  \"account\": {\n";
    json += "    \"number\": " + IntegerToString(AccountNumber()) + ",\n";
    json += "    \"balance\": " + DoubleToString(AccountBalance(), 2) + ",\n";
-   json += "    \"equity\": " + DoubleToString(AccountEquity(), 2) + "\n";
+   json += "    \"equity\": " + DoubleToString(AccountEquity(), 2) + ",\n";
+   // capital_real (PROTOCOLOS_KRONOS_BOT.md sección 5.2): AccountBalance() solo
+   // puede incluir crédito del bróker, que no es capital propio para el cálculo
+   // de lotaje. Se resta AccountCredit() para que n8n reciba el número correcto.
+   json += "    \"capital_real\": " + DoubleToString(AccountBalance() - AccountCredit(), 2) + "\n";
    json += "  },\n";
+   json += "  \"active_profile\": \"" + GetProfileInfo(g_ActiveProfile).label + "\",\n";
+   if(g_ProfileUpdatedAt > 0)
+      json += "  \"active_profile_updated_at\": \"" + ToIso8601Utc(g_ProfileUpdatedAt) + "\",\n";
+   json += "  \"account_mismatch\": " + (g_AccountMismatch ? "true" : "false") + ",\n";
+   if(g_AccountMismatch)
+   {
+      json += "  \"account_mismatch_expected\": " + IntegerToString(g_AccountMismatchExpected) + ",\n";
+      json += "  \"account_mismatch_actual\": " + IntegerToString(g_AccountMismatchActual) + ",\n";
+   }
    json += "  \"positions\": [\n";
    json += positionsJson;
    if(count > 0)
@@ -715,6 +902,22 @@ bool ParseOrderJson(string json, PendingOrder &order, string &errorMsg)
    // Opcional: solo para logs/trazabilidad, no se valida su formato.
    if(!JsonGetValue(json, "signal_uid", order.signal_uid))
       order.signal_uid = "";
+
+   // Opcional: si falta o no se puede parsear, order.created_at queda en
+   // 0 y ProcessSingleFile se salta el chequeo de antigüedad (no bloquea
+   // la ejecución por esto — el contrato de campos obligatorios de
+   // FORMATO_ARCHIVOS.md no incluye created_at como requerido).
+   order.created_at = 0;
+   string createdAtStr;
+   if(JsonGetValue(json, "created_at", createdAtStr) && createdAtStr != "")
+   {
+      datetime parsed;
+      if(ParseIso8601Utc(createdAtStr, parsed))
+         order.created_at = parsed;
+      else
+         Print("Kronos EA: created_at con formato inesperado (\"", createdAtStr,
+               "\"), se omite el chequeo de antigüedad para esta señal.");
+   }
 
    if(!JsonGetValue(json, "instrument", order.instrument) || order.instrument == "")
    {
@@ -921,8 +1124,8 @@ string ReadEntireFile(string relativePath)
 //| Igual que ReadEntireFile(path) de arriba, pero como bool + out   |
 //| param: no distingue "vacío" de "no existe" en el valor de        |
 //| retorno string, así que esta variante permite a los llamadores   |
-//| tratar "el archivo no existe todavía" como caso normal (ej.      |
-//| orders/config.json antes de que el dashboard lo escriba), sin    |
+//| tratar "el archivo no existe todavía" como caso normal (ej. un   |
+//| archivo de orders/actions/ que ya fue procesado y borrado), sin  |
 //| loggear error. No lanza error si el archivo simplemente falta.   |
 //+------------------------------------------------------------------+
 bool ReadEntireFile(string relativePath, string &outContent)
@@ -980,4 +1183,32 @@ string ToIso8601Utc(datetime t)
    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ",
                         TimeYear(t), TimeMonth(t), TimeDay(t),
                         TimeHour(t), TimeMinute(t), TimeSeconds(t));
+}
+
+//+------------------------------------------------------------------+
+//| Inversa de ToIso8601Utc(): parsea "YYYY-MM-DDTHH:MM:SSZ" (formato |
+//| que escribe n8n en "created_at") a datetime UTC. StrToTime() de   |
+//| MQL4 espera "YYYY.MM.DD HH:MI:SS" (puntos, espacio, sin "Z"), así |
+//| que se reescribe el string a ese formato antes de parsear.        |
+//| Devuelve false si el formato no matchea lo esperado.              |
+//+------------------------------------------------------------------+
+bool ParseIso8601Utc(string iso, datetime &out)
+{
+   string s = iso;
+   StringReplace(s, "-", ".");
+   StringReplace(s, "T", " ");
+   StringReplace(s, "Z", "");
+   StringTrimRight(s);
+   StringTrimLeft(s);
+
+   if(StringLen(s) != 19) // "YYYY.MM.DD HH:MI:SS"
+      return false;
+
+   ResetLastError();
+   datetime parsed = StrToTime(s);
+   if(parsed <= 0 || GetLastError() != 0)
+      return false;
+
+   out = parsed;
+   return true;
 }

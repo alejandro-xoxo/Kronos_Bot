@@ -3,6 +3,86 @@
   "nodes": [
     {
       "parameters": {
+        "content": "## 1. Captura y parseo de señales nuevas\nWebhook Telethon -> valida secreto -> parsea con regex -> inserta en Postgres -> notifica por Telegram.",
+        "height": 420,
+        "width": 1700,
+        "color": 4
+      },
+      "id": "685ad544-da77-4351-882c-404682051120",
+      "name": "Nota: 1. Captura y parseo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Confirmación por Telegram (botones + callback)\nCallback del botón Confirmar/Rechazar -> UPDATE idempotente en Postgres -> respuesta al callback + aviso en el chat.",
+        "height": 720,
+        "width": 1750,
+        "color": 5
+      },
+      "id": "914b900d-d98e-4b11-8a54-fa33f73488f1",
+      "name": "Nota: 2. Confirmación Telegram",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Seguimiento / modificaciones (regex + Gemini)\nMensaje que responde a una señal -> clasifica por regex; si no matchea, interpreta con Gemini -> inserta modificación -> si requiere acción EA, la escribe para MT4.",
+        "height": 750,
+        "width": 2500,
+        "color": 3
+      },
+      "id": "bd960aa9-3649-48d1-ba53-245b5508fbce",
+      "name": "Nota: 3. Seguimiento (Fase 4)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1930,
+        1430
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Ejecución en MT4\nAl confirmar, arma y escribe la orden pending para el EA puente. Un trigger periódico lee los resultados desde MT4, actualiza Postgres y notifica el ticket/motivo de fallo.",
+        "height": 480,
+        "width": 2750,
+        "color": 6
+      },
+      "id": "c711f303-b13f-469a-8bdb-cf56c1f8cf48",
+      "name": "Nota: 4. Ejecución en MT4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        2400
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Detección de cierres (TP/SL)\nTrigger periódico lee los cierres reportados por el EA (TP o SL alcanzado), actualiza el status en Postgres y notifica el resultado por Telegram.",
+        "height": 500,
+        "width": 1700,
+        "color": 2
+      },
+      "id": "b65e381d-1960-40b4-a44a-3d96812198ef",
+      "name": "Nota: 5. Detección de cierres TP-SL",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        3330
+      ]
+    },
+    {
+      "parameters": {
         "httpMethod": "POST",
         "path": "kronos-telethon-signal",
         "options": {
@@ -14,8 +94,8 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        -2432,
-        384
+        -2600,
+        0
       ],
       "webhookId": "kronos-telethon-signal"
     },
@@ -28,8 +108,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2192,
-        384
+        -2100,
+        0
       ]
     },
     {
@@ -71,8 +151,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1952,
-        384
+        -1850,
+        0
       ]
     },
     {
@@ -88,8 +168,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -1696,
-        304
+        -1600,
+        -120
       ],
       "notesInFlow": true,
       "credentials": {
@@ -137,8 +217,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -1440,
-        304
+        -1350,
+        -120
       ],
       "notesInFlow": true,
       "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
@@ -162,8 +242,8 @@
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1.1,
       "position": [
-        -1440,
-        704
+        -2600,
+        800
       ],
       "webhookId": "kronos-telegram-callback-trigger",
       "notesInFlow": true,
@@ -184,8 +264,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1216,
-        704
+        -2350,
+        800
       ]
     },
     {
@@ -217,8 +297,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -992,
-        704
+        -2100,
+        800
       ]
     },
     {
@@ -234,8 +314,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -784,
-        512
+        -1850,
+        660
       ],
       "credentials": {
         "postgres": {
@@ -257,8 +337,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -784,
-        864
+        -1850,
+        960
       ],
       "credentials": {
         "postgres": {
@@ -278,8 +358,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -336,
-        384
+        -1350,
+        560
       ],
       "webhookId": "698f7aab-769d-4a4f-acda-6907949c6972",
       "credentials": {
@@ -300,8 +380,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -336,
-        752
+        -1350,
+        860
       ],
       "webhookId": "b86332d9-8802-453b-8361-6a14ae4d10e4",
       "credentials": {
@@ -324,8 +404,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -80,
-        384
+        -1100,
+        560
       ],
       "webhookId": "5148d035-4bfe-4d10-b578-e57468c74e69",
       "credentials": {
@@ -348,8 +428,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -96,
-        752
+        -1100,
+        860
       ],
       "webhookId": "44603ea8-6600-4b56-9ebc-f99a04ddf707",
       "credentials": {
@@ -388,8 +468,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -560,
-        512
+        -1600,
+        660
       ]
     },
     {
@@ -421,8 +501,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -560,
-        864
+        -1600,
+        960
       ]
     },
     {
@@ -436,8 +516,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -336,
-        560
+        -1350,
+        740
       ],
       "webhookId": "a98bf3de-61c1-4345-95fb-473ddfaf17cd",
       "credentials": {
@@ -458,8 +538,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -336,
-        944
+        -1350,
+        1060
       ],
       "webhookId": "41c7fbac-b070-4359-8b16-efe262ac1b73",
       "credentials": {
@@ -482,8 +562,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -336,
-        160
+        -2600,
+        2700
       ],
       "credentials": {
         "postgres": {
@@ -504,8 +584,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -256,
-        300
+        -2350,
+        2700
       ],
       "credentials": {
         "postgres": {
@@ -524,8 +604,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -80,
-        160
+        -2100,
+        2700
       ]
     },
     {
@@ -540,8 +620,8 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
       "position": [
-        176,
-        160
+        -1850,
+        2700
       ],
       "notes": "MT4_ORDERS_DIR (env) = /mt4-bridge/orders dentro del contenedor n8n, montado en docker-compose.yml desde MT4_ORDERS_HOST_PATH (ruta real de Common/Files/orders en el prefijo de Wine de esta máquina)."
     },
@@ -561,8 +641,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -2432,
-        1200
+        -1600,
+        2700
       ]
     },
     {
@@ -576,8 +656,8 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
       "position": [
-        -2192,
-        1200
+        -1350,
+        2700
       ],
       "notes": "Lee mt4-bridge/orders/results/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
     },
@@ -590,8 +670,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1952,
-        1200
+        -1100,
+        2700
       ]
     },
     {
@@ -607,8 +687,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -1696,
-        1200
+        -850,
+        2700
       ],
       "credentials": {
         "postgres": {
@@ -647,8 +727,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1440,
-        1200
+        -600,
+        2700
       ]
     },
     {
@@ -664,8 +744,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -1184,
-        1104
+        -350,
+        2600
       ],
       "credentials": {
         "telegramApi": {
@@ -684,8 +764,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -928,
-        1200
+        -100,
+        2700
       ],
       "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml."
     },
@@ -718,8 +798,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -2176,
-        384
+        -2350,
+        0
       ],
       "notes": "Rechaza silenciosamente (sin bajar por la rama false) cualquier POST al webhook que no traiga el header X-Kronos-Secret correcto — evita que alguien que descubra la URL pública inyecte señales falsas. El webhook igual responde 'received' al instante (responseMode oculta la validación)."
     },
@@ -739,8 +819,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -2432,
-        1450
+        -2600,
+        3600
       ]
     },
     {
@@ -754,8 +834,8 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
       "position": [
-        -2192,
-        1450
+        -2350,
+        3600
       ],
       "notes": "Lee mt4-bridge/orders/closed/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
     },
@@ -768,8 +848,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1952,
-        1450
+        -2100,
+        3600
       ]
     },
     {
@@ -785,8 +865,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -1696,
-        1450
+        -1850,
+        3600
       ],
       "credentials": {
         "postgres": {
@@ -825,8 +905,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1440,
-        1450
+        -1600,
+        3600
       ]
     },
     {
@@ -842,8 +922,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -1184,
-        1354
+        -1350,
+        3500
       ],
       "credentials": {
         "telegramApi": {
@@ -862,8 +942,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -928,
-        1450
+        -1350,
+        3700
       ],
       "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml (ya habilitado para 'Borrar archivo de resultado')."
     },
@@ -880,8 +960,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -1952,
-        700
+        -1850,
+        1750
       ],
       "credentials": {
         "postgres": {
@@ -900,8 +980,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1696,
-        700
+        -1600,
+        1750
       ]
     },
     {
@@ -967,8 +1047,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
       "position": [
-        -1440,
-        700
+        -1350,
+        1750
       ],
       "notes": "Salida SKIP (fallback) no se conecta a nada: no se guarda nada en BD (NO_RELACIONADO, comentario largo, informativo, duplicado, TP no trackeado, sin operacion aplicable)."
     },
@@ -981,8 +1061,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1184,
-        560
+        -1100,
+        1630
       ]
     },
     {
@@ -999,8 +1079,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1184,
-        900
+        -1100,
+        1910
       ],
       "notes": "Structured output forzado via responseSchema (Fase 4, punto Gemini del diseño) — no se confia en que el modelo respete un prompt de texto libre. Unico punto con costo de tokens del arbol de decision. Retry: retryOnFail+maxTries=2+waitBetweenTries=500ms (1 reintento inmediato, sin backoff largo, protocolo seccion 4.4). Si falla tras el reintento, onError=continueErrorOutput manda el item a la 2da salida -> 'Insertar modificación: Gemini falló (PENDING_MANUAL)'.",
       "retryOnFail": true,
@@ -1017,8 +1097,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -928,
-        900
+        -850,
+        1910
       ]
     },
     {
@@ -1034,8 +1114,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -672,
-        700
+        -600,
+        1750
       ],
       "credentials": {
         "postgres": {
@@ -1075,8 +1155,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -416,
-        700
+        -350,
+        1750
       ],
       "notes": "IMPORTANTE (verificar en runtime): 'Insertar modificación (Postgres)' con RETURNING id devuelve un item nuevo cuyo unico campo es 'id' — ea_action, mt4_ticket, signal_id, signal_uid, modification_type NO viajan automaticamente en $json desde aca en adelante. Antes de activar en produccion, cambiar las expresiones de este nodo y de los siguientes (Preparar acción EA, Escribir acción EA, ambos Avisar en chat) para leer esos campos con referencia cruzada ($('Expandir targets').item.json / $('Parsear respuesta Gemini').item.json) en vez de $json, igual patron que 'Preparar orden pending (JSON)' usa $('Obtener señal confirmada').item.json en la rama de confirmacion existente."
     },
@@ -1089,8 +1169,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -160,
-        560
+        -100,
+        1630
       ]
     },
     {
@@ -1105,8 +1185,8 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
       "position": [
-        96,
-        560
+        150,
+        1630
       ],
       "notes": "Mismo directorio/simlink que 'Escribir orden pending (MT4)', subcarpeta actions/ (FORMATO_ARCHIVOS.md 4.3)."
     },
@@ -1123,8 +1203,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        352,
-        560
+        400,
+        1630
       ],
       "credentials": {
         "telegramApi": {
@@ -1146,8 +1226,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -160,
-        840
+        -100,
+        1850
       ],
       "credentials": {
         "telegramApi": {
@@ -1169,8 +1249,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -928,
-        1060
+        -600,
+        2050
       ],
       "credentials": {
         "postgres": {
@@ -1191,8 +1271,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -672,
-        1060
+        -350,
+        2050
       ],
       "credentials": {
         "telegramApi": {

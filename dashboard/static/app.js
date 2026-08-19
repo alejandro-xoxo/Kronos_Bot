@@ -284,18 +284,18 @@ function setConfigStatus(message, kind) {
   el.className = "status-msg" + (kind ? " " + kind : "");
 }
 
-function markActiveButton(suffix) {
-  document.getElementById("btn-vip").classList.toggle("active", suffix === "-VIP");
-  document.getElementById("btn-std").classList.toggle("active", suffix === "-STD");
+function markActiveButton(profile) {
+  document.getElementById("btn-vip").classList.toggle("active", profile === "DEMO_VIP");
+  document.getElementById("btn-std").classList.toggle("active", profile === "PROD_STD");
 }
 
 async function loadConfig() {
   try {
     const res = await fetch("api/config");
     const data = await res.json();
-    if (data.symbol_suffix) {
-      markActiveButton(data.symbol_suffix);
-      setConfigStatus("Sufijo actual: " + data.symbol_suffix, "");
+    if (data.profile) {
+      markActiveButton(data.profile);
+      setConfigStatus("Perfil actual: " + data.profile, "");
     } else {
       setConfigStatus("Sin configurar todavía.", "");
     }
@@ -304,28 +304,28 @@ async function loadConfig() {
   }
 }
 
-async function setSuffix(suffix) {
+async function setProfile(profile) {
   setConfigStatus("Guardando...", "");
   try {
     const res = await fetch("api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol_suffix: suffix }),
+      body: JSON.stringify({ profile: profile }),
     });
     const data = await res.json();
     if (!res.ok) {
       setConfigStatus(data.error || "Error al guardar.", "error");
       return;
     }
-    markActiveButton(data.symbol_suffix);
-    setConfigStatus("Guardado: " + data.symbol_suffix, "ok");
+    markActiveButton(data.profile);
+    setConfigStatus("Guardado: " + data.profile + ". Se aplica en el próximo ciclo del EA (unos segundos).", "ok");
   } catch (err) {
     setConfigStatus("Error de red al guardar.", "error");
   }
 }
 
-document.getElementById("btn-vip").addEventListener("click", () => setSuffix("-VIP"));
-document.getElementById("btn-std").addEventListener("click", () => setSuffix("-STD"));
+document.getElementById("btn-vip").addEventListener("click", () => setProfile("DEMO_VIP"));
+document.getElementById("btn-std").addEventListener("click", () => setProfile("PROD_STD"));
 
 loadPositions();
 loadSignals();
