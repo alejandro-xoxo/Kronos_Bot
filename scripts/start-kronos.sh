@@ -37,6 +37,10 @@ else
     echo "MT4 lanzado."
 fi
 
+echo "== Abriendo Dashboard =="
+chromium --app=http://localhost:8088 --class=KronosDashboard >/dev/null 2>&1 &
+disown
+
 echo "== Abriendo Telegram Web =="
 chromium --app=https://web.telegram.org/k/ --class=KronosTelegram >/dev/null 2>&1 &
 disown
@@ -47,9 +51,12 @@ if ! pgrep -x spotify >/dev/null 2>&1; then
     disown
 fi
 
-# Las ventanas se acomodan solas en el workspace 9 vía las reglas de
-# ~/.config/hypr/kronos-layout.conf (Telegram mitad izquierda, MT4 y
-# Spotify comparten la mitad derecha).
-hyprctl dispatch workspace 9 >/dev/null 2>&1 || true
+# Las ventanas se acomodan solas vía las reglas de
+# ~/.config/hypr/kronos-layout.conf: MT4 queda oculto en un workspace
+# especial (no aparece en ningún monitor), y Dashboard+Telegram+
+# Spotify van a la pantalla secundaria (HDMI-A-1), workspaces 9 y 10.
+# No se despacha ningún cambio de workspace acá a propósito: la
+# pantalla principal (eDP-1) debe quedar completamente libre, sin que
+# este script le robe el foco.
 
 echo "== Listo. Dashboard: http://localhost:8088 =="
