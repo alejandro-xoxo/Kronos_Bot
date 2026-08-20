@@ -116,10 +116,12 @@ un evento puntual.
 ## 5. Reporte de posiciones abiertas — `mt4-bridge/orders/status.json` (lado EA)
 
 Escrito por el EA al final de **cada ciclo** de `OnTimer()` (se
-sobrescribe completo, no se acumula). Contiene únicamente las
-posiciones de mercado (`OP_BUY`/`OP_SELL`) abiertas por este EA —
-filtradas por `InpMagicNumber`, para no mezclar con operativa manual
-del usuario en la misma cuenta.
+sobrescribe completo, no se acumula). Contiene **todas** las
+posiciones de mercado (`OP_BUY`/`OP_SELL`) abiertas en la cuenta,
+tanto las de este EA como las abiertas manualmente por el usuario en
+MT4 — cada posición lleva `"managed"` (`true` si su
+`OrderMagicNumber()` coincide con `InpMagicNumber`, `false` si es
+operativa manual) para que el dashboard las distinga sin mezclarlas.
 
 ```json
 {
@@ -128,6 +130,7 @@ del usuario en la misma cuenta.
   "positions": [
     {
       "ticket": 123456789,
+      "managed": true,
       "signal_uid": "1192-A",
       "symbol": "XAUUSD-STD",
       "direction": "BUY",
@@ -144,10 +147,17 @@ del usuario en la misma cuenta.
 ```
 
 `signal_uid` se extrae del `OrderComment()` (`"KronosBot:" +
-signal_uid`, ver sección 1). `current_price` es el precio al que la
-posición se podría cerrar ahora mismo (Bid para BUY, Ask para SELL).
-Archivo de solo lectura para consumidores externos (dashboard); el EA
-nunca lo lee, solo lo escribe.
+signal_uid`, ver sección 1) solo cuando `managed=true`; en posiciones
+manuales viene vacío. `current_price` es el precio al que la posición
+se podría cerrar ahora mismo (Bid para BUY, Ask para SELL). Archivo de
+solo lectura para consumidores externos (dashboard); el EA nunca lo
+lee, solo lo escribe.
+
+El dashboard solo permite encolar acciones (`SET_BE`/`SET_TP_BE`/
+`CLOSE`) sobre tickets con `managed=true` — `ProcessActionFile` en el
+EA de todos modos ignora acciones sobre tickets sin su
+`InpMagicNumber`, así que esto es una validación redundante en el
+dashboard para no encolar comandos que nunca se van a ejecutar.
 
 ## 6. Convención de limpieza
 
@@ -186,13 +196,16 @@ este archivo, nunca lo escribe.
   "updated_at": "2026-08-17T00:00:00Z",
   "account": { "number": 23096429, "balance": 1000.0, "equity": 1005.2 },
   "positions": [
-    { "ticket": 202201987, "signal_uid": "1192-A", "symbol": "XAUUSD-VIP",
+    { "ticket": 202201987, "managed": true, "signal_uid": "1192-A", "symbol": "XAUUSD-VIP",
       "direction": "BUY", "lot": 0.01, "open_price": 4390.13,
       "current_price": 4392.0, "sl": 4370.0, "tp": 4410.0,
       "profit": 1.87, "open_time": "2026-08-17T00:28:56Z" }
   ]
 }
 ```
+
+Ver sección 5 para el detalle completo de `managed` (posiciones
+propias del EA vs. manuales del usuario).
 
 | Campo | Tipo | Notas |
 |---|---|---|

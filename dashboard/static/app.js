@@ -32,16 +32,28 @@ async function loadPositions() {
 
     const positions = data.positions || [];
     if (positions.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="12" class="empty-msg">Sin posiciones abiertas.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="11" class="empty-msg">Sin posiciones abiertas.</td></tr>';
       return;
     }
 
     bodyEl.innerHTML = positions
       .map((p) => {
         const profitClass = p.profit >= 0 ? "profit-pos" : "profit-neg";
+        // status.json de EAs viejos (sin recompilar) no trae "managed":
+        // tratarlo como true para no ocultar acciones que sí funcionaban.
+        const managed = p.managed !== false;
+        const originBadge = managed
+          ? '<span class="badge-auto">Auto</span>'
+          : '<span class="badge-manual">Manual</span>';
+        const actions = managed
+          ? `<button class="btn-be" data-ticket="${p.ticket}" data-action="SET_BE">BE</button>
+             <button class="btn-be-tp" data-ticket="${p.ticket}" data-action="SET_TP_BE">BE inverso</button>
+             <button class="btn-close" data-ticket="${p.ticket}" data-action="CLOSE">Cerrar</button>
+             <span class="position-action-status" data-ticket="${p.ticket}"></span>`
+          : '<span class="position-action-status">Fuera de la automatización — gestionar desde MT4.</span>';
         return `<tr>
           <td>${fmt(p.ticket)}</td>
-          <td>${fmt(p.signal_uid)}</td>
+          <td>${originBadge}</td>
           <td>${fmt(p.symbol)}</td>
           <td>${fmt(p.direction)}</td>
           <td>${fmt(p.lot)}</td>
@@ -50,13 +62,9 @@ async function loadPositions() {
           <td>${fmt(p.sl)}</td>
           <td>${fmt(p.tp)}</td>
           <td class="${profitClass}">${fmt(p.profit)}</td>
-          <td>${fmtDate(p.open_time)}</td>
           <td>
             <div class="position-actions">
-              <button class="btn-be" data-ticket="${p.ticket}" data-action="SET_BE">BE</button>
-              <button class="btn-be-tp" data-ticket="${p.ticket}" data-action="SET_TP_BE">BE inverso</button>
-              <button class="btn-close" data-ticket="${p.ticket}" data-action="CLOSE">Cerrar</button>
-              <span class="position-action-status" data-ticket="${p.ticket}"></span>
+              ${actions}
             </div>
           </td>
         </tr>`;
@@ -167,7 +175,7 @@ async function loadSignals() {
     const signals = data.signals || [];
 
     if (signals.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin señales en este período.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Sin señales en este período.</td></tr>';
       return;
     }
 
@@ -178,7 +186,6 @@ async function loadSignals() {
             ? `<button class="btn-retry" data-id="${s.id}">Reintentar</button>`
             : "";
         return `<tr>
-          <td>${fmt(s.cycle_position)}</td>
           <td>${fmt(s.instrument)}</td>
           <td>${fmt(s.direction)}</td>
           <td>${fmt(s.status)}</td>
@@ -196,7 +203,7 @@ async function loadSignals() {
       btn.addEventListener("click", () => retrySignal(btn.dataset.id, btn));
     });
   } catch (err) {
-    bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin señales en este período.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Sin señales en este período.</td></tr>';
   }
 }
 
