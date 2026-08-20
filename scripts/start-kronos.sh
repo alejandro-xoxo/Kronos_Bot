@@ -32,23 +32,27 @@ done
 if [ -n "${mt4_already_running}" ]; then
     echo "MT4 ya parece estar corriendo en este prefijo, no se relanza."
 else
-    WINEPREFIX="${WINE_PREFIX_MT4}" wine "${TERMINAL_EXE}" &
-    disown
+    setsid env WINEPREFIX="${WINE_PREFIX_MT4}" wine "${TERMINAL_EXE}" >/dev/null 2>&1 &
     echo "MT4 lanzado."
 fi
 
+# --class solo se respeta si Chromium corre sobre XWayland: con
+# ozone-platform=wayland (default de este sistema) ignora --class y
+# usa un app-id derivado de la URL, rompiendo las windowrule de
+# ~/.config/hypr/kronos-layout.conf que matchean por clase. Además,
+# cada --app necesita su propio --user-data-dir: si comparten perfil,
+# Chromium fusiona la segunda ventana en el proceso de la primera vía
+# IPC de instancia única y ambas terminan con la misma clase (la del
+# último --app lanzado), rompiendo el layout.
 echo "== Abriendo Dashboard =="
-chromium --app=http://localhost:8088 --class=KronosDashboard >/dev/null 2>&1 &
-disown
+setsid chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-dashboard" --app=http://localhost:8088 --class=KronosDashboard >/dev/null 2>&1 &
 
 echo "== Abriendo Telegram Web =="
-chromium --app=https://web.telegram.org/k/ --class=KronosTelegram >/dev/null 2>&1 &
-disown
+setsid chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-telegram" --app=https://web.telegram.org/k/ --class=KronosTelegram >/dev/null 2>&1 &
 
 echo "== Abriendo Spotify =="
 if ! pgrep -x spotify >/dev/null 2>&1; then
-    spotify >/dev/null 2>&1 &
-    disown
+    setsid spotify >/dev/null 2>&1 &
 fi
 
 # Las ventanas se acomodan solas vía las reglas de
