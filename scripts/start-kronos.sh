@@ -56,23 +56,33 @@ fi
 # alacritty systemd puede matarlo a mitad de arranque (bug real ya
 # visto con Spotify). systemd-run crea un scope independiente, inmune
 # a que el scope de alacritty se cierre.
+# Si ya hay un Chromium corriendo con el mismo --user-data-dir, un
+# segundo lanzamiento no abre ventana nueva de forma confiable: choca
+# con el singleton-lock del perfil y puede quedar sin efecto visible
+# (el "no abrió nada" reportado). Igual que con MT4, si ya está
+# corriendo no se relanza.
 echo "== Abriendo Dashboard =="
-systemd-run --user --scope --unit="kronos-dashboard-$$" -- \
-    chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-dashboard" --app=http://localhost:8088 --class=KronosDashboard >/dev/null 2>&1 &
-disown
+if pgrep -f -- "--class=KronosDashboard" >/dev/null 2>&1; then
+    echo "Dashboard ya está corriendo, no se relanza."
+else
+    systemd-run --user --scope --unit="kronos-dashboard-$$" -- \
+        chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-dashboard" --app=http://localhost:8088 --class=KronosDashboard >/dev/null 2>&1 &
+    disown
+fi
 
 echo "== Abriendo Telegram Web =="
-systemd-run --user --scope --unit="kronos-telegram-$$" -- \
-    chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-telegram" --app=https://web.telegram.org/k/ --class=KronosTelegram >/dev/null 2>&1 &
-disown
+if pgrep -f -- "--class=KronosTelegram" >/dev/null 2>&1; then
+    echo "Telegram Web ya está corriendo, no se relanza."
+else
+    systemd-run --user --scope --unit="kronos-telegram-$$" -- \
+        chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-telegram" --app=https://web.telegram.org/k/ --class=KronosTelegram >/dev/null 2>&1 &
+    disown
+fi
 
 # Las ventanas se acomodan solas vía las reglas de
 # ~/.config/hypr/kronos-layout.conf: MT4 queda oculto en un workspace
 # especial (no aparece en ningún monitor), y Dashboard+Telegram van a
-# la pantalla secundaria (HDMI-A-1), workspace 9. No se despacha
-# ningún cambio de workspace acá a propósito: la pantalla principal
-# (eDP-1) debe quedar completamente libre, sin que este script le
-# robe el foco.
+# la pantalla secundaria (HDMI-A-1), workspace 9.
 
 
 # Las ventanas de Dashboard/Telegram se abren en el workspace 9 (ver
