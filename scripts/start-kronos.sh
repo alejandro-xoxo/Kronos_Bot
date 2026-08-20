@@ -7,6 +7,10 @@ set -euo pipefail
 
 REPO_DIR="/home/alejandroa/Proyectos/Kronos_Bot"
 WINE_PREFIX_MT4="${HOME}/.wine-mt4"
+KRONOS_LOG="/tmp/kronos-start.log"
+
+exec > >(tee -a "${KRONOS_LOG}") 2>&1
+echo "== $(date '+%Y-%m-%d %H:%M:%S') - arrancando start-kronos.sh =="
 
 cd "${REPO_DIR}"
 
@@ -44,35 +48,40 @@ fi
 # Chromium fusiona la segunda ventana en el proceso de la primera vía
 # IPC de instancia única y ambas terminan con la misma clase (la del
 # último --app lanzado), rompiendo el layout.
+#
+# systemd-run --user --scope (no setsid a secas): Hyprland lanza
+# alacritty (y por herencia este script) dentro de un scope systemd
+# transitorio (app-Hyprland-alacritty-*.scope). Un proceso hijo
+# desacoplado solo con setsid sigue en ese cgroup, así que al cerrarse
+# alacritty systemd puede matarlo a mitad de arranque (bug real ya
+# visto con Spotify). systemd-run crea un scope independiente, inmune
+# a que el scope de alacritty se cierre.
 echo "== Abriendo Dashboard =="
-setsid chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-dashboard" --app=http://localhost:8088 --class=KronosDashboard >/dev/null 2>&1 &
+systemd-run --user --scope --unit="kronos-dashboard-$$" -- \
+    chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-dashboard" --app=http://localhost:8088 --class=KronosDashboard >/dev/null 2>&1 &
+disown
 
 echo "== Abriendo Telegram Web =="
-setsid chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-telegram" --app=https://web.telegram.org/k/ --class=KronosTelegram >/dev/null 2>&1 &
-
-echo "== Abriendo Spotify =="
-SPOTIFY_PLAYLIST_URI="spotify:playlist:37i9dQZF1F5p3rmiWPIYgZ"
-if ! pgrep -x spotify >/dev/null 2>&1; then
-    setsid spotify --uri="${SPOTIFY_PLAYLIST_URI}" >/dev/null 2>&1 &
-    # --uri carga la playlist pero la deja en pausa (verificado con
-    # playerctl); hace falta un play explícito una vez que el cliente
-    # termina de inicializar y registra su interfaz MPRIS.
-    setsid bash -c '
-        for _ in $(seq 1 15); do
-            sleep 1
-            if playerctl -p spotify play 2>/dev/null; then
-                break
-            fi
-        done
-    ' >/dev/null 2>&1 &
-fi
+systemd-run --user --scope --unit="kronos-telegram-$$" -- \
+    chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-telegram" --app=https://web.telegram.org/k/ --class=KronosTelegram >/dev/null 2>&1 &
+disown
 
 # Las ventanas se acomodan solas vía las reglas de
 # ~/.config/hypr/kronos-layout.conf: MT4 queda oculto en un workspace
-# especial (no aparece en ningún monitor), y Dashboard+Telegram+
-# Spotify van a la pantalla secundaria (HDMI-A-1), workspaces 9 y 10.
-# No se despacha ningún cambio de workspace acá a propósito: la
-# pantalla principal (eDP-1) debe quedar completamente libre, sin que
-# este script le robe el foco.
+# especial (no aparece en ningún monitor), y Dashboard+Telegram van a
+# la pantalla secundaria (HDMI-A-1), workspace 9. No se despacha
+# ningún cambio de workspace acá a propósito: la pantalla principal
+# (eDP-1) debe quedar completamente libre, sin que este script le
+# robe el foco.
+
+
+# Las ventanas de Dashboard/Telegram se abren en el workspace 9 (ver
+# windowrules arriba), pero sin cambiar de workspace acá quedan
+# abiertas fuera de vista si el monitor secundario no está ya parado
+# ahí — hay que llevarlo, si no, parece que "no abrió nada" aunque los
+# procesos sí estén corriendo.
+if command -v hyprctl >/dev/null 2>&1; then
+    hyprctl dispatch workspace 9 >/dev/null 2>&1 || true
+fi
 
 echo "== Listo. Dashboard: http://localhost:8088 =="
