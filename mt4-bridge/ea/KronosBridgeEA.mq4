@@ -552,10 +552,13 @@ void WriteActionResult(int ticket, string action, bool success, double resultPri
 }
 
 //+------------------------------------------------------------------+
-//| Escribe orders/status.json con las posiciones de mercado         |
-//| (OP_BUY/OP_SELL) abiertas por este EA (mismo InpMagicNumber),    |
-//| para que un dashboard externo pueda leer el estado sin tocar     |
-//| MT4 directamente. Se sobrescribe completo en cada ciclo.         |
+//| Escribe orders/status.json con TODAS las posiciones de mercado   |
+//| (OP_BUY/OP_SELL) abiertas en la cuenta, propias del EA o          |
+//| abiertas manualmente por el usuario en MT4 — cada una lleva el    |
+//| flag "managed" para que el dashboard sepa cuáles puede operar     |
+//| (SET_BE/CLOSE solo actúan sobre managed=true, ver                |
+//| ProcessActionFile, que sigue filtrando por InpMagicNumber).       |
+//| Se sobrescribe completo en cada ciclo.                            |
 //+------------------------------------------------------------------+
 void WritePositionsStatus()
 {
@@ -568,17 +571,18 @@ void WritePositionsStatus()
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
          continue;
 
-      if(OrderMagicNumber() != InpMagicNumber)
-         continue;
-
       int orderType = OrderType();
       if(orderType != OP_BUY && orderType != OP_SELL)
          continue; // solo posiciones de mercado ya ejecutadas
+
+      bool managed = (OrderMagicNumber() == InpMagicNumber);
 
       string signalUid = OrderComment();
       string prefix     = "KronosBot:";
       if(StringFind(signalUid, prefix) == 0)
          signalUid = StringSubstr(signalUid, StringLen(prefix));
+      else if(!managed)
+         signalUid = ""; // comentario manual del usuario, no es un signal_uid
 
       string direction    = (orderType == OP_BUY) ? "BUY" : "SELL";
       double currentPrice = MarketInfo(OrderSymbol(), (orderType == OP_BUY) ? MODE_BID : MODE_ASK);
@@ -588,6 +592,7 @@ void WritePositionsStatus()
 
       positionsJson += "    {\n";
       positionsJson += "      \"ticket\": " + IntegerToString(OrderTicket()) + ",\n";
+      positionsJson += "      \"managed\": " + (managed ? "true" : "false") + ",\n";
       positionsJson += "      \"signal_uid\": \"" + JsonEscape(signalUid) + "\",\n";
       positionsJson += "      \"symbol\": \"" + OrderSymbol() + "\",\n";
       positionsJson += "      \"direction\": \"" + direction + "\",\n";
