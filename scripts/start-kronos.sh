@@ -51,8 +51,20 @@ echo "== Abriendo Telegram Web =="
 setsid chromium --ozone-platform=x11 --user-data-dir="${HOME}/.cache/kronos-chromium-telegram" --app=https://web.telegram.org/k/ --class=KronosTelegram >/dev/null 2>&1 &
 
 echo "== Abriendo Spotify =="
+SPOTIFY_PLAYLIST_URI="spotify:playlist:37i9dQZF1F5p3rmiWPIYgZ"
 if ! pgrep -x spotify >/dev/null 2>&1; then
-    setsid spotify >/dev/null 2>&1 &
+    setsid spotify --uri="${SPOTIFY_PLAYLIST_URI}" >/dev/null 2>&1 &
+    # --uri carga la playlist pero la deja en pausa (verificado con
+    # playerctl); hace falta un play explícito una vez que el cliente
+    # termina de inicializar y registra su interfaz MPRIS.
+    setsid bash -c '
+        for _ in $(seq 1 15); do
+            sleep 1
+            if playerctl -p spotify play 2>/dev/null; then
+                break
+            fi
+        done
+    ' >/dev/null 2>&1 &
 fi
 
 # Las ventanas se acomodan solas vía las reglas de
