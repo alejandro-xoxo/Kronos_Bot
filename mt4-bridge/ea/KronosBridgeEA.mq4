@@ -195,16 +195,38 @@ void ProcessSingleFile(string fileName)
 {
    string pendingPath = PENDING_DIR_PREFIX + fileName;
 
-   string content = ReadEntireFile(pendingPath);
-   if(content == "")
+   // Reclamar el archivo ANTES de leerlo/ejecutar nada: se renombra a
+   // .processing con FileMove. Bug real (2026-08-20): con OnTimer cada
+   // 1s, si el timer de Wine dispara en ráfaga (varios ticks pegados
+   // tras un atraso) y el FileDelete() del ciclo anterior todavía no
+   // se reflejaba en el listado del symlink a Common\Files, el mismo
+   // *.json volvía a aparecer en FileFindNext y se reprocesaba —
+   // mandó la misma señal 3 veces (3 tickets idénticos en <100ms,
+   // ver STATUS.md). El rename es atómico a nivel de filesystem y,
+   // como el destino ya no matchea el patrón "*.json" de
+   // PENDING_DIR_PATTERN, un ciclo posterior nunca puede volver a
+   // encontrarlo — a diferencia de depender de que el FileDelete()
+   // final sea instantáneo.
+   string claimedPath = pendingPath + ".processing";
+   if(!FileMove(pendingPath, FILE_COMMON, claimedPath, FILE_COMMON))
    {
-      // No se borra: puede ser un archivo a medio escribir por n8n en
-      // este instante. Se reintenta en el próximo ciclo del timer.
-      Print("Kronos EA: no se pudo leer ", pendingPath, " (vacío o en uso), se reintenta luego.");
+      // Ya lo reclamó (o procesó y borró) otro ciclo/llamada — no es
+      // un error, es exactamente la protección funcionando.
       return;
    }
 
-   Print("Kronos EA: procesando ", pendingPath);
+   string content = ReadEntireFile(claimedPath);
+   if(content == "")
+   {
+      // No se borra: puede ser un archivo a medio escribir por n8n en
+      // este instante. Se revierte el claim para reintentar en el
+      // próximo ciclo del timer.
+      Print("Kronos EA: no se pudo leer ", claimedPath, " (vacío o en uso), se reintenta luego.");
+      FileMove(claimedPath, FILE_COMMON, pendingPath, FILE_COMMON);
+      return;
+   }
+
+   Print("Kronos EA: procesando ", claimedPath);
 
    //--- Punto de robustez 2: validar el JSON antes de ejecutar nada
    PendingOrder order;
@@ -215,9 +237,9 @@ void ProcessSingleFile(string fileName)
 
    if(!parsedOk)
    {
-      Print("Kronos EA: JSON inválido en ", pendingPath, ": ", parseError);
+      Print("Kronos EA: JSON inválido en ", claimedPath, ": ", parseError);
       WriteResult(signalIdForResult, false, 0, 0.0, -1, "JSON inválido: " + parseError);
-      FileDelete(pendingPath, FILE_COMMON); // punto de robustez 3: nunca se reprocesa un archivo ya leído
+      FileDelete(claimedPath, FILE_COMMON); // punto de robustez 3: nunca se reprocesa un archivo ya leído
       return;
    }
 
@@ -235,7 +257,7 @@ void ProcessSingleFile(string fileName)
       WriteResult(order.signal_id, false, 0, 0.0, errorCode, errorMessage);
 
    //--- Punto de robustez 3 (continuación): mover/borrar tras procesar
-   FileDelete(pendingPath, FILE_COMMON);
+   FileDelete(claimedPath, FILE_COMMON);
 }
 
 //+------------------------------------------------------------------+
