@@ -509,21 +509,22 @@ bool ExecuteOrder(const PendingOrder &order, int &ticket, double &executedPrice,
    int    cmd;
    double price;
 
-   // protocolo sección 4.2 regla 3: si execution_type es LIMIT pero el
-   // precio actual YA alcanzó/cruzó el nivel de entry_price, se ejecuta
-   // igual que MARKET (con el precio actual), no como orden pendiente.
-   // BUY: se quería comprar cuando el precio bajara a entry_price — si
-   // el Ask ya está en ese nivel o por debajo, ya "llegó".
-   // SELL: se quería vender cuando el precio subiera a entry_price — si
-   // el Bid ya está en ese nivel o por encima, ya "llegó".
+   // protocolo sección 4.2 reglas 2-4 (actualizado 2026-08-19, excepción
+   // autorizada explícitamente por el usuario, aplicada directo a
+   // producción): la comparación de precio actual vs entry_price decide
+   // mercado-vs-pendiente para TODA señal, sea MARKET o LIMIT.
+   // execution_type pasa a ser informativo/de log, no determina la rama.
+   // BUY: se quería comprar a entry_price — si el Ask ya está en ese
+   // nivel o por debajo, ya "llegó", se ejecuta a mercado.
+   // SELL: se quería vender a entry_price — si el Bid ya está en ese
+   // nivel o por encima, ya "llegó", se ejecuta a mercado.
    bool limitLevelAlreadyReached =
-      (order.execution_type == "LIMIT") &&
       ((order.direction == "BUY"  && ask <= order.entry_price) ||
        (order.direction == "SELL" && bid >= order.entry_price));
 
-   if(order.execution_type == "MARKET" || limitLevelAlreadyReached)
+   if(limitLevelAlreadyReached)
    {
-      if(limitLevelAlreadyReached)
+      if(order.execution_type == "LIMIT")
          Print("Kronos EA: signal_id=", order.signal_id,
                " era LIMIT pero el precio ya alcanzó entry_price (",
                DoubleToString(order.entry_price, 5),
@@ -540,9 +541,10 @@ bool ExecuteOrder(const PendingOrder &order, int &ticket, double &executedPrice,
          price = bid;
       }
    }
-   else // "LIMIT" y el precio todavía no llegó al nivel — orden pendiente.
-        // Se elige BUYLIMIT/BUYSTOP/SELLLIMIT/SELLSTOP según dónde quedó
-        // el precio actual respecto a entry_price.
+   else // el precio todavía no llegó al nivel de entry_price (toda señal,
+        // sea MARKET o LIMIT) — se coloca como orden pendiente. Se elige
+        // BUYLIMIT/BUYSTOP/SELLLIMIT/SELLSTOP según dónde quedó el precio
+        // actual respecto a entry_price.
    {
       if(order.direction == "BUY")
          cmd = (order.entry_price < ask) ? OP_BUYLIMIT : OP_BUYSTOP;
