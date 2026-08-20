@@ -591,6 +591,27 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
       de Wine), así que un `config.json` mal puesto en un stack no
       puede pisar el `config.json` del otro — el riesgo real es
       humano (mirar el dashboard equivocado), no de archivo compartido.
+16. **Duplicados por reintento de webhook (Telegram/n8n) — identificado
+    en una conversación anterior con Claude Code, nunca se llegó a
+    documentar en este archivo (se perdió, no está en ningún commit
+    del historial de `STATUS.md`) — re-agregado el 2026-08-20.** Si
+    Telegram reintenta la entrega de un callback (timeout, error 5xx
+    transitorio) o n8n reintenta un nodo HTTP, hoy nada impide que la
+    misma confirmación dispare más de una ejecución del flujo — no
+    hay constraint `UNIQUE` sobre `message_id` a nivel de callback ni
+    control de idempotencia explícito en el nodo que procesa
+    Confirmar/Rechazar. **Distinto del bug de las 3 órdenes duplicadas
+    resuelto hoy** (commit `1e43027` en `develop`, cherry-pick `70faf71`
+    en `main`): ese fue un problema puramente del lado del EA (timer de
+    Wine + polling de archivos reprocesando el mismo `.json`), no de
+    reintentos de webhook — se confirmó que hubo una sola ejecución de
+    n8n y un solo `INSERT`/archivo `pending/` para esa señal. Este
+    riesgo (duplicados por reintento HTTP) sigue sin mitigar. Ideas a
+    evaluar: constraint `UNIQUE` en `signals.signal_uid` combinado con
+    manejo de conflicto (`ON CONFLICT DO NOTHING`) en el `INSERT` de
+    confirmación, o un guard idempotente que verifique `status` antes
+    de reprocesar un callback ya aplicado (similar al patrón ya usado
+    en Fase 5 para no reprocesar doble clic del mismo botón).
 
 ## Próximos pasos inmediatos (en orden)
 
