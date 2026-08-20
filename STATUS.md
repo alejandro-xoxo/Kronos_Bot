@@ -28,6 +28,34 @@ repo). Mientras tanto, sigue siendo **100% responsabilidad manual del
 usuario** aplicar SL/BE/cierres vía los botones del dashboard
 (`localhost:8088`).
 
+## Cómo se despliega de verdad un cambio del EA a producción (manual, sin automatización)
+
+**No hay ningún mecanismo automático** (sin cron, sin systemd timer, sin
+git hook) que compile o sincronice el EA de producción. El flujo real,
+confirmado el 2026-08-19 revisando el sistema en vivo, son 3 pasos que
+hace el usuario a mano:
+
+1. `git pull`/`git reset` en `Kronos_Bot-prod` — el checkout **separado**
+   (no es este directorio) que vive en
+   `~/Proyectos/Kronos_Bot-prod`, en rama `main`, y del que cuelga el
+   symlink real `MQL4/Experts/KronosBridgeEA.mq4` dentro del prefijo de
+   Wine (`~/.wine-mt4/...MQL4/Experts/`).
+2. Editar el `.mq4` a mano ahí mismo si hace falta un ajuste puntual
+   antes de aprobarlo formalmente vía PR.
+3. Abrir MetaEditor dentro de Wine y compilar (F7) — regenera el `.ex4`
+   que el terminal MT4 ya tiene cargado.
+
+**⚠️ NUNCA hacer `git reset`/`git pull` en `Kronos_Bot-prod` sin antes
+verificar si hay cambios sin commitear en el `.mq4`** (correr
+`git diff mt4-bridge/ea/KronosBridgeEA.mq4` ahí antes de resetear) — ya
+pasó una vez (2026-08-19) que un fix funcional real (comparación de
+precio actual vs `entry_price` en `ExecuteOrder()`, ver sección más
+abajo) quedó aplicado solo como edición manual sin commitear en ese
+checkout, corriendo en producción real, sin estar en ningún commit de
+`main` ni `develop` — un reset sin este chequeo lo habría borrado en
+silencio, sin ningún aviso, y el bug original habría vuelto a producción
+sin que nadie lo notara hasta la próxima señal real mal ejecutada.
+
 ## Qué funciona probado de punta a punta (no solo diseñado)
 
 **Ejecución real en MT4 — verificada con tickets reales de VT Markets**,
