@@ -32,7 +32,7 @@ async function loadPositions() {
 
     const positions = data.positions || [];
     if (positions.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="11" class="empty-msg">Sin posiciones abiertas.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin posiciones abiertas.</td></tr>';
       return;
     }
 
@@ -52,17 +52,16 @@ async function loadPositions() {
              <span class="position-action-status" data-ticket="${p.ticket}"></span>`
           : '<span class="position-action-status">Fuera de la automatización — gestionar desde MT4.</span>';
         return `<tr>
-          <td>${fmt(p.ticket)}</td>
-          <td>${originBadge}</td>
-          <td>${fmt(p.symbol)}</td>
-          <td>${fmt(p.direction)}</td>
-          <td>${fmt(p.lot)}</td>
-          <td>${fmt(p.open_price)}</td>
-          <td>${fmt(p.current_price)}</td>
-          <td>${fmt(p.sl)}</td>
-          <td>${fmt(p.tp)}</td>
-          <td class="${profitClass}">${fmt(p.profit)}</td>
-          <td>
+          <td data-label="Ticket">${fmt(p.ticket)}</td>
+          <td data-label="Origen">${originBadge}</td>
+          <td data-label="Símbolo">${fmt(p.symbol)}</td>
+          <td data-label="Dirección">${fmt(p.direction)}</td>
+          <td data-label="Lote">${fmt(p.lot)}</td>
+          <td data-label="Precio apertura">${fmt(p.open_price)}</td>
+          <td data-label="SL">${fmt(p.sl)}</td>
+          <td data-label="TP">${fmt(p.tp)}</td>
+          <td data-label="Profit" class="${profitClass}">${fmt(p.profit)}</td>
+          <td data-label="Acciones">
             <div class="position-actions">
               ${actions}
             </div>
@@ -191,15 +190,15 @@ async function loadSignals() {
             ? `<button class="btn-retry" data-id="${s.id}">Reintentar</button>`
             : "";
         return `<tr>
-          <td>${fmt(s.instrument)}</td>
-          <td>${fmt(s.direction)}</td>
-          <td>${fmt(s.status)}</td>
-          <td>${fmt(s.mt4_ticket)}</td>
-          <td>${fmt(s.entry_price)}</td>
-          <td>${fmt(s.sl)}</td>
-          <td>${fmt(s.tp)}</td>
-          <td>${fmtDate(s.created_at)}</td>
-          <td>${retryBtn}<span class="retry-status" data-id="${s.id}"></span></td>
+          <td data-label="Instrumento">${fmt(s.instrument)}</td>
+          <td data-label="Dirección">${fmt(s.direction)}</td>
+          <td data-label="Estado">${fmt(s.status)}</td>
+          <td data-label="Ticket">${fmt(s.mt4_ticket)}</td>
+          <td data-label="Entrada">${fmt(s.entry_price)}</td>
+          <td data-label="SL">${fmt(s.sl)}</td>
+          <td data-label="TP">${fmt(s.tp)}</td>
+          <td data-label="Fecha">${fmtDate(s.created_at)}</td>
+          <td data-label="Acciones">${retryBtn}<span class="retry-status" data-id="${s.id}"></span></td>
         </tr>`;
       })
       .join("");
