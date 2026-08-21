@@ -7,18 +7,20 @@ bróker (via config.json leído por el EA). Ver
 mt4-bridge/FORMATO_ARCHIVOS.md para el contrato exacto de ambos
 archivos.
 
-Sin autenticación: solo se expone en localhost/LAN (puerto 8088), no
-por ngrok — ver docker-compose.yml. Si en algún momento se vuelve a
-exponer por internet, hay que reintroducir un mecanismo de login
-antes de hacerlo.
+Expuesto por internet vía el túnel ngrok compartido (ver
+docker-compose.yml, servicio `caddy`) además de LAN/localhost
+(puerto 8088). Protegido con HTTP Basic Auth (`DASHBOARD_USER` / `DASHBOARD_PASSWORD`
+en `.env`) aplicado a toda la app — ver `_require_auth` más abajo.
 """
+import hmac
 import json
 import os
 from datetime import datetime, timezone
+from functools import wraps
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
@@ -27,6 +29,28 @@ STATUS_PATH = os.path.join(ORDERS_DIR, "status.json")
 CONFIG_PATH = os.path.join(ORDERS_DIR, "config.json")
 
 VALID_SYMBOL_SUFFIXES = ("-VIP", "-STD")
+
+DASHBOARD_USER = os.environ.get("DASHBOARD_USER")
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD")
+
+
+def _check_auth(auth):
+    if not auth or not DASHBOARD_USER or not DASHBOARD_PASSWORD:
+        return False
+    # hmac.compare_digest evita timing attacks al comparar credenciales.
+    return hmac.compare_digest(auth.username, DASHBOARD_USER) and hmac.compare_digest(
+        auth.password, DASHBOARD_PASSWORD
+    )
+
+
+@app.before_request
+def _require_auth():
+    if not _check_auth(request.authorization):
+        return Response(
+            "Autenticación requerida.",
+            401,
+            {"WWW-Authenticate": 'Basic realm="Kronos Dashboard"'},
+        )
 
 
 def get_db_connection():
