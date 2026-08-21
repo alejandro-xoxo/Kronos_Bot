@@ -72,9 +72,14 @@ async function loadPositions() {
       .join("");
 
     bodyEl.querySelectorAll(".btn-be, .btn-be-tp, .btn-close").forEach((btn) => {
-      btn.addEventListener("click", () =>
-        sendPositionAction(btn.dataset.ticket, btn.dataset.action, btn)
-      );
+      btn.addEventListener("click", () => {
+        // CLOSE es irreversible (cierre a mercado) — confirmación extra
+        // para evitar un tap accidental desde el celular.
+        if (btn.dataset.action === "CLOSE" && !confirm(`¿Cerrar la posición ${btn.dataset.ticket}?`)) {
+          return;
+        }
+        sendPositionAction(btn.dataset.ticket, btn.dataset.action, btn);
+      });
     });
   } catch (err) {
     warningEl.innerHTML = '<div class="warning">Error consultando /api/positions.</div>';

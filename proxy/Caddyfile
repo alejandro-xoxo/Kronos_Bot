@@ -1,0 +1,9 @@
+:8080 {
+	handle /webhook/* {
+		reverse_proxy n8n:5678
+	}
+
+	handle {
+		reverse_proxy dashboard:8080
+	}
+}

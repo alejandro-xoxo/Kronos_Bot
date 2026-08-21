@@ -8,6 +8,46 @@
 > alcance de v1 (qué incluye y qué queda afuera a propósito),
 > `docs/versions/v1.md`.
 
+## Excepción registrada: acceso remoto al dashboard (commit directo a `main`)
+
+**2026-08-21** — cambio de infraestructura aplicado directo sobre
+`main`/producción, autorizado explícitamente por el usuario como
+excepción al flujo normal `feature/* → develop → main` (misma
+excepción ya usada antes para el cambio LIMIT/MERCADO). Motivo: poder
+controlar posiciones abiertas (BE, BE inverso, Cerrar) desde el
+celular vía una URL pública, sin depender de estar en la LAN.
+
+Cambios:
+
+- **Túnel ngrok compartido**: se agregó un servicio `caddy` (Caddyfile
+  en `proxy/Caddyfile`) delante de `n8n` y `dashboard`. `ngrok` ahora
+  apunta a `caddy:8080` en vez de `n8n:5678` directo. `caddy` rutea
+  `/webhook/*` → `n8n:5678` (necesario para que Telegram siga
+  entregando los callbacks de los botones Confirmar/Rechazar, y para
+  el webhook de Telethon) y todo lo demás → `dashboard:8080`. El
+  webhook interno Telethon → n8n (`http://n8n:5678/...`, red interna
+  `trading_net`) no se tocó.
+- **Login básico en el dashboard**: `dashboard/main.py` ahora exige
+  HTTP Basic Auth en `@app.before_request` (todas las rutas, sin
+  excepciones) usando `DASHBOARD_USER`/`DASHBOARD_PASSWORD` (nuevas
+  vars en `.env`, agregadas vacías — hay que completarlas a mano antes
+  de levantar el stack). Antes el dashboard no tenía ninguna
+  autenticación y confiaba en no estar expuesto por ngrok.
+- **Botones táctiles**: los botones de acción por posición (BE, BE
+  inverso, Cerrar — ya existían y funcionaban, ver sección "Qué
+  funciona probado de punta a punta") ahora tienen un breakpoint
+  móvil (`@media max-width: 640px` en `dashboard/static/index.html`)
+  que los agranda a tamaño táctil (min 44px) y los apila en columna.
+  Se agregó además un `confirm()` de JS antes de encolar `CLOSE`
+  (`dashboard/static/app.js`) — es la única acción irreversible de
+  las tres, y antes se disparaba con un solo tap sin confirmación.
+
+**Pendiente para que esto funcione en producción:** completar
+`DASHBOARD_USER`/`DASHBOARD_PASSWORD` en `.env` del EliteBook (no se
+generan ni se muestran automáticamente — regla de seguridad de
+`CLAUDE.md`) y recrear el stack (`docker compose up -d --build`) para
+que tome el nuevo servicio `caddy` y el cambio de destino de `ngrok`.
+
 ## ⚠️ El gap operativo más importante ahora mismo
 
 **Fase 4 (Gemini) ya está mergeada a `develop`, pero NO está en

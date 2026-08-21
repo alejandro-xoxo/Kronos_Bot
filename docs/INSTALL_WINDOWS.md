@@ -49,6 +49,8 @@ commitea). Misma plantilla:
 ```dotenv
 # n8n
 N8N_HOST=
+DASHBOARD_USER=
+DASHBOARD_PASSWORD=
 N8N_API_KEY=
 
 # ngrok (túnel para exponer el webhook de n8n)
