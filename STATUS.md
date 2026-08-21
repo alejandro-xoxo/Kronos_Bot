@@ -48,6 +48,57 @@ generan ni se muestran automáticamente — regla de seguridad de
 `CLAUDE.md`) y recrear el stack (`docker compose up -d --build`) para
 que tome el nuevo servicio `caddy` y el cambio de destino de `ngrok`.
 
+## Sync inverso: EA (`KronosBridgeEA.mq4`) de `develop` → `main`
+
+**2026-08-21** — `main` tenía la versión VIEJA del EA hasta este
+commit (`fix: sincronizar KronosBridgeEA.mq4 con el sistema de
+perfiles ya validado en develop`, rama `feature/sync-ea-perfiles-main`,
+mergeada por fast-forward a `main`, pusheada a `origin/main`). Mismo
+patrón que ya se dio con el dashboard y con Fase 4/cierre TP-SL:
+trabajo real hecho en `develop` que nunca se formalizó hacia `main`.
+
+Diagnóstico completo antes de aplicar (ver detalle en la conversación
+de esta fecha, resumen acá):
+
+- La versión de `main` que corrió en producción hoy (con tickets
+  reales, `XAUUSD-STD`, cuenta `23096429`) **era funcional pero sin
+  ninguna validación de cuenta** — el sufijo de símbolo dependía de
+  un input de texto libre (`InpSymbolSuffix`) configurado a mano en
+  Properties > Inputs de MT4, sin relación forzada con la cuenta
+  realmente conectada. `config.json` en disco ya tenía el formato
+  nuevo (`{"profile": "PROD_STD"}`, escrito por el resto del stack),
+  pero el EA viejo lo ignoraba en silencio (solo reconocía la clave
+  vieja `"symbol_suffix"`).
+- La versión de `develop` agrega: `ValidateAccountProfile()`
+  (bloquea ejecución si `AccountNumber()` no coincide con el perfil
+  activo, revalidado en cada ciclo del timer, no solo al arrancar),
+  `STALE_SIGNAL` en el propio EA (descarta señales de apertura con
+  más de `InpMaxSignalAgeMinutes` de antigüedad, no solo la
+  validación que ya hacía n8n antes de confirmar), y
+  `DetectClosedPositions` (reporta cierres por TP/SL/manual a
+  `orders/closed/` para que n8n actualice Postgres solo).
+- **Verificado que no cambia nada de lo ya probado en real hoy**: el
+  fix de duplicados (`FileMove` a `.processing`) y la decisión
+  LIMIT/mercado por precio actual vs `entry_price` quedaron
+  byte a byte idénticos entre ambas versiones — confirmado con diff
+  línea a línea antes de aplicar el sync, no solo de nombre de
+  función.
+- Alcance del commit verificado con `git diff --stat`: únicamente
+  `mt4-bridge/ea/KronosBridgeEA.mq4` (337 inserciones, 40
+  eliminaciones) — nada de `n8n-workflows/` ni del dashboard se coló,
+  a pesar de que el commit original en `develop` donde nació el
+  enum de perfiles (`2160713`) sí tocaba esos archivos también.
+
+**Pendiente — NO se recompiló el `.ex4` en esta sesión.** Queda para
+cuando el usuario reabra MT4 manualmente: compilar con F7,
+configurar el nuevo input `InpProfile = PROD_STD` en Properties
+(reemplaza a `InpSymbolSuffix`, que ya no existe en el código),
+verificar en la pestaña Experts que no aparece `ACCOUNT MISMATCH`,
+confirmar que solo hay **una** instancia del EA cargada en un
+gráfico (bug de instancias triplicadas visto hoy en el log,
+`20260821.log`, sigue sin resolverse — no es parte de este sync) y
+recién entonces reactivar AutoTrading.
+
 ## ⚠️ El gap operativo más importante ahora mismo
 
 **Fase 4 (Gemini) ya está mergeada a `develop`, pero NO está en
@@ -406,6 +457,59 @@ Sub-etapas de esta fase, con estado individual:
     `n8n-workflows/webhook-mvp-workflow.json` tras subir los nodos vía
     `PUT /api/v1/workflows/{id}`.
 
+### Análisis de riesgo — bajar `Trigger: leer resultados MT4` de 5s a 1-2s
+
+Pendiente de aplicar (no aplicado todavía — requiere aprobación
+explícita del usuario y probarse primero en el stack dev, según
+exige `CLAUDE.md`). Contexto: se identificó en la auditoría de
+latencia que este trigger (`scheduleTrigger`, `secondsInterval: 5`,
+ver detalle de la Etapa 5 arriba) es el cuello de botella principal
+del ciclo de confirmación → ejecución → notificación, ya que el EA
+hace polling a ~1s pero el resultado no se lee hasta el próximo tick de
+n8n (hasta 5s de espera adicional en el peor caso).
+
+En una sesión anterior se mencionó un incidente de "100+
+ejecuciones/minuto" en dev al bajar un intervalo similar — no se
+encontró documentado en este archivo, en `CLAUDE.md`, ni en mensajes
+de commit (búsqueda por "100", "ejecuciones", "incidente", "bucle",
+"saturad", "polling excesivo", "CPU"). No se puede confirmar la causa
+puntual de ese incidente. El análisis que sigue es evaluación técnica
+propia a partir de cómo está construido el flujo actual, no una
+comparación directa contra ese incidente.
+
+**Por qué este cambio es de bajo riesgo, estructuralmente distinto
+de un posible patrón de sobrecarga:**
+
+- El nodo `Leer resultados (MT4)` (`readWriteFile`, `operation: read`,
+  glob `results/*.json`) no dispara ninguna query a Postgres si no
+  hay archivos — devuelve 0 items y el resto de la rama no corre.
+  Bajar el intervalo a 1-2s multiplica la frecuencia de un `readdir`
+  sobre una carpeta local (bind mount, no red), no la frecuencia de
+  queries a Postgres. El `UPDATE` a Postgres solo ocurre por archivo
+  de resultado real presente — está acotado por el volumen real de
+  señales ejecutadas por el EA, no por la frecuencia del trigger.
+- El volumen real de archivos en `results/` es bajísimo (unidades por
+  señal confirmada, no un stream continuo) — un `readdir` cada 1-2s
+  sobre una carpeta casi siempre vacía es una operación de
+  filesystem local trivial, muy por debajo de cualquier límite
+  razonable de CPU/IO en el EliteBook.
+- Un patrón de "100+ ejecuciones/minuto" descontrolado típicamente
+  viene de un trigger que SIEMPRE produce trabajo downstream en cada
+  tick (ej. una query que siempre devuelve filas, o un loop que se
+  re-dispara a sí mismo) — no es la forma de este nodo, que es
+  idempotente y de costo ~0 cuando no hay archivos (caso normal).
+- Riesgo residual a vigilar, no bloqueante: si el volumen de señales
+  simultáneas creciera mucho (ej. muchos TPs en paralelo con EA
+  lento en vaciar `results/`), un intervalo de 1s podría solapar
+  ejecuciones del trigger antes de que la anterior termine — mitigar
+  probando en dev primero con carga realista (varias sub-señales a
+  la vez) antes de subir a producción, tal como exige `CLAUDE.md`.
+
+**Recomendación:** bajar a 2s (no 1s) como punto intermedio razonable
+entre latencia y margen de seguridad, probar en el stack dev con una
+señal multi-TP real, y solo entonces evaluar producción. No aplicar
+todavía sin luz verde explícita del usuario.
+
 ## Documentación de instalación — completa hasta esta etapa
 
 - `docs/INSTALL_LINUX.md` — guía completa desde SO recién instalado:
@@ -652,6 +756,53 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
     confirmación, o un guard idempotente que verifique `status` antes
     de reprocesar un callback ya aplicado (similar al patrón ya usado
     en Fase 5 para no reprocesar doble clic del mismo botón).
+17. **PRIORIDAD ALTA — `settings.capital_real` nunca se actualiza desde
+    el EA: el lotaje puede estar mal calculado ahora mismo, en
+    silencio.** Detectado en auditoría estática de la cadena de
+    callbacks (2026-08-21). El EA sí calcula y reporta
+    `account.capital_real` (`AccountBalance() - AccountCredit()`) en
+    cada ciclo de `WritePositionsStatus()` (`orders/status.json`), y el
+    nodo `Obtener capital real (settings)` de
+    `webhook-mvp-workflow.json` sí **lee** `settings.capital_real` para
+    calcular el lotaje al confirmar una señal — pero **no existe ningún
+    nodo en n8n que lea `orders/status.json` y escriba ese valor en
+    `settings`**. Esto ya estaba anotado como pendiente en el punto "4 y
+    5" de este documento (línea ~357), pero no estaba en esta lista de
+    problemas activos con prioridad. Mientras nadie actualice
+    `settings.capital_real` a mano, el lotaje se sigue calculando contra
+    un valor potencialmente desactualizado — sin error, sin alerta,
+    indefinidamente. Falta: un nodo (`scheduleTrigger` + lectura de
+    `status.json` + `UPDATE settings`, mismo patrón que los triggers de
+    `results/`/`closed/` cada 5s) que mantenga `settings.capital_real`
+    sincronizado con lo que reporta el EA.
+18. **PRIORIDAD MEDIA — sin alerta si una señal queda `CONFIRMED` sin
+    resultado.** Detectado en la misma auditoría. Si el EA no procesa un
+    `pending/{id}.json` (por `ACCOUNT_MISMATCH`, ver punto 15, o
+    cualquier otro bloqueo silencioso del lado EA/Wine) o si
+    `Escribir orden pending (MT4)` falla del lado n8n (disco lleno,
+    symlink roto, permisos — ningún nodo de esta cadena tiene
+    `onError`/`retryOnFail` configurado, y el workflow no tiene
+    `errorWorkflow` en `settings`), la señal queda en `CONFIRMED` para
+    siempre sin que nadie se entere salvo revisando MT4 o los logs de
+    ejecución de n8n a mano. No es un problema activo hoy (el punto 15,
+    `ACCOUNT_MISMATCH`, no ocurrió todavía en producción — perfil
+    `PROD_STD` configurado correctamente antes de arrancar el EA), pero
+    es un hueco de diseño real: cubre tanto ese caso como cualquier otro
+    fallo silencioso de la cadena n8n/EA. Falta: un mecanismo (ej. un
+    `scheduleTrigger` que revise `signals` con `status='CONFIRMED'` y
+    `updated_at` más viejo que X minutos, y notifique por Telegram) que
+    avise si una confirmación no obtiene resultado dentro de un tiempo
+    razonable.
+19. **PRIORIDAD BAJA — `active_profile`/`account_mismatch` no se
+    muestran en el dashboard.** El EA ya los escribe en
+    `orders/status.json` en cada ciclo, y `dashboard/main.py`
+    (`GET /api/positions`) ya sirve el archivo completo tal cual sin
+    filtrar campos — el dato llega hasta la respuesta HTTP. Pero
+    `dashboard/static/app.js`/`index.html` no leen ni muestran esos dos
+    campos: solo falta UI, no falta dato ni backend. Da visibilidad
+    humana complementaria al punto 18 (que cubriría el caso vía alerta
+    automática) — útil pero no urgente mientras el punto 15 no sea un
+    problema activo.
 
 ## Próximos pasos inmediatos (en orden)
 
