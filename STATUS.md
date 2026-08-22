@@ -99,6 +99,46 @@ gráfico (bug de instancias triplicadas visto hoy en el log,
 `20260821.log`, sigue sin resolverse — no es parte de este sync) y
 recién entonces reactivar AutoTrading.
 
+## Excepción registrada: acceso remoto al dashboard (commit directo a `main`)
+
+**2026-08-21** — cambio de infraestructura aplicado directo sobre
+`main`/producción, autorizado explícitamente por el usuario como
+excepción al flujo normal `feature/* → develop → main` (misma
+excepción ya usada antes para el cambio LIMIT/MERCADO). Motivo: poder
+controlar posiciones abiertas (BE, BE inverso, Cerrar) desde el
+celular vía una URL pública, sin depender de estar en la LAN.
+
+Cambios:
+
+- **Túnel ngrok compartido**: se agregó un servicio `caddy` (Caddyfile
+  en `proxy/Caddyfile`) delante de `n8n` y `dashboard`. `ngrok` ahora
+  apunta a `caddy:8080` en vez de `n8n:5678` directo. `caddy` rutea
+  `/webhook/*` → `n8n:5678` (necesario para que Telegram siga
+  entregando los callbacks de los botones Confirmar/Rechazar, y para
+  el webhook de Telethon) y todo lo demás → `dashboard:8080`. El
+  webhook interno Telethon → n8n (`http://n8n:5678/...`, red interna
+  `trading_net`) no se tocó.
+- **Login básico en el dashboard**: `dashboard/main.py` ahora exige
+  HTTP Basic Auth en `@app.before_request` (todas las rutas, sin
+  excepciones) usando `DASHBOARD_USER`/`DASHBOARD_PASSWORD` (nuevas
+  vars en `.env`, agregadas vacías — hay que completarlas a mano antes
+  de levantar el stack). Antes el dashboard no tenía ninguna
+  autenticación y confiaba en no estar expuesto por ngrok.
+- **Botones táctiles**: los botones de acción por posición (BE, BE
+  inverso, Cerrar — ya existían y funcionaban, ver sección "Qué
+  funciona probado de punta a punta") ahora tienen un breakpoint
+  móvil (`@media max-width: 640px` en `dashboard/static/index.html`)
+  que los agranda a tamaño táctil (min 44px) y los apila en columna.
+  Se agregó además un `confirm()` de JS antes de encolar `CLOSE`
+  (`dashboard/static/app.js`) — es la única acción irreversible de
+  las tres, y antes se disparaba con un solo tap sin confirmación.
+
+**Pendiente para que esto funcione en producción:** completar
+`DASHBOARD_USER`/`DASHBOARD_PASSWORD` en `.env` del EliteBook (no se
+generan ni se muestran automáticamente — regla de seguridad de
+`CLAUDE.md`) y recrear el stack (`docker compose up -d --build`) para
+que tome el nuevo servicio `caddy` y el cambio de destino de `ngrok`.
+
 ## ⚠️ El gap operativo más importante ahora mismo
 
 **Fase 4 (Gemini) ya está mergeada a `develop`, pero NO está en
@@ -118,6 +158,34 @@ repo, sin commitear — es un documento de trabajo, no un artefacto del
 repo). Mientras tanto, sigue siendo **100% responsabilidad manual del
 usuario** aplicar SL/BE/cierres vía los botones del dashboard
 (`localhost:8088`).
+
+## Cómo se despliega de verdad un cambio del EA a producción (manual, sin automatización)
+
+**No hay ningún mecanismo automático** (sin cron, sin systemd timer, sin
+git hook) que compile o sincronice el EA de producción. El flujo real,
+confirmado el 2026-08-19 revisando el sistema en vivo, son 3 pasos que
+hace el usuario a mano:
+
+1. `git pull`/`git reset` en `Kronos_Bot-prod` — el checkout **separado**
+   (no es este directorio) que vive en
+   `~/Proyectos/Kronos_Bot-prod`, en rama `main`, y del que cuelga el
+   symlink real `MQL4/Experts/KronosBridgeEA.mq4` dentro del prefijo de
+   Wine (`~/.wine-mt4/...MQL4/Experts/`).
+2. Editar el `.mq4` a mano ahí mismo si hace falta un ajuste puntual
+   antes de aprobarlo formalmente vía PR.
+3. Abrir MetaEditor dentro de Wine y compilar (F7) — regenera el `.ex4`
+   que el terminal MT4 ya tiene cargado.
+
+**⚠️ NUNCA hacer `git reset`/`git pull` en `Kronos_Bot-prod` sin antes
+verificar si hay cambios sin commitear en el `.mq4`** (correr
+`git diff mt4-bridge/ea/KronosBridgeEA.mq4` ahí antes de resetear) — ya
+pasó una vez (2026-08-19) que un fix funcional real (comparación de
+precio actual vs `entry_price` en `ExecuteOrder()`, ver sección más
+abajo) quedó aplicado solo como edición manual sin commitear en ese
+checkout, corriendo en producción real, sin estar en ningún commit de
+`main` ni `develop` — un reset sin este chequeo lo habría borrado en
+silencio, sin ningún aviso, y el bug original habría vuelto a producción
+sin que nadie lo notara hasta la próxima señal real mal ejecutada.
 
 ## Cómo se despliega de verdad un cambio del EA a producción (manual, sin automatización)
 

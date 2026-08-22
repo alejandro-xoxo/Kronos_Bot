@@ -55,6 +55,28 @@ def _require_auth():
             {"WWW-Authenticate": 'Basic realm="Kronos Dashboard"'},
         )
 
+DASHBOARD_USER = os.environ.get("DASHBOARD_USER")
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD")
+
+
+def _check_auth(auth):
+    if not auth or not DASHBOARD_USER or not DASHBOARD_PASSWORD:
+        return False
+    # hmac.compare_digest evita timing attacks al comparar credenciales.
+    return hmac.compare_digest(auth.username, DASHBOARD_USER) and hmac.compare_digest(
+        auth.password, DASHBOARD_PASSWORD
+    )
+
+
+@app.before_request
+def _require_auth():
+    if not _check_auth(request.authorization):
+        return Response(
+            "Autenticación requerida.",
+            401,
+            {"WWW-Authenticate": 'Basic realm="Kronos Dashboard"'},
+        )
+
 
 def get_db_connection():
     return psycopg2.connect(
