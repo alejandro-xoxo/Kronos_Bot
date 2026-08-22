@@ -1,5 +1,15 @@
 # version: '3.8'
 
+# Fija el nombre del proyecto de Docker Compose para que no dependa del
+# nombre del directorio desde donde se ejecuta (por defecto, Compose usa
+# el basename del directorio actual como project name, y eso determina
+# los nombres de los volúmenes: kronos_bot_postgres_data, etc.). Sin
+# esto, correr el mismo compose desde un worktree distinto — ej.
+# Kronos_Bot-prod en vez de Kronos_Bot — crearía volúmenes NUEVOS y
+# vacíos en vez de reusar los reales (incidente evitado 2026-08-21, al
+# migrar producción al worktree de main).
+name: kronos_bot
+
 services:
   n8n:
     image: n8nio/n8n:latest
