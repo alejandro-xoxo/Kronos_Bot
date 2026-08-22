@@ -1,0 +1,161 @@
+{
+  "name": "Kronos 04 - Ejecución en MT4",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "1fd19cc3-bdbf-49ce-b70f-06fc1c24e708",
+      "name": "Recibido de otro workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2900,
+        2700
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Ejecución en MT4\nAl confirmar, arma y escribe la orden pending para el EA puente. Un trigger periódico lee los resultados desde MT4, actualiza Postgres y notifica el ticket/motivo de fallo.",
+        "height": 480,
+        "width": 2750,
+        "color": 6
+      },
+      "id": "c711f303-b13f-469a-8bdb-cf56c1f8cf48",
+      "name": "Nota: 4. Ejecución en MT4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        2400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, signal_uid, instrument, direction, execution_type, entry_price, sl, tp FROM signals WHERE id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "3c3d3e3f-0001-4a1a-8a1a-000000000031",
+      "name": "Obtener señal confirmada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -2600,
+        2700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Trae los campos que necesita la orden MT4 (FORMATO_ARCHIVOS.md) — el UPDATE de 'Actualizar status: CONFIRMED' solo devuelve updated_count/current_status, no la señal completa."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT capital_real FROM settings ORDER BY id DESC LIMIT 1;",
+        "options": {}
+      },
+      "id": "3c3d3e3f-0001-4a1a-8a1a-000000000034",
+      "name": "Obtener capital real (settings)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -2350,
+        2700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "capital_real lo reporta el EA (AccountBalance() - AccountCredit()) y n8n lo guarda en settings. Se lee justo antes de armar la orden para calcular el lotaje contra el capital ACTUAL, no uno viejo (PROTOCOLOS_KRONOS_BOT.md sección 5.1/5.2)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Etapa 4 (puente MT4): arma el JSON de orden pendiente\n// según el contrato exacto de mt4-bridge/FORMATO_ARCHIVOS.md.\n// Lotaje dinámico (PROTOCOLOS_KRONOS_BOT.md sección 5.2): floor(capital_real / 100) * 0.01,\n// con piso de 0.01 si el cálculo da 0 o negativo. NO es el cálculo de slots 80/20 de la\n// sección 5.3 (ese sigue sin implementar) — acá no hay competencia entre sub-señales.\nconst row = $('Obtener señal confirmada').item.json;\nconst capitalRow = $input.first().json;\nconst capitalReal = Number(capitalRow.capital_real);\n\nlet lot = Math.floor(capitalReal / 100) * 0.01;\nif (!(lot > 0)) {\n  lot = 0.01;\n}\nlot = Number(lot.toFixed(2));\n\nconst order = {\n  signal_id: row.id,\n  signal_uid: row.signal_uid,\n  instrument: row.instrument,\n  direction: row.direction,\n  execution_type: row.execution_type,\n  entry_price: Number(row.entry_price),\n  sl: Number(row.sl),\n  tp: Number(row.tp),\n  lot,\n  created_at: new Date().toISOString(),\n};\n\nconst buffer = Buffer.from(JSON.stringify(order, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${row.id}.json`, 'application/json');\n\nreturn [{\n  json: order,\n  binary: { data: binary },\n}];"
+      },
+      "id": "3c3d3e3f-0002-4a1a-8a1a-000000000032",
+      "name": "Preparar orden pending (JSON)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2100,
+        2700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $env.MT4_ORDERS_DIR }}/pending/{{ $json.signal_id }}.json",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "3c3d3e3f-0003-4a1a-8a1a-000000000033",
+      "name": "Escribir orden pending (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -1850,
+        2700
+      ],
+      "notes": "MT4_ORDERS_DIR (env) = /mt4-bridge/orders dentro del contenedor n8n, montado en docker-compose.yml desde MT4_ORDERS_HOST_PATH (ruta real de Common/Files/orders en el prefijo de Wine de esta máquina)."
+    }
+  ],
+  "connections": {
+    "Obtener señal confirmada": {
+      "main": [
+        [
+          {
+            "node": "Obtener capital real (settings)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar orden pending (JSON)": {
+      "main": [
+        [
+          {
+            "node": "Escribir orden pending (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener capital real (settings)": {
+      "main": [
+        [
+          {
+            "node": "Preparar orden pending (JSON)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recibido de otro workflow": {
+      "main": [
+        [
+          {
+            "node": "Obtener señal confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

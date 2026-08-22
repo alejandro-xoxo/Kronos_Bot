@@ -578,6 +578,34 @@ entre latencia y margen de seguridad, probar en el stack dev con una
 señal multi-TP real, y solo entonces evaluar producción. No aplicar
 todavía sin luz verde explícita del usuario.
 
+### Pendiente — split del workflow en 7 workflows aislados por canal
+
+**Bloqueado (2026-08-21): el usuario no puede abrir n8n ahora mismo.
+No se tocó ni se importó nada en la instancia real — el workflow
+`develop`/producción sigue funcionando exactamente como hasta hoy,
+sin cambios.** Lo que existe es solo una propuesta en archivos locales,
+sin aplicar:
+
+- `n8n-workflows/split-mvp/` y `n8n-workflows/split-dev/` — el
+  workflow monolítico partido en 7 workflows independientes (entrada,
+  señal nueva, confirmación Telegram, ejecución MT4, scheduler
+  resultados, scheduler cierres, seguimiento/Gemini), conectados entre
+  sí con nodos Execute Workflow en modo fire-and-forget
+  (`waitForSubWorkflow: false`) para que un canal saturado (ej. Gemini
+  lento) no bloquee ni comparta cola con los demás.
+- Dentro de esos archivos de split (no en los originales
+  `webhook-mvp-workflow.json` / `webhook-dev-workflow.json`, que
+  quedaron intactos) también se bajó el `scheduleTrigger` de
+  resultados/cierres MT4 de 5s a 1s — ver análisis de riesgo arriba
+  (ahí la recomendación fue 2s; en el split quedó en 1s, a revisar
+  cuál de los dos valores usar cuando esto se retome).
+- Falta, una vez que n8n esté accesible de nuevo: importar los 7
+  archivos en el stack **dev**, reseleccionar manualmente el workflow
+  destino en cada nodo `Ejecutar: ...` (el ID no existe hasta
+  importar — ver `n8n-workflows/split-mvp/README.md`), probar el ciclo
+  completo ahí, y solo después evaluar pasar el split a producción.
+  **No aplicar a producción sin aprobación explícita.**
+
 ## Documentación de instalación — completa hasta esta etapa
 
 - `docs/INSTALL_LINUX.md` — guía completa desde SO recién instalado:

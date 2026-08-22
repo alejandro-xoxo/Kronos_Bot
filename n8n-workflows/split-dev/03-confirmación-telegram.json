@@ -1,0 +1,485 @@
+{
+  "name": "Kronos Dev 03 - Confirmación Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "8dc67542-05e9-4ed9-8219-e0a992ae03c4",
+      "name": "Recibido de otro workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2650,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Confirmación por Telegram (botones + callback)\nCallback del botón Confirmar/Rechazar -> UPDATE idempotente en Postgres -> respuesta al callback + aviso en el chat.",
+        "height": 720,
+        "width": 1750,
+        "color": 5
+      },
+      "id": "914b900d-d98e-4b11-8a54-fa33f73488f1",
+      "name": "Nota: 2. Confirmación Telegram",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Nodo Function: parsear callback_query de los botones\n// Fase A (solo botones, sin EA/MT4 todavía)\nconst callbackQuery = $input.first().json.callback_query;\nconst [action, signalIdRaw] = (callbackQuery.data || '').split(':');\nreturn [{\n  json: {\n    action, // 'confirm' o 'reject'\n    signalId: parseInt(signalIdRaw, 10),\n    callbackQueryId: callbackQuery.id,\n  },\n}];"
+      },
+      "id": "63d58f09-1098-456b-b3ca-fb7b520e5d7f",
+      "name": "Parsear callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2350,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-confirm-reject",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "confirm",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d97957e1-2d85-4bf7-a25c-bf97c2e348e0",
+      "name": "¿Confirmar o rechazar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2100,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "486d0a2e-5dd1-48ef-9791-43c9017ac2f6",
+      "name": "Actualizar status: CONFIRMED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1850,
+        660
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'REJECTED_BY_USER', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+        }
+      },
+      "id": "71b6a6a1-bb0d-45f3-8df5-9bbb1cc52e12",
+      "name": "Actualizar status: REJECTED_BY_USER",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1850,
+        960
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zZQ5m2frFb94qTh2",
+          "name": "Postgres dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2b2c2d2e-0001-4a1a-8a1a-000000000021",
+      "name": "¿Se confirmó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2b2c2d2e-0002-4a1a-8a1a-000000000022",
+      "name": "¿Se rechazó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "9246bde6-2458-499d-a4e9-79ce26b5059e",
+      "name": "Responder callback: Confirmada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        560
+      ],
+      "webhookId": "698f7aab-769d-4a4f-acda-6907949c6972",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "c8ecbb95-09ac-4b2f-bff4-1970461e3fe0",
+      "name": "Responder callback: Rechazada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        860
+      ],
+      "webhookId": "b86332d9-8802-453b-8361-6a14ae4d10e4",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=✅ Señal #{{ $('Parsear callback').item.json.signalId }} confirmada. Se procederá con la ejecución.",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "1a1b1c1d-0012-4a1a-8a1a-000000000012",
+      "name": "Avisar en chat: Confirmada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1100,
+        560
+      ],
+      "webhookId": "5148d035-4bfe-4d10-b578-e57468c74e69",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=❌ Señal #{{ $('Parsear callback').item.json.signalId }} rechazada. No se ejecutará.",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "1a1b1c1d-0013-4a1a-8a1a-000000000013",
+      "name": "Avisar en chat: Rechazada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1100,
+        860
+      ],
+      "webhookId": "44603ea8-6600-4b56-9ebc-f99a04ddf707",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "2b2c2d2e-0003-4a1a-8a1a-000000000023",
+      "name": "Responder callback: Ya procesada (confirmar)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        740
+      ],
+      "webhookId": "a98bf3de-61c1-4345-95fb-473ddfaf17cd",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Parsear callback').item.json.callbackQueryId }}",
+        "additionalFields": {}
+      },
+      "id": "2b2c2d2e-0004-4a1a-8a1a-000000000024",
+      "name": "Responder callback: Ya procesada (rechazar)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        1060
+      ],
+      "webhookId": "41c7fbac-b070-4359-8b16-efe262ac1b73",
+      "credentials": {
+        "telegramApi": {
+          "id": "pOHN6mlpJzD7txtm",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "Kronos Dev 04 - Ejecución en MT4"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "dc68500c-69bf-436d-8bac-98d6afd41883",
+      "name": "Ejecutar: Kronos Dev 04 - Ejecución en MT4",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -1300,
+        660
+      ],
+      "notes": "TODO tras importar en n8n: reseleccionar el workflow destino en 'workflowId'. waitForSubWorkflow=false a proposito: fire-and-forget, aisla la cola de ejecucion del workflow destino.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "Parsear callback": {
+      "main": [
+        [
+          {
+            "node": "¿Confirmar o rechazar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Confirmar o rechazar?": {
+      "main": [
+        [
+          {
+            "node": "Actualizar status: CONFIRMED",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar status: REJECTED_BY_USER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: CONFIRMED": {
+      "main": [
+        [
+          {
+            "node": "¿Se confirmó ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: REJECTED_BY_USER": {
+      "main": [
+        [
+          {
+            "node": "¿Se rechazó ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder callback: Confirmada": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder callback: Rechazada": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se confirmó ahora?": {
+      "main": [
+        [
+          {
+            "node": "Responder callback: Confirmada",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ejecutar: Kronos Dev 04 - Ejecución en MT4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder callback: Ya procesada (confirmar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se rechazó ahora?": {
+      "main": [
+        [
+          {
+            "node": "Responder callback: Rechazada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder callback: Ya procesada (rechazar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recibido de otro workflow": {
+      "main": [
+        [
+          {
+            "node": "Parsear callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

@@ -1,0 +1,529 @@
+{
+  "name": "Kronos 07 - Seguimiento (Gemini)",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "a32ab233-42b3-4863-b3a8-29bf0153827f",
+      "name": "Recibido de otro workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2150,
+        1750
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Seguimiento / modificaciones (regex + Gemini)\nMensaje que responde a una señal -> clasifica por regex; si no matchea, interpreta con Gemini -> inserta modificación -> si requiere acción EA, la escribe para MT4.",
+        "height": 750,
+        "width": 2500,
+        "color": 3
+      },
+      "id": "bd960aa9-3649-48d1-ba53-245b5508fbce",
+      "name": "Nota: 3. Seguimiento (Fase 4)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1930,
+        1430
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT json_agg(s.*) FROM signals s WHERE s.message_id = $1) AS matched_signals, (SELECT json_agg(m.*) FROM signal_modifications m  WHERE m.signal_id IN (SELECT id FROM signals WHERE message_id = $1)    AND m.modification_type = 'SL_TO_BE' AND m.status = 'SUCCESS') AS prior_sl_to_be;",
+        "options": {
+          "queryReplacement": "={{ [$('¿Señal válida?').item.json.reply_to_message_id] }}"
+        }
+      },
+      "id": "e0c52cae-dc3d-4493-865f-c44d2862c2a5",
+      "name": "Buscar señal referenciada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1850,
+        1750
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Fase 4 (seguimiento). json_agg garantiza SIEMPRE 1 fila de salida (incluso 0 coincidencias -> array vacio/null), preservando 1:1 con el item del webhook para el Code node siguiente. Agrupa por message_id, que ya cubre TODAS las sub-señales A/B/... de la señal original (equivalente a cortar el sufijo del signal_uid, mismo criterio que _related_tickets() en dashboard/main.py)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Fase 4: arbol de decision para instrucciones de seguimiento\n// sobre señales ya confirmadas/abiertas. Fuente de reglas: PROTOCOLOS_KRONOS_BOT.md\n// secciones 3.2, 4.2 regla 7, 8.4, y el diseño de la tarea Fase 4.\n//\n// Entrada: este nodo corre despues de \"Buscar señal referenciada\" (Postgres),\n// que devuelve SIEMPRE 1 fila con matched_signals (json_agg) y prior_sl_to_be\n// (json_agg) para el message_id al que responde este mensaje (o null/[] si no\n// hay match). Los campos originales del webhook (text, reply_to_message_id,\n// message_id, chat_id...) se leen del nodo IF previo, no de este item.\n\nconst original = $('¿Señal válida?').item.json;\nconst row = $json;\nconst matched = row.matched_signals || [];\nconst priorSlToBe = row.prior_sl_to_be || [];\n\nconst rawText = (original.text || '').trim().replace(/\\s+/g, ' ');\n\nfunction skip(reason) {\n  return [{\n    json: {\n      outcome: 'SKIP',\n      skip_reason: reason,\n      raw_text: rawText,\n      message_id: original.message_id,\n    },\n  }];\n}\n\n// 1. PRE-FILTRO GRATIS: sin reply válido, o el reply no corresponde a\n// ninguna fila existente en `signals` -> NO_RELACIONADO. No se guarda nada.\nif (!original.reply_to_message_id || matched.length === 0) {\n  return skip('NO_RELACIONADO');\n}\n\n// 2. FILTRO DE LONGITUD: mensajes largos son comentario/analisis, no\n// instrucciones reales de este caller. No llega a regex ni a Gemini.\nif (rawText.length > 200) {\n  return skip('COMENTARIO_LARGO');\n}\n\n// 3. REGEX, en orden exacto -------------------------------------------------\n\n// a) Informativo/no-op: TPx +N PIPS, o \"BE\" suelto (BE informativo, NUNCA\n//    se interpreta como refuerzo del comando \"mover SL a BE\" — protocolo\n//    seccion 4.2 regla 7).\nif (/^TP\\d?,?\\s*\\+?\\d+\\s*PIPS/i.test(rawText)) {\n  return skip('INFORMATIVO_TP_PIPS');\n}\nif (/^BE$/i.test(rawText)) {\n  return skip('INFORMATIVO_BE_SUELTO');\n}\n\n// b) Ignorar sin registro: TP3/TP4+ — el sistema solo trackea A=TP1, B=TP2\n//    (protocolo seccion 13, tope de sub-señales trackeadas por este flujo).\nif (/\\bTP\\s*[3-9]\\b/i.test(rawText)) {\n  return skip('TP_NO_TRACKEADO');\n}\n\nlet modification_type = null;\nlet target_price = null;\n\n// c) CANCEL\nif (/ELIMINAR\\s+ESTA\\s+OPERACI[OÓ]N/i.test(rawText)) {\n  modification_type = 'CANCEL';\n}\n\n// d) CLOSE_ALL_TO_BE — aplica a TODAS las sub-señales OPEN del message_id\n//    referenciado (ya agrupadas por la query de \"Buscar señal referenciada\",\n//    mismo criterio que _related_tickets() en dashboard/main.py).\nif (!modification_type && /CERRAR\\s+(ESTA\\s+OPERACI[OÓ]N\\s+)?A\\s+BE(\\s+ESTA\\s+OPERACI[OÓ]N)?/i.test(rawText)) {\n  modification_type = 'CLOSE_ALL_TO_BE';\n}\n\n// e) CLOSE_AT_PRICE\nif (!modification_type) {\n  const m = rawText.match(/CERRAR\\s+(AHORA\\s+)?A\\s+(\\d+(?:\\.\\d+)?)/i);\n  if (m) {\n    modification_type = 'CLOSE_AT_PRICE';\n    target_price = parseFloat(m[2]);\n  }\n}\n\n// f) TP_UPDATE\nif (!modification_type) {\n  const m = rawText.match(/MOVER\\s+(EL\\s+)?TP\\s+A\\s+(\\d+(?:\\.\\d+)?)/i);\n  if (m) {\n    modification_type = 'TP_UPDATE';\n    target_price = parseFloat(m[2]);\n  }\n}\n\n// g) SL_TO_BE — con guard de idempotencia (no reprocesar refuerzo duplicado).\nif (!modification_type && /MOVER\\s+(EL\\s+)?SL\\s+A\\s+BE/i.test(rawText)) {\n  modification_type = 'SL_TO_BE';\n}\n\n// Si no matcheo ningun regex -> Gemini (unico punto con costo de tokens).\nif (!modification_type) {\n  const ref = matched[0];\n  return [{\n    json: {\n      outcome: 'GEMINI',\n      raw_text: rawText,\n      message_id: original.message_id,\n      instrument: ref.instrument,\n      direction: ref.direction,\n      entry_price: ref.entry_price,\n      sl: ref.sl,\n      tp: ref.tp,\n      matched_signals: matched,\n    },\n  }];\n}\n\nif (modification_type === 'SL_TO_BE' && priorSlToBe.length > 0) {\n  return skip('SL_TO_BE_DUPLICADO');\n}\n\n// Targets segun tipo — solo se actua sobre filas en el estado que tiene\n// sentido para esa accion (no se inventa una accion sobre una operacion\n// que todavia no existe en ese estado en MT4).\nlet targets;\nif (modification_type === 'CLOSE_ALL_TO_BE' || modification_type === 'SL_TO_BE'\n    || modification_type === 'CLOSE_AT_PRICE' || modification_type === 'TP_UPDATE') {\n  targets = matched.filter((s) => s.status === 'OPEN');\n} else if (modification_type === 'CANCEL') {\n  targets = matched.filter((s) => ['PENDING_CONFIRMATION', 'CONFIRMED'].includes(s.status));\n} else {\n  targets = [];\n}\n\nif (targets.length === 0) {\n  return skip('SIN_OPERACION_APLICABLE_' + modification_type);\n}\n\nreturn [{\n  json: {\n    outcome: 'INSERT',\n    modification_type,\n    target_price,\n    raw_text: rawText,\n    message_id: original.message_id,\n    targets,\n  },\n}];\n"
+      },
+      "id": "ea6fd9b8-dd88-4f7c-8b86-323a620a5f94",
+      "name": "Clasificar seguimiento (regex)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        1750
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "INSERT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "INSERT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r2",
+                    "leftValue": "={{ $json.outcome }}",
+                    "rightValue": "GEMINI",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GEMINI"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "fe41eb14-9dfa-42de-934c-55614a3e5dc2",
+      "name": "Enrutar clasificación",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -1350,
+        1750
+      ],
+      "notes": "Salida SKIP (fallback) no se conecta a nada: no se guarda nada en BD (NO_RELACIONADO, comentario largo, informativo, duplicado, TP no trackeado, sin operacion aplicable)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fase 4: una fila de signal_modifications (y una posible accion de EA) por\n// cada señal objetivo (normalmente 1, o todas las sub-señales OPEN para\n// CLOSE_ALL_TO_BE). Mapeo modification_type -> accion EA, solo para las\n// acciones que el EA YA soporta hoy (mt4-bridge/FORMATO_ARCHIVOS.md 4.3,\n// confirmado contra dashboard/main.py VALID_POSITION_ACTIONS = SET_BE,\n// SET_TP_BE, CLOSE):\n//   SL_TO_BE / CLOSE_ALL_TO_BE -> SET_BE (mueve el SL al precio de apertura)\n//   CLOSE_AT_PRICE             -> CLOSE  (cierra a mercado, precio real\n//                                          puede diferir del target_price,\n//                                          que es solo referencia/auditoria)\n// CANCEL y TP_UPDATE (con target_price arbitrario) NO tienen accion de EA\n// equivalente hoy — se registran en signal_modifications sin ea_action,\n// ver nota en el resumen final de la tarea.\nconst parent = $json;\n\nconst results = [];\nfor (const t of parent.targets) {\n  let ea_action = null;\n  if ((parent.modification_type === 'SL_TO_BE' || parent.modification_type === 'CLOSE_ALL_TO_BE') && t.mt4_ticket) {\n    ea_action = 'SET_BE';\n  } else if (parent.modification_type === 'CLOSE_AT_PRICE' && t.mt4_ticket) {\n    ea_action = 'CLOSE';\n  }\n  results.push({\n    json: {\n      signal_id: t.id,\n      signal_uid: t.signal_uid,\n      mt4_ticket: t.mt4_ticket,\n      modification_type: parent.modification_type,\n      target_price: parent.target_price,\n      raw_text: parent.raw_text,\n      message_id: parent.message_id,\n      interpreted_by: 'REGEX',\n      ea_action,\n    },\n  });\n}\nreturn results;\n"
+      },
+      "id": "cfad9dce-ff5f-4b3c-9801-c943c559829b",
+      "name": "Expandir targets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1100,
+        1630
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text:\n    'Instrucción de seguimiento sobre una señal de trading ya confirmada. ' +\n    'Señal original: instrumento ' + $json.instrument + ', dirección ' + $json.direction +\n    ', entrada ' + $json.entry_price + ', SL ' + $json.sl + ', TP ' + $json.tp + '. ' +\n    'Mensaje de seguimiento (reply a esa señal): \\'' + $json.raw_text + '\\'. ' +\n    'Clasificá modification_type entre ENTRY_CHANGE, SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE. ' +\n    'target_price solo si el mensaje trae un precio explícito, si no null. No inventes valores.'\n  }] }],\n  generationConfig: {\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        modification_type: { type: 'STRING', enum: ['ENTRY_CHANGE','SL_CHANGE','CANCEL','TP_UPDATE','CLOSE_AT_PRICE'] },\n        target_price: { type: 'NUMBER', nullable: true }\n      },\n      required: ['modification_type']\n    }\n  }\n}) }}",
+        "options": {}
+      },
+      "id": "b32b1fc3-c0c4-4b55-ba5b-5c55a45a3787",
+      "name": "Interpretar con Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1100,
+        1910
+      ],
+      "notes": "Structured output forzado via responseSchema (Fase 4, punto Gemini del diseño) — no se confia en que el modelo respete un prompt de texto libre. Unico punto con costo de tokens del arbol de decision. Retry: retryOnFail+maxTries=2+waitBetweenTries=500ms (1 reintento inmediato, sin backoff largo, protocolo seccion 4.4). Si falla tras el reintento, onError=continueErrorOutput manda el item a la 2da salida -> 'Insertar modificación: Gemini falló (PENDING_MANUAL)'.",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza la respuesta de Gemini (structured JSON via responseSchema) al\n// mismo shape que produce \"Expandir targets\" para la rama regex, y la\n// enchufa al mismo INSERT/EA-action que la rama regex.\n//\n// Limitacion conocida (a reportar): a diferencia de la rama regex, esta\n// rama NO reintenta 1 vez en caso de error de Gemini (seccion 4.4 del\n// protocolo) ni marca PENDING_MANUAL si Gemini falla — el nodo HTTP\n// simplemente fallaria el workflow. Falta ese manejo de error, ver\n// resumen final de la tarea.\n//\n// Tambien: solo aplica sobre la PRIMERA sub-señal encontrada\n// (matched_signals[0]) — no reparte a multiples sub-señales como\n// CLOSE_ALL_TO_BE, porque los tipos que llegan por Gemini (ENTRY_CHANGE,\n// SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE) no tienen ese requisito\n// en el diseño de la tarea.\n\nconst context = $('Enrutar clasificación').item.json;\nconst raw = $json;\n\nlet parsed;\ntry {\n  const text = raw.candidates[0].content.parts[0].text;\n  parsed = JSON.parse(text);\n} catch (e) {\n  throw new Error('Fase 4: no se pudo parsear la respuesta estructurada de Gemini: ' + e.message);\n}\n\nconst target = context.matched_signals[0];\n\nlet ea_action = null; // ninguno de los tipos que llegan por Gemini tiene\n                       // accion de EA equivalente hoy (ver notas de la tarea).\n\nreturn [{\n  json: {\n    signal_id: target.id,\n    signal_uid: target.signal_uid,\n    mt4_ticket: target.mt4_ticket,\n    modification_type: parsed.modification_type,\n    target_price: parsed.target_price != null ? Number(parsed.target_price) : null,\n    raw_text: context.raw_text,\n    message_id: context.message_id,\n    interpreted_by: 'AI',\n    ea_action,\n  },\n}];\n"
+      },
+      "id": "0cd9fef6-b311-4a09-92f5-a7ad6c72d9f9",
+      "name": "Parsear respuesta Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -850,
+        1910
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signal_modifications (signal_id, message_id, raw_text, modification_type, interpreted_by, target_price, status) VALUES ($1, $2, $3, $4, $5, $6, 'PENDING') RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.signal_id, $json.message_id, $json.raw_text, $json.modification_type, $json.interpreted_by, $json.target_price] }}"
+        }
+      },
+      "id": "5bfbea84-0e28-4b50-9846-3191b9a5299c",
+      "name": "Insertar modificación (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -600,
+        1750
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Recibe items tanto de 'Expandir targets' (REGEX) como de 'Parsear respuesta Gemini' (AI) — mismo shape normalizado en ambas ramas."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "e1",
+              "leftValue": "={{ $json.ea_action }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8edec4a8-ffe7-4eff-bc2e-b7b333953b18",
+      "name": "¿Tiene acción EA?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -350,
+        1750
+      ],
+      "notes": "IMPORTANTE (verificar en runtime): 'Insertar modificación (Postgres)' con RETURNING id devuelve un item nuevo cuyo unico campo es 'id' — ea_action, mt4_ticket, signal_id, signal_uid, modification_type NO viajan automaticamente en $json desde aca en adelante. Antes de activar en produccion, cambiar las expresiones de este nodo y de los siguientes (Preparar acción EA, Escribir acción EA, ambos Avisar en chat) para leer esos campos con referencia cruzada ($('Expandir targets').item.json / $('Parsear respuesta Gemini').item.json) en vez de $json, igual patron que 'Preparar orden pending (JSON)' usa $('Obtener señal confirmada').item.json en la rama de confirmacion existente."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fase 4: arma el JSON de comando sobre posicion abierta, mismo contrato\n// que ya usa el dashboard (mt4-bridge/FORMATO_ARCHIVOS.md seccion 4.3):\n// mt4-bridge/orders/actions/{ticket}-{action}.json\nconst ticket = $json.mt4_ticket;\nconst action = $json.ea_action;\n\nconst payload = { ticket, action };\nconst buffer = Buffer.from(JSON.stringify(payload, null, 2), 'utf-8');\nconst binary = await this.helpers.prepareBinaryData(buffer, `${ticket}-${action}.json`, 'application/json');\n\nreturn [{\n  json: { ...$json, action_ticket: ticket },\n  binary: { data: binary },\n}];\n"
+      },
+      "id": "94447e98-601b-41e7-8e6b-8fe6e65487af",
+      "name": "Preparar acción EA (JSON)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        1630
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $env.MT4_ORDERS_DIR }}/actions/{{ $json.mt4_ticket }}-{{ $json.ea_action }}.json",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "2b284d4e-9cb1-40f8-8b22-17170c02b661",
+      "name": "Escribir acción EA (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        150,
+        1630
+      ],
+      "notes": "Mismo directorio/simlink que 'Escribir orden pending (MT4)', subcarpeta actions/ (FORMATO_ARCHIVOS.md 4.3)."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "={{ '✅ Modificación aplicada — señal #' + $json.signal_id + ' (' + $json.signal_uid + '), ' + $json.modification_type + ' -> acción EA ' + $json.ea_action + ' encolada para ticket #' + $json.mt4_ticket }}",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "abedce91-1419-4549-b713-c51b495fa209",
+      "name": "Avisar en chat: Modificación aplicada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        1630
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "={{ 'ℹ️ Modificación registrada — señal #' + $json.signal_id + ' (' + $json.signal_uid + '), ' + $json.modification_type + '. Sin acción automática en MT4 (revisar manualmente).' }}",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "d946b545-20b5-4226-956b-bfa63eb6ac12",
+      "name": "Avisar en chat: Registrada sin acción EA",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -100,
+        1850
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signal_modifications (signal_id, message_id, raw_text, modification_type, interpreted_by, status) VALUES ($1, $2, $3, 'UNCLASSIFIED', 'AI', 'PENDING_MANUAL') RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$('Enrutar clasificación').item.json.matched_signals[0].id, $('Enrutar clasificación').item.json.message_id, $('Enrutar clasificación').item.json.raw_text] }}"
+        }
+      },
+      "id": "f4a1c8e2-9b3d-4e7a-8c1f-2d5e6a7b8c9d",
+      "name": "Insertar modificación: Gemini falló (PENDING_MANUAL)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -600,
+        2050
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Protocolo seccion 4.4: si Gemini falla incluso tras el reintento inmediato, se registra la modificacion como PENDING_MANUAL con modification_type='UNCLASSIFIED' (valor nuevo agregado al CHECK de db/schema.sql especificamente para este caso, ya que el tipo real nunca se determino) y se notifica urgente por Telegram en el nodo siguiente. Toma los datos de 'Enrutar clasificación' (el ultimo item con datos completos antes del nodo HTTP que fallo), no del item de error de 'Interpretar con Gemini' cuyo shape de error no es confiable entre versiones de n8n."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🚨 No se pudo interpretar este mensaje, revisar manualmente: {{ $('Enrutar clasificación').item.json.raw_text }}",
+        "additionalFields": {}
+      },
+      "id": "a2b3c4d5-e6f7-4a8b-9c0d-1e2f3a4b5c6d",
+      "name": "Avisar en chat: Gemini no interpretó",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -350,
+        2050
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Texto exacto de PROTOCOLOS_KRONOS_BOT.md sección 4.4 para el caso de fallo de Gemini tras el reintento."
+    }
+  ],
+  "connections": {
+    "Buscar señal referenciada": {
+      "main": [
+        [
+          {
+            "node": "Clasificar seguimiento (regex)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clasificar seguimiento (regex)": {
+      "main": [
+        [
+          {
+            "node": "Enrutar clasificación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrutar clasificación": {
+      "main": [
+        [
+          {
+            "node": "Expandir targets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Interpretar con Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expandir targets": {
+      "main": [
+        [
+          {
+            "node": "Insertar modificación (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpretar con Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parsear respuesta Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insertar modificación: Gemini falló (PENDING_MANUAL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear respuesta Gemini": {
+      "main": [
+        [
+          {
+            "node": "Insertar modificación (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar modificación (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "¿Tiene acción EA?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Tiene acción EA?": {
+      "main": [
+        [
+          {
+            "node": "Preparar acción EA (JSON)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar en chat: Registrada sin acción EA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar acción EA (JSON)": {
+      "main": [
+        [
+          {
+            "node": "Escribir acción EA (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escribir acción EA (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Modificación aplicada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar modificación: Gemini falló (PENDING_MANUAL)": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Gemini no interpretó",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recibido de otro workflow": {
+      "main": [
+        [
+          {
+            "node": "Buscar señal referenciada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

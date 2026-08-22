@@ -44,13 +44,19 @@ if [ -z "${TERMINAL_EXE}" ]; then
     exit 1
 fi
 
+# Antes esto comparaba WINEPREFIX leyendo /proc/<pid>/environ de cada
+# proceso "terminal.exe" encontrado — frágil: si el kernel restringe la
+# lectura de environ de otro proceso (ptrace_scope), la comparación
+# fallaba en silencio, mt4_already_running quedaba vacío, y el script
+# relanzaba MT4 igual aunque ya estuviera corriendo (bug real,
+# reproducido 2026-08-21: el log del EA mostró 3 cargas duplicadas del
+# mismo EA en la misma sesión). Como en esta máquina solo hay un
+# prefijo de Wine con MT4 (~/.wine-mt4), alcanza con detectar CUALQUIER
+# terminal.exe corriendo — no hace falta distinguir por prefijo.
 mt4_already_running=""
-for pid in $(pgrep -f "terminal.exe"); do
-    if tr '\0' '\n' < "/proc/${pid}/environ" 2>/dev/null | grep -qx "WINEPREFIX=${WINE_PREFIX_MT4}"; then
-        mt4_already_running="1"
-        break
-    fi
-done
+if pgrep -x "terminal.exe" >/dev/null 2>&1; then
+    mt4_already_running="1"
+fi
 
 if [ -n "${mt4_already_running}" ]; then
     echo "MT4 ya parece estar corriendo en este prefijo, no se relanza."
@@ -103,23 +109,31 @@ else
 fi
 
 # Las ventanas se acomodan solas vía las reglas de
-# ~/.config/hypr/kronos-layout.conf: MT4 queda oculto en un workspace
-# especial (no aparece en ningún monitor), y Dashboard+Telegram van a
-# la pantalla secundaria (HDMI-A-1), workspace 9.
+# ~/.config/hypr/kronos-layout.conf: Dashboard (65%) + Telegram (35%)
+# van al workspace 9; MT4/gráfico va solo, a pantalla completa, al
+# workspace 10 — separado para no competir por espacio con el
+# dashboard/Telegram. Ambos workspaces prefieren la pantalla
+# secundaria (HDMI-A-1) si está conectada; si se usa solo el monitor
+# del laptop (eDP-1, "monitor personal"), caen ahí solos — los tamaños
+# son en porcentaje, así que el layout se mantiene en cualquiera de
+# los dos monitores.
 
 
-# Las ventanas de Dashboard/Telegram se abren en el workspace 9 (ver
-# windowrules arriba), pero sin cambiar de workspace acá quedan
-# abiertas fuera de vista si el monitor secundario no está ya parado
-# ahí — hay que llevarlo, si no, parece que "no abrió nada" aunque los
-# procesos sí estén corriendo. Se despacha con un pequeño delay,
-# desacoplado, porque si se hace mientras alacritty (este mismo
-# script) sigue siendo la ventana activa, al cerrarse alacritty
-# Hyprland devuelve el foco al workspace anterior y el cambio se
-# pierde — reproducido.
+# Las ventanas quedan cada una en su workspace (9: Dashboard+Telegram,
+# 10: MT4/gráfico — ver windowrules en kronos-layout.conf), pero sin
+# forzar el cambio acá quedan fuera de vista si el/los monitores no
+# están ya parados en esos workspaces — hay que llevarlos, si no,
+# parece que "no abrió nada" aunque los procesos sí estén corriendo.
+# `workspace` (no `focus workspace`) mueve el workspace al monitor que
+# le corresponde sin robarle el foco al otro — con dos monitores esto
+# deja ws9 en eDP-1 y ws10 en HDMI-A-1 visibles a la vez. Se despacha
+# con un pequeño delay, desacoplado, porque si se hace mientras
+# alacritty (este mismo script) sigue siendo la ventana activa, al
+# cerrarse alacritty Hyprland devuelve el foco al workspace anterior y
+# el cambio se pierde — reproducido.
 if command -v hyprctl >/dev/null 2>&1; then
     systemd-run --user --unit="kronos-focus-ws9-$$" -- \
-        bash -c 'sleep 1; hyprctl dispatch workspace 9' >/dev/null 2>&1 || true
+        bash -c 'sleep 1; hyprctl dispatch workspace 9; hyprctl dispatch workspace 10' >/dev/null 2>&1 || true
 fi
 
 echo "== Listo. Dashboard: http://localhost:8088 =="
