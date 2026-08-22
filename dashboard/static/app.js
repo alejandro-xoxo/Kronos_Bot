@@ -13,9 +13,14 @@ function fmtDate(value) {
   }
 }
 
+function fmtDailySeq(daily_seq) {
+  if (!daily_seq) return null;
+  return daily_seq + "ª operación de hoy";
+}
+
 async function loadPositions() {
   const warningEl = document.getElementById("positions-warning");
-  const bodyEl = document.getElementById("positions-body");
+  const bodyEl = document.getElementById("positions-cards");
 
   try {
     const res = await fetch("api/positions");
@@ -32,7 +37,7 @@ async function loadPositions() {
 
     const positions = data.positions || [];
     if (positions.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="11" class="empty-msg">Sin posiciones abiertas.</td></tr>';
+      bodyEl.innerHTML = '<p class="empty-msg">Sin posiciones abiertas.</p>';
       return;
     }
 
@@ -45,29 +50,32 @@ async function loadPositions() {
         const originBadge = managed
           ? '<span class="badge-auto">Auto</span>'
           : '<span class="badge-manual">Manual</span>';
+        const directionBadge =
+          p.direction === "SELL" ? '<span class="badge-sell">SELL</span>' : '<span class="badge-buy">BUY</span>';
+        const dailySeqLabel = fmtDailySeq(p.daily_seq);
         const actions = managed
           ? `<button class="btn-be" data-ticket="${p.ticket}" data-action="SET_BE">BE</button>
              <button class="btn-be-tp" data-ticket="${p.ticket}" data-action="SET_TP_BE">BE inverso</button>
-             <button class="btn-close" data-ticket="${p.ticket}" data-action="CLOSE">Cerrar</button>
-             <span class="position-action-status" data-ticket="${p.ticket}"></span>`
+             <button class="btn-close" data-ticket="${p.ticket}" data-action="CLOSE">Cerrar</button>`
           : '<span class="position-action-status">Fuera de la automatización — gestionar desde MT4.</span>';
-        return `<tr>
-          <td>${fmt(p.ticket)}</td>
-          <td>${originBadge}</td>
-          <td>${fmt(p.symbol)}</td>
-          <td>${fmt(p.direction)}</td>
-          <td>${fmt(p.lot)}</td>
-          <td>${fmt(p.open_price)}</td>
-          <td>${fmt(p.current_price)}</td>
-          <td>${fmt(p.sl)}</td>
-          <td>${fmt(p.tp)}</td>
-          <td class="${profitClass}">${fmt(p.profit)}</td>
-          <td>
-            <div class="position-actions">
-              ${actions}
-            </div>
-          </td>
-        </tr>`;
+        return `<div class="position-card">
+          <div class="position-card-head">
+            <span class="position-symbol">${fmt(p.symbol)}</span>
+            <div class="position-badges">${directionBadge}${originBadge}</div>
+          </div>
+          ${dailySeqLabel ? `<div class="position-daily-seq">${dailySeqLabel}</div>` : ""}
+          <div class="position-grid">
+            <div><div class="label">Lote</div><div class="value">${fmt(p.lot)}</div></div>
+            <div><div class="label">Ticket</div><div class="value">${fmt(p.ticket)}</div></div>
+            <div><div class="label">Apertura</div><div class="value">${fmt(p.open_price)}</div></div>
+            <div><div class="label">Actual</div><div class="value">${fmt(p.current_price)}</div></div>
+            <div><div class="label">SL</div><div class="value">${fmt(p.sl)}</div></div>
+            <div><div class="label">TP</div><div class="value">${fmt(p.tp)}</div></div>
+          </div>
+          <div class="position-profit ${profitClass}">${fmt(p.profit)}</div>
+          <div class="position-actions">${actions}</div>
+          <span class="position-action-status" data-ticket="${p.ticket}"></span>
+        </div>`;
       })
       .join("");
 
@@ -180,7 +188,7 @@ async function loadSignals() {
     const signals = data.signals || [];
 
     if (signals.length === 0) {
-      bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Sin señales en este período.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin señales en este período.</td></tr>';
       return;
     }
 
@@ -191,6 +199,7 @@ async function loadSignals() {
             ? `<button class="btn-retry" data-id="${s.id}">Reintentar</button>`
             : "";
         return `<tr>
+          <td>${fmt(s.daily_seq)}</td>
           <td>${fmt(s.instrument)}</td>
           <td>${fmt(s.direction)}</td>
           <td>${fmt(s.status)}</td>
@@ -208,7 +217,7 @@ async function loadSignals() {
       btn.addEventListener("click", () => retrySignal(btn.dataset.id, btn));
     });
   } catch (err) {
-    bodyEl.innerHTML = '<tr><td colspan="9" class="empty-msg">Sin señales en este período.</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="10" class="empty-msg">Sin señales en este período.</td></tr>';
   }
 }
 
