@@ -640,20 +640,23 @@ todavía sin luz verde explícita del usuario.
 - **Ejecución 100% automática sin confirmación** (Fase 8, futuro) — todo
   el diseño actual asume confirmación humana obligatoria (protocolo,
   principio no negociable #3).
-- **Detección de motivo de cierre (TP vs SL)** — **lado EA
-  implementado** (`DetectClosedPositions()` en `KronosBridgeEA.mq4`,
-  ver `mt4-bridge/FORMATO_ARCHIVOS.md` sección 5.1): compara
-  `OrderClosePrice()` contra TP/SL y escribe
-  `orders/closed/<ticket>.json` con `TP_REACHED`/`SL_REACHED`/
-  `CLOSED_MANUAL`. **Sin probar en real todavía** — requiere
-  recompilar el `.ex4` con MetaEditor (GUI) antes de tomar efecto.
-  **Falta el lado de n8n**: un nodo que lea `closed/*.json` (mismo
-  patrón que `results/`, sección 6) y actualice `signals.status` en
-  Postgres — sin esto los archivos se acumulan sin consumirse. No se
-  tocó el workflow de n8n en vivo en esta pasada por ser un sistema
-  operando con dinero real y sin forma de probar el workflow importado
-  en este entorno; ver sección 5.1 del formato para el detalle exacto
-  de los nodos que faltan.
+- ~~Detección de motivo de cierre (TP vs SL)~~ — **CORREGIDO
+  2026-08-21, ya no está pendiente (esta entrada estaba
+  desactualizada).** `DetectClosedPositions()` en
+  `KronosBridgeEA.mq4` compara `OrderClosePrice()` contra TP/SL y
+  escribe `orders/closed/<ticket>.json` con `close_price`, `profit`
+  neto y motivo (`TP_REACHED`/`SL_REACHED`/`CLOSED_MANUAL`).
+  Verificado directamente en la máquina real: el `.mq4` en
+  `~/.wine-mt4/.../MQL4/Experts/` ya tiene la función, y el `.ex4`
+  compilado tiene fecha del 2026-08-21 17:56 (posterior al código) —
+  o sea que está compilado y activo. Del lado de n8n, se confirmó vía
+  `GET /api/v1/workflows/QxXebyoPgTGmGH2B` en el workflow EN VIVO que
+  los nodos `Trigger: leer cierres MT4` → `Leer cierres (MT4)` →
+  `Parsear cierre (MT4)` → `Actualizar status: cierre TP/SL` →
+  `Avisar en chat: Cierre TP/SL` ya existen y están conectados en
+  producción. El ciclo completo (detectar cierre → precio/motivo →
+  actualizar Postgres → avisar por Telegram) está activo de punta a
+  punta, no pendiente.
 
 ## ⚠️ Errores persistentes / problemas abiertos que necesitan iteración
 
@@ -681,14 +684,14 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
    workflow en sí (sigue pendiente el `GEMINI_API_KEY`, punto 1, y
    recompilar el EA, punto 3, para que lo ya subido funcione de
    punta a punta).
-3. **`DetectClosedPositions()` sin probar en real.** La función que
-   detecta motivo de cierre (TP/SL/manual) en `KronosBridgeEA.mq4`
-   está escrita pero el `.ex4` en producción no está recompilado con
-   ella todavía — requiere abrir MetaEditor (GUI) en la máquina con
-   Wine, compilar (`F7`), remover y volver a arrastrar el EA al
-   gráfico (MT4 no recarga el `.ex4` solo). Hasta que esto pase, el
-   nodo n8n que consume `orders/closed/*.json` no tiene nada que leer
-   en producción, aunque ya esté mergeado a `develop`.
+3. **RESUELTO 2026-08-21 — `DetectClosedPositions()` ya compilado y
+   activo en producción.** Verificado directamente: el `.ex4` en
+   `~/.wine-mt4/.../MQL4/Experts/KronosBridgeEA.ex4` tiene fecha
+   2026-08-21 17:56, posterior al `.mq4` que agrega la función — está
+   compilado y corriendo. El nodo n8n que consume
+   `orders/closed/*.json` también está confirmado activo en el
+   workflow EN VIVO (no solo en `develop`). Esta entrada decía lo
+   contrario por desactualización, no por un problema real.
 4. **`docs/INSTALL_WINDOWS.md` no verificado end-to-end.** A
    diferencia de la guía Linux (probada en la máquina real del
    usuario), la de Windows nunca se corrió de punta a punta — puede
@@ -713,7 +716,7 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
    carga (ej. 3+ sub-señales si se saca el tope, ver punto de
    `sin-tope-sub-senales` arriba).
 8. **Sin registro de cierres fuera de Postgres (Fase 7 completa).**
-   Aun cuando se cierre el lazo de detección TP/SL (punto 3), el
+   El lazo de detección TP/SL (punto 3) ya está cerrado y activo, pero el
    registro en Google Sheets sigue sin existir — los cierres viven
    solo en la base de datos, sin respaldo externo ni reporte legible
    fuera del dashboard.
@@ -929,16 +932,21 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
    de esta lista, que decía lo contrario.
 1. Medir la lentitud percibida antes de tocar timing (punto 11) — solo
    después, implementar el fix real de `error 4109` (una orden por
-   ciclo de `OnTimer`, punto 10) y recompilar `KronosBridgeEA.mq4` con
-   MetaEditor (incluye también activar `DetectClosedPositions()`, ver
-   punto 3 de errores persistentes).
+   ciclo de `OnTimer`, punto 10) y recompilar `KronosBridgeEA.mq4`
+   (`DetectClosedPositions()` ya está compilado y activo, ver punto 3
+   de errores persistentes — este paso ya no incluye eso).
 2. Cerrar con el usuario la tabla de ejemplos del nuevo límite de
    operaciones simultáneas por capital (punto 12) antes de implementar
    nada — no asumir la fórmula de `floor(capital/100)` actual como
    definitiva.
-3. Decidir con el usuario el punto 13 (exportar a Sheets antes de
-   archivar vs. quedarse con el resumen agregado) — ciclo de cierre y
-   registro en Google Sheets (Fase 7).
+3. Registro en Google Sheets de los cierres (Fase 7) — el punto 13
+   (pérdida de detalle al archivar en `signals_archive_summary`) ya
+   se resolvió con el usuario el 2026-08-21: no le importa el detalle
+   fila por fila, solo el total acumulado sin que la tabla crezca sin
+   límite (ver esa entrada), así que ya no es un bloqueante para
+   decidir esto — falta solo si vale la pena exportar los cierres a
+   Sheets como respaldo/reporte legible, no una decisión de pérdida de
+   datos.
 4. Recién después: evaluar ejecución 100% automática sin confirmación
    (Fase 8), con el historial de v1 como respaldo de confianza.
 
@@ -977,10 +985,10 @@ SL/BE/cierres mientras hay posiciones reales abiertas.
   nodos n8n de escribir orden / leer resultado funcionando, tickets
   reales confirmados en la cuenta `23096429`.
 - 🔶 Fase 7 — cierre y registro en Google Sheets. El consumidor de
-  `orders/closed/*.json` (detección TP/SL) ya está mergeado en
-  `develop` (`feature/cierre-tp-sl`) pero sin probar en real — falta
-  recompilar el EA. El registro en Google Sheets en sí no existe
-  todavía.
+  `orders/closed/*.json` (detección TP/SL) está mergeado, compilado y
+  activo de punta a punta en producción real (verificado 2026-08-21,
+  ver nota más abajo). Falta únicamente el registro en Google Sheets
+  en sí, que no existe todavía.
 - 🔲 Fase 8 — ejecución 100% automática (futuro, meta de v2).
 
 ## Nota operativa 2026-08-21 — dashboard, base de datos, `develop`/`main`
