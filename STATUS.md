@@ -752,16 +752,28 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
     $600) — falta una tabla completa de ejemplos confirmados por el
     usuario antes de implementar cualquier cosa. No asumir la fórmula
     todavía.
-13. **Crecimiento de la base de datos — pendiente de decisión sobre
-    pérdida de detalle al archivar.** El trigger de compactación
-    (`signals_archive_summary`, tope de 20 filas activas en `signals`,
-    ver `db/schema.sql`) ya funciona, pero pierde el detalle fila por
-    fila de lo archivado — solo queda el agregado. Falta decidir con
-    el usuario si importa poder auditar señales viejas en detalle
-    después de archivadas, o si el resumen agregado alcanza. Si
-    importa el detalle, evaluar exportar a Google Sheets (Fase 7)
-    **antes** de que el trigger las borre, no solo cuando el trigger
-    las toque.
+13. **RESUELTO 2026-08-21 — bug real de crecimiento sin límite en
+    `signals_archive_summary`, corregido.** El trigger de compactación
+    (tope de 20 filas activas en `signals`) archivaba TODO el
+    excedente correctamente, pero como dispara después de cada INSERT
+    y el excedente sobre 20 casi siempre es 1, cada compactación
+    insertaba una fila NUEVA en `signals_archive_summary` — la tabla
+    que se suponía iba a evitar el crecimiento sin límite había crecido
+    sola a 44 filas y seguía subiendo por cada señal archivada,
+    reproduciendo el mismo problema que pretendía resolver. Usuario
+    confirmó explícitamente que no quiere detalle fila por fila (no
+    exportar a Sheets por ahora), solo el total acumulado sin que la
+    tabla crezca. Fix: `compact_old_signals()` ahora hace `UPSERT`
+    sobre una única fila (`id=1`, con `CHECK (id = 1)`), acumulando
+    `signal_count`, `total_profit_loss`, `status_counts` (merge por
+    clave) e `instruments` (unión sin duplicados) en vez de insertar
+    una fila por tanda. Las 44 filas viejas de producción se
+    consolidaron en esa única fila antes de aplicar el nuevo trigger.
+    Commit `3037a97` en `develop` (`db/schema.sql` +
+    `dashboard/main.py`, que ahora consulta `WHERE id = 1` en vez de
+    `ORDER BY archived_at DESC LIMIT 20`). Aplicado y verificado en la
+    base de producción real; pendiente llevar a `main` (ver nota al
+    final de este documento sobre el desfase `develop`/`main`).
 14. **Causa raíz encontrada de "las órdenes no se ejecutan al
     confirmar" — DIAGNOSTICADO, pendiente de verificación del usuario
     (no marcar resuelto hasta confirmar).** `orders/config.json` tenía
@@ -871,6 +883,41 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
     humana complementaria al punto 18 (que cubriría el caso vía alerta
     automática) — útil pero no urgente mientras el punto 15 no sea un
     problema activo.
+20. **Punto 16 (duplicados por reintento de webhook) — auditado en
+    vivo 2026-08-21, parece ya protegido, PERO sin test real que lo
+    confirme (pedido explícito del usuario, no dar por cerrado sin
+    eso).** Se revisó el workflow EN PRODUCCIÓN vía `GET
+    /api/v1/workflows/QxXebyoPgTGmGH2B`: (a) `Insertar señal
+    (Postgres)` no tiene `ON CONFLICT`, pero `signals.signal_uid` tiene
+    `UNIQUE` a nivel de schema (`db/schema.sql` línea 16) — un mensaje
+    de Telegram reprocesado generaría el mismo `signal_uid` y la
+    segunda inserción fallaría por violación de constraint, sin crear
+    fila duplicada ni segundo mensaje de Telegram (aunque sí deja una
+    ejecución de n8n marcada como fallida, sin alerta — relacionado con
+    el punto 18). (b) Los nodos `Actualizar status: CONFIRMED` /
+    `REJECTED_BY_USER` ya usan `UPDATE ... WHERE status =
+    'PENDING_CONFIRMATION' RETURNING id` dentro de un `WITH`, y los
+    nodos `¿Se confirmó ahora?` / `¿Se rechazó ahora?` verifican
+    `updated_count = 1` antes de escribir la orden — un reintento del
+    callback (doble click o reintento HTTP de Telegram) cae a la rama
+    "Ya procesada" sin volver a escribir `orders/pending/`. **Falta:**
+    generar una señal de prueba en el stack DEV y simular un reintento
+    real de callback para verificar esto en vivo antes de marcarlo
+    definitivamente resuelto — pedido explícito del usuario, no asumir
+    que la lectura del código alcanza.
+21. **Punto 18 (alerta de señal `CONFIRMED` sin resultado) — diseño
+    explicado al usuario 2026-08-21, sin decisión final tomada
+    todavía.** Se aclaró la diferencia con la notificación que ya
+    existe (`Avisar en chat: Resultado MT4`, que solo dispara si el EA
+    SÍ llega a escribir un resultado, éxito o error) — el hueco es el
+    caso en que el EA nunca ni siquiera intenta la orden (Wine
+    colgado, archivo nunca escrito, etc.), donde hoy no llega ningún
+    aviso. Diseño propuesto: `scheduleTrigger` cada 2 min + query de
+    señales `CONFIRMED` con `updated_at` > 3 min + aviso Telegram, con
+    una columna nueva `signals.stuck_alerted BOOLEAN` para no repetir
+    el mismo aviso en cada ciclo. Requiere un `ALTER TABLE` en
+    producción — el usuario no dio el visto bueno final todavía
+    (quedó en "entender para qué sirve"), retomar cuando confirme.
 
 ## Próximos pasos inmediatos (en orden)
 
@@ -935,3 +982,26 @@ SL/BE/cierres mientras hay posiciones reales abiertas.
   recompilar el EA. El registro en Google Sheets en sí no existe
   todavía.
 - 🔲 Fase 8 — ejecución 100% automática (futuro, meta de v2).
+
+## Nota operativa 2026-08-21 — dashboard, base de datos, `develop`/`main`
+
+- **El contenedor de producción real corre desde el worktree
+  `Kronos_Bot` (rama `develop`), no desde `Kronos_Bot-prod` (rama
+  `main`)** — verificado vía
+  `docker inspect ... com.docker.compose.project.working_dir`. La
+  regla de `CLAUDE.md` ("producción solo se actualiza desde `main`")
+  sigue siendo la política a seguir hacia adelante, pero el estado
+  real hoy es que el `docker-compose.yml` que efectivamente levanta el
+  dashboard vive en `Kronos_Bot`. `Kronos_Bot-prod`/`main` está al día
+  con el rediseño del dashboard (`a6a850d`) pero **2 commits detrás**
+  de lo que ya corre en producción real: el filtro "Hoy" por defecto y
+  el fix de `signals_archive_summary` (commit `3037a97`). Pendiente
+  sincronizar `main` cuando el usuario lo pida.
+- **Se vació por completo la base de datos real** (`TRUNCATE signals,
+  signal_modifications RESTART IDENTITY CASCADE`) a pedido explícito
+  del usuario, incluyendo 11 filas `OPEN` con ticket real de MT4 que
+  seguían abiertas en la cuenta — el usuario confirmó explícitamente
+  que asumía la pérdida de esa referencia. No hay historial de señales
+  anterior a esta fecha.
+- Dashboard: filtro de historial de señales por defecto cambiado de
+  "Todas" a "Hoy" (`currentSignalsRange`, `dashboard/static/app.js`).
