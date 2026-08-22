@@ -199,16 +199,16 @@ async function loadSignals() {
             ? `<button class="btn-retry" data-id="${s.id}">Reintentar</button>`
             : "";
         return `<tr>
-          <td>${fmt(s.daily_seq)}</td>
-          <td>${fmt(s.instrument)}</td>
-          <td>${fmt(s.direction)}</td>
-          <td>${fmt(s.status)}</td>
-          <td>${fmt(s.mt4_ticket)}</td>
-          <td>${fmt(s.entry_price)}</td>
-          <td>${fmt(s.sl)}</td>
-          <td>${fmt(s.tp)}</td>
-          <td>${fmtDate(s.created_at)}</td>
-          <td>${retryBtn}<span class="retry-status" data-id="${s.id}"></span></td>
+          <td data-label="N° del día">${fmt(s.daily_seq)}</td>
+          <td data-label="Instrumento">${fmt(s.instrument)}</td>
+          <td data-label="Dirección">${fmt(s.direction)}</td>
+          <td data-label="Estado">${fmt(s.status)}</td>
+          <td data-label="Ticket">${fmt(s.mt4_ticket)}</td>
+          <td data-label="Entrada">${fmt(s.entry_price)}</td>
+          <td data-label="SL">${fmt(s.sl)}</td>
+          <td data-label="TP">${fmt(s.tp)}</td>
+          <td data-label="Fecha">${fmtDate(s.created_at)}</td>
+          <td data-label="Acciones">${retryBtn}<span class="retry-status" data-id="${s.id}"></span></td>
         </tr>`;
       })
       .join("");

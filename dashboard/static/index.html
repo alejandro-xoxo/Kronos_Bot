@@ -290,6 +290,47 @@
     .position-card .position-actions { flex-direction: column; }
     .position-card .btn-be, .position-card .btn-be-tp, .position-card .btn-close { width: 100%; }
   }
+  /* Móvil: la tabla de historial de señales (y el resumen archivado) no
+     entran en una pantalla angosta sin forzar zoom horizontal. Por debajo
+     de 640px se convierten en tarjetas apiladas — cada <tr> es un bloque,
+     cada <td> muestra su etiqueta (data-label) al lado del valor. Ya no
+     aplica a "Posiciones abiertas" (ahora son .position-card, no <table>),
+     solo a #signals-table/#summary-table dentro de .table-scroll. */
+  @media (max-width: 640px) {
+    .table-scroll table thead { display: none; }
+    .table-scroll table, .table-scroll table tbody, .table-scroll table tr, .table-scroll table td {
+      display: block;
+      width: 100% !important;
+    }
+    .table-scroll table tr {
+      border: 1px solid var(--row-border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+    .table-scroll table td {
+      border-bottom: none;
+      padding: 6px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.82rem;
+    }
+    .table-scroll table td:not(:last-child) {
+      border-bottom: 1px solid var(--row-border);
+    }
+    .table-scroll table td::before {
+      content: attr(data-label);
+      color: var(--text-dim);
+      font-weight: 600;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      flex-shrink: 0;
+    }
+    .table-scroll table td.empty-msg::before { content: none; }
+  }
 </style>
 </head>
 <body>
