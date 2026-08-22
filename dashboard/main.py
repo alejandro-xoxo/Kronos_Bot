@@ -359,12 +359,12 @@ def api_signals():
 
 @app.route("/api/signals/summary")
 def api_signals_summary():
-    # "#0": resumen de lo que se archivó automáticamente cada vez que
-    # signals superó 20 filas (ver trigger compact_old_signals en
-    # db/schema.sql). Cada compactación agrega UNA fila acá — se
-    # devuelven las últimas ~20 tandas archivadas, más reciente primero,
-    # para que el dashboard pueda mostrar historial agregado sin tener
-    # que guardar cada señal vieja individualmente.
+    # Resumen acumulado de lo que se fue archivando cada vez que signals
+    # superó 20 filas (ver trigger compact_old_signals en db/schema.sql).
+    # Es una única fila (id=1) que se actualiza por UPSERT en cada
+    # compactación — no una fila nueva por tanda archivada, así esta
+    # tabla nunca crece sin límite (bug corregido 2026-08-21: antes
+    # insertaba una fila nueva por cada señal archivada).
     conn = None
     try:
         conn = get_db_connection()
@@ -372,10 +372,9 @@ def api_signals_summary():
             cur.execute(
                 """
                 SELECT id, period_start, period_end, signal_count,
-                       status_counts, instruments, total_profit_loss, archived_at
+                       status_counts, instruments, total_profit_loss, updated_at
                 FROM signals_archive_summary
-                ORDER BY archived_at DESC
-                LIMIT 20
+                WHERE id = 1
                 """
             )
             rows = cur.fetchall()
