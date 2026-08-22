@@ -70,6 +70,49 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+def _daily_seq_by_signal_uid(signal_uids):
+    """Mapea signal_uid -> número de orden dentro del día en que se creó
+    esa señal (1ra, 2da, ... operación del día), para mostrar una
+    numeración amigable en vez del id técnico de Postgres. Se calcula
+    con ROW_NUMBER() sobre TODAS las señales del día correspondiente,
+    no solo las pedidas, para que el número sea estable sin importar
+    qué subconjunto de posiciones esté abierto en este momento."""
+    signal_uids = [s for s in signal_uids if s]
+    if not signal_uids:
+        return {}
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT signal_uid, daily_seq FROM (
+                    SELECT signal_uid,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY date_trunc('day', created_at)
+                               ORDER BY created_at
+                           ) AS daily_seq
+                    FROM signals
+                    WHERE date_trunc('day', created_at) IN (
+                        SELECT DISTINCT date_trunc('day', created_at)
+                        FROM signals WHERE signal_uid = ANY(%s)
+                    )
+                ) numbered
+                WHERE signal_uid = ANY(%s)
+                """,
+                (signal_uids, signal_uids),
+            )
+            return dict(cur.fetchall())
+    except psycopg2.Error:
+        # No es crítico para mostrar posiciones — si falla, las tarjetas
+        # simplemente no muestran el número de orden del día.
+        return {}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 @app.route("/api/positions")
 def api_positions():
     if not os.path.isfile(STATUS_PATH):
@@ -86,6 +129,11 @@ def api_positions():
     data.setdefault("positions", [])
     data.setdefault("account", None)
     data["stale"] = False
+
+    daily_seq_by_uid = _daily_seq_by_signal_uid(p.get("signal_uid") for p in data["positions"])
+    for p in data["positions"]:
+        p["daily_seq"] = daily_seq_by_uid.get(p.get("signal_uid"))
+
     return jsonify(data), 200
 
 
@@ -280,7 +328,11 @@ def api_signals():
                 f"""
                 SELECT id, signal_uid, instrument, direction, status,
                        mt4_ticket, entry_price, sl, tp, created_at, updated_at,
-                       CASE WHEN id % 20 = 0 THEN 20 ELSE id % 20 END AS cycle_position
+                       CASE WHEN id % 20 = 0 THEN 20 ELSE id % 20 END AS cycle_position,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY date_trunc('day', created_at)
+                           ORDER BY created_at
+                       ) AS daily_seq
                 FROM signals
                 {where_clause}
                 ORDER BY created_at DESC

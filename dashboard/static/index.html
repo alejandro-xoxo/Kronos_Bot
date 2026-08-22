@@ -28,10 +28,14 @@
     --pastel-pink: #FBCFE8;
     --pastel-mint: #A7F3D0;
 
-    /* Semántico (siempre visible, no depende de hover) */
-    --profit-pos: #6EE7B7;
-    --profit-neg: #FDA4AF;
+    /* Semántico (siempre visible, no depende de hover) — ganancia en
+       azul, pérdida en blanco/neutro (elección de diseño del usuario,
+       no el rojo/verde convencional). */
+    --profit-pos: #60A5FA;
+    --profit-neg: #E6E9F0;
     --warn: #FCD34D;
+    --buy: #60A5FA;
+    --sell: #F0ABFC;
 
     --border: rgba(30, 58, 138, 0.45);
     --row-border: rgba(30, 58, 138, 0.25);
@@ -114,8 +118,6 @@
     overflow-wrap: break-word;
   }
   th { color: var(--text-dim); font-weight: 600; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.02em; }
-  #positions-table th:last-child, #positions-table td:last-child { width: 24%; }
-  #positions-table th:nth-child(2), #positions-table td:nth-child(2) { width: 8%; }
   #signals-table th:last-child, #signals-table td:last-child { width: 14%; }
   tbody tr { transition: background-color 0.25s ease, box-shadow 0.25s ease; }
   tbody tr:hover {
@@ -223,6 +225,71 @@
   .badge-manual { background: rgba(252, 211, 77, 0.08); border-color: rgba(252, 211, 77, 0.4); color: var(--warn); }
   .badge-manual::before { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
   .badge-manual:hover { border-color: var(--pastel-pink); color: var(--pastel-pink); }
+
+  /* Tarjetas de posiciones — reemplazan la tabla técnica por un layout
+     pensado para leerse de un vistazo desde el celular. */
+  .position-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  .position-card {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color 0.25s ease;
+  }
+  .position-card:hover { border-color: var(--pastel-lavender); }
+  .position-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .position-symbol { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; }
+  .position-daily-seq { color: var(--text-dim); font-size: 0.75rem; }
+  .badge-buy, .badge-sell {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+  .badge-buy { background: rgba(96, 165, 250, 0.15); color: var(--buy); border: 1px solid rgba(96, 165, 250, 0.4); }
+  .badge-sell { background: rgba(240, 171, 252, 0.15); color: var(--sell); border: 1px solid rgba(240, 171, 252, 0.4); }
+  .position-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .position-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 14px;
+    font-size: 0.82rem;
+  }
+  .position-grid .label { color: var(--text-dim); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .position-grid .value { font-weight: 600; }
+  .position-profit { font-size: 1.15rem; font-weight: 700; }
+  .position-card .position-actions { margin-top: 4px; }
+  /* Botones de acción grandes/táctiles por defecto (no solo en mobile) —
+     estas tarjetas se usan tanto desde el celular como desde escritorio. */
+  .position-card .btn-be,
+  .position-card .btn-be-tp,
+  .position-card .btn-close {
+    padding: 12px 14px;
+    font-size: 0.9rem;
+    min-height: 44px;
+    flex: 1 1 0;
+  }
+  @media (max-width: 480px) {
+    .position-cards { grid-template-columns: 1fr; }
+    .position-card .position-actions { flex-direction: column; }
+    .position-card .btn-be, .position-card .btn-be-tp, .position-card .btn-close { width: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -240,10 +307,10 @@
   </p>
 
   <div class="panel">
-    <h2 style="margin-top:0;">Sufijo de símbolo del bróker</h2>
+    <h2 style="margin-top:0;">Perfil de cuenta activo</h2>
     <div class="config-row">
-      <button id="btn-vip" data-suffix="-VIP">Demo (-VIP)</button>
-      <button id="btn-std" data-suffix="-STD">Real (-STD)</button>
+      <button id="btn-vip" data-profile="DEMO_VIP">Demo (DEMO_VIP)</button>
+      <button id="btn-std" data-profile="PROD_STD">Real (PROD_STD)</button>
       <span id="config-status" class="status-msg"></span>
     </div>
   </div>
@@ -251,26 +318,7 @@
   <h2>Posiciones abiertas</h2>
   <div class="panel">
     <div id="positions-warning"></div>
-    <div class="table-scroll">
-      <table id="positions-table">
-        <thead>
-          <tr>
-            <th>Ticket</th>
-            <th>Origen</th>
-            <th>Símbolo</th>
-            <th>Dirección</th>
-            <th>Lote</th>
-            <th>Precio apertura</th>
-            <th>Precio actual</th>
-            <th>SL</th>
-            <th>TP</th>
-            <th>Profit</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="positions-body"></tbody>
-      </table>
-    </div>
+    <div class="position-cards" id="positions-cards"></div>
   </div>
 
   <h2>Historial de señales</h2>
@@ -305,6 +353,7 @@
       <table id="signals-table">
         <thead>
           <tr>
+            <th>N° del día</th>
             <th>Instrumento</th>
             <th>Dirección</th>
             <th>Estado</th>
