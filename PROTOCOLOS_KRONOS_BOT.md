@@ -73,7 +73,7 @@ Mensaje nuevo recibido
    - Si la señal solo trae 1 TP → se genera únicamente la sub-señal A (comportamiento sin cambios).
    - Todas las sub-señales comparten instrumento, dirección, tipo de ejecución, precio de entrada y SL — **solo el TP difiere entre ellas**.
    - Cada sub-señal es un registro **independiente** en `signals` (una fila por sub-señal, no un campo adicional en la misma fila), con su propio `signal_uid`, y se valida, notifica y confirma/rechaza **por separado**: una notificación de Telegram por sub-señal, cada una con sus propios botones Confirmar/Rechazar. Confirmar o rechazar una no afecta a las demás.
-   - **Lotaje:** todas las sub-señales usan el valor fijo `0.01` (el mismo de cualquier señal en este MVP). No existe todavía ningún mecanismo de "competencia por slot" entre sub-señales de la misma señal — eso depende del cálculo de slots 80/20 (sección 5.3), que sigue sin conectarse al flujo de ejecución real. Sin el tope de 2, una señal con muchos TP puede comprometer varias veces `0.01` de lote simultáneamente — se revisita cuando el cálculo de lotaje inteligente esté implementado y validado.
+   - **Lotaje:** todas las sub-señales usan el valor fijo `0.01` (el mismo de cualquier señal en este MVP). No existe todavía ningún mecanismo de "competencia por slot" entre sub-señales de la misma señal — eso depende del cálculo de slots (sección 5.3, tope de 3 operaciones simultáneas), que sigue sin conectarse al flujo de ejecución real. Sin ese tope, una señal con muchos TP puede comprometer varias veces `0.01` de lote simultáneamente — se revisita cuando el cálculo de lotaje inteligente esté implementado y validado.
 7. "BE" (Break Even), mencionado solo o en frases como "cerrar a BE" / "mover a BE", se interpreta **siempre como una modificación del Stop Loss** al precio de entrada de la operación. Nunca se aplica al Take Profit. Si el caller quiere modificar el TP, lo indica explícitamente con la palabra "TP" en el mensaje.
 8. No se inventan valores de ningún tipo (precios, SL, TP, lotaje) que no estén explícitamente presentes en el mensaje o derivados de una regla ya definida en este documento.
 
@@ -138,41 +138,60 @@ Se recalcula contra el `capital_real` actual de `settings` en cada
 confirmación de señal — no se "pega" a un máximo histórico de capital.
 Sin techo superior definido.
 
-### 5.3. División en slots (máximo 2 operaciones simultáneas)
+### 5.3. División en slots (máximo 3 operaciones simultáneas)
 
-**Estado: DISEÑADO, NO IMPLEMENTADO.** Esta sección describe una
-división posterior de `lote_total` (5.2) entre hasta 2 operaciones
+**Estado: DISEÑADO, NO IMPLEMENTADO (rediseño confirmado
+2026-08-21, reemplaza la versión anterior de esta sección que
+usaba un split 80/20 con tope de 2 slots — esa versión queda
+descartada, no es una alternativa).** Esta sección describe una
+división posterior de `lote_total` (5.2) entre hasta 3 operaciones
 simultáneas compitiendo por el mismo capital. No está conectada al
 flujo real: hoy cada sub-señal usa el `lote_total` completo de 5.2 sin
 ninguna competencia por slot entre ellas. No confundir ambas reglas.
 
+A diferencia del diseño anterior (split fijo 80/20 entre 2 slots), el
+tope de operaciones simultáneas queda fijo en **3, sin importar cuánto
+crezca el capital**, y las `N` unidades de `0.01` disponibles se
+reparten lo más parejo posible entre los slots activos, dando el
+sobrante a los primeros.
+
 ```
-slot_1 = round(lote_total × 0.80, a 0.01 más cercano)
-slot_2 = lote_total - slot_1
+N = floor(capital_real / 100)                (unidades de 0.01)
+operaciones_activas = mínimo(N, 3)           ← tope fijo de 3
 
-Si slot_2 calculado = 0 → solo existe slot_1 (no se permite 2da operación
-simultánea con ese nivel de capital).
+# Reparto de N unidades entre operaciones_activas, lo más parejo
+# posible; el sobrante (N mod operaciones_activas) se asigna a las
+# primeras operaciones de la lista, una unidad extra cada una.
+base = floor(N / operaciones_activas)
+sobrante = N mod operaciones_activas
+
+slot[i] = (base + 1) × 0.01   para las primeras `sobrante` posiciones
+slot[i] = base × 0.01         para el resto
 ```
 
-**Tabla de referencia:**
+Si `N = 0` (capital_real < 100) → no hay ningún slot disponible, toda
+señal nueva se rechaza por falta de lotaje (ver 5.4).
 
-| Capital | Lote total | Slot 1 (80%) | Slot 2 (resto) |
+**Tabla de referencia (verificada y confirmada por el usuario
+2026-08-21):**
+
+| Capital | N (unidades de 0.01) | Operaciones activas | Slots (lote por operación) |
 |---|---|---|---|
-| $100–199 | 0.01 | 0.01 | — (no hay 2do slot) |
-| $200–299 | 0.02 | 0.02 | — (no hay 2do slot) |
-| $300–399 | 0.03 | 0.02 | 0.01 |
-| $400–499 | 0.04 | 0.03 | 0.01 |
-| $600–699 | 0.06 | 0.05 | 0.01 |
-| $700–799 | 0.07 | 0.06 | 0.01 |
-| $800–899 | 0.08 | 0.06 | 0.02 |
-| $1000–1099 | 0.10 | 0.08 | 0.02 |
-| $1200–1299 | 0.12 | 0.10 | 0.02 |
+| $100 | 1 | 1 | 0.01 |
+| $200 | 2 | 2 | 0.01, 0.01 |
+| $300 | 3 | 3 | 0.01, 0.01, 0.01 |
+| $400 | 4 | 3 | 0.02, 0.01, 0.01 |
+| $500 | 5 | 3 | 0.02, 0.02, 0.01 |
+| $600 | 6 | 3 | 0.02, 0.02, 0.02 |
+| $700 | 7 | 3 | 0.03, 0.02, 0.02 |
+| $800 | 8 | 3 | 0.03, 0.03, 0.02 |
+| $900 | 9 | 3 | 0.03, 0.03, 0.03 |
 
 ### 5.4. Ocupación y liberación de slots
 
 - Los slots se ocupan **por tamaño, el más grande disponible primero**, sin importar el orden de llegada de las señales.
 - Cuando una operación cierra (TP, SL, cierre manual, o cierre por condición de carrera de precio), su slot se libera inmediatamente y queda disponible para la siguiente señal que llegue.
-- Si ambos slots están ocupados y llega una señal nueva → **se rechaza automáticamente**:
+- Si los 3 slots están ocupados (o si `capital_real` no alcanza para ningún slot, `N = 0`) y llega una señal nueva → **se rechaza automáticamente**:
   - **No se inserta ningún registro en la tabla `signals`.**
   - Se registra únicamente en la hoja "Rechazadas" de Google Sheets.
   - Se envía notificación por Telegram informando el rechazo por falta de lotaje disponible.
@@ -389,6 +408,6 @@ Notifica el resultado al usuario por Telegram
 
 - División de una señal con más de 2 TP en más de 2 operaciones — el tope es 2 sub-señales (TP1 y TP2), el resto se ignora (ver sección 4.2 regla 6).
 - Cierres parciales de una misma operación en base a múltiples TP — cada sub-señal es una operación completa independiente, no un cierre parcial de otra.
-- Cálculo de lotaje diferenciado por sub-señal (competencia por slot 80/20 entre sub-señales de la misma señal original) — ambas usan el lotaje fijo `0.01` hasta que el cálculo de slots esté conectado al flujo real.
+- Cálculo de lotaje diferenciado por sub-señal (competencia por slot, tope de 3 operaciones simultáneas, sección 5.3, entre sub-señales de la misma señal original) — ambas usan el lotaje fijo `0.01` hasta que el cálculo de slots esté conectado al flujo real.
 - Ejecución 100% automática de señales nuevas sin confirmación — planeado para una Fase 2 futura, una vez validado el sistema en modo semi-automático.
 - Migración a VPS Windows en la nube y modelos de IA de pago — evaluado solo después de validar rentabilidad en el entorno local/gratuito.
