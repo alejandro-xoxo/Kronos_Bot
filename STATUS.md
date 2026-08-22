@@ -922,6 +922,39 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
     producción — el usuario no dio el visto bueno final todavía
     (quedó en "entender para qué sirve"), retomar cuando confirme.
 
+22. **DISEÑADO 2026-08-21, NO IMPLEMENTADO — limpieza automática de
+    `PENDING_CONFIRMATION` viejas.** Pedido explícito del usuario: las
+    señales que quedan en `PENDING_CONFIRMATION` (nunca confirmadas ni
+    rechazadas) deben archivarse/limpiarse automáticamente al día
+    siguiente, sin conservar el detalle — mismo criterio que ya aplicó
+    para el resto del historial (punto 13). Diseño propuesto:
+    - Extender el patrón del trigger `compact_old_signals()` (o un job
+      separado, ej. `pg_cron` o un `scheduleTrigger` de n8n una vez al
+      día) que seleccione `signals` con `status = 'PENDING_CONFIRMATION'
+      AND created_at < NOW() - INTERVAL '24 hours'`, las sume al mismo
+      `UPSERT` sobre la fila única `id=1` de `signals_archive_summary`
+      (reutilizando exactamente el mecanismo corregido hoy — no crear
+      una fila nueva por corrida), y las borre de `signals`
+      (+ `signal_modifications` asociadas, mismo orden que ya usa
+      `compact_old_signals()` para no romper la FK).
+    - Decisión pendiente con el usuario: ¿trigger por tiempo (`pg_cron`,
+      requiere la extensión instalada en la imagen de Postgres) o un
+      `scheduleTrigger` en n8n que llame una función/`DELETE...RETURNING`
+      una vez al día? El trigger actual de `signals` es `AFTER INSERT`,
+      no dispara solo, así que la limpieza por antigüedad necesita un
+      disparador por tiempo, no por evento — no es una extensión trivial
+      del trigger existente, es un mecanismo nuevo que reutiliza el
+      mismo patrón de acumulación.
+    - **Verificado 2026-08-21**: `total_profit_loss` de
+      `signals_archive_summary` **ya se muestra** en el dashboard
+      (`dashboard/static/app.js` función `loadSummary()`, con clase
+      `profit-pos`/`profit-neg` según signo) — pero como parte de una
+      fila de resumen, no como un número grande y prominente. El
+      usuario pidió confirmar que se vea "de forma clara y visible, no
+      escondida" — falta decidir si el tamaño/posición actual alcanza
+      o si conviene destacarlo más (ej. como cifra grande en el header
+      del dashboard) antes de dar esto por resuelto.
+
 ## Próximos pasos inmediatos (en orden)
 
 0. **Rediseñar Fase 4 (Gemini) en conjunto con el usuario, paso a
