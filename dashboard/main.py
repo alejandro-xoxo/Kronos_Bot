@@ -70,49 +70,6 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
-def _daily_seq_by_signal_uid(signal_uids):
-    """Mapea signal_uid -> número de orden dentro del día en que se creó
-    esa señal (1ra, 2da, ... operación del día), para mostrar una
-    numeración amigable en vez del id técnico de Postgres. Se calcula
-    con ROW_NUMBER() sobre TODAS las señales del día correspondiente,
-    no solo las pedidas, para que el número sea estable sin importar
-    qué subconjunto de posiciones esté abierto en este momento."""
-    signal_uids = [s for s in signal_uids if s]
-    if not signal_uids:
-        return {}
-
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT signal_uid, daily_seq FROM (
-                    SELECT signal_uid,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY date_trunc('day', created_at)
-                               ORDER BY created_at
-                           ) AS daily_seq
-                    FROM signals
-                    WHERE date_trunc('day', created_at) IN (
-                        SELECT DISTINCT date_trunc('day', created_at)
-                        FROM signals WHERE signal_uid = ANY(%s)
-                    )
-                ) numbered
-                WHERE signal_uid = ANY(%s)
-                """,
-                (signal_uids, signal_uids),
-            )
-            return dict(cur.fetchall())
-    except psycopg2.Error:
-        # No es crítico para mostrar posiciones — si falla, las tarjetas
-        # simplemente no muestran el número de orden del día.
-        return {}
-    finally:
-        if conn is not None:
-            conn.close()
-
-
 @app.route("/api/positions")
 def api_positions():
     if not os.path.isfile(STATUS_PATH):
@@ -129,12 +86,35 @@ def api_positions():
     data.setdefault("positions", [])
     data.setdefault("account", None)
     data["stale"] = False
-
-    daily_seq_by_uid = _daily_seq_by_signal_uid(p.get("signal_uid") for p in data["positions"])
-    for p in data["positions"]:
-        p["daily_seq"] = daily_seq_by_uid.get(p.get("signal_uid"))
-
+    _attach_daily_seq(data["positions"])
     return jsonify(data), 200
+
+
+def _attach_daily_seq(positions):
+    """Agrega 'daily_seq' (1, 2, 3... según orden cronológico de
+    apertura dentro de su día en UTC, reiniciando cada día) a cada
+    posición — es el número "1ra operación del día" que se muestra
+    como identificador principal en el dashboard en vez del ticket
+    crudo. Solo contempla las posiciones que siguen abiertas ahora
+    (status.json no tiene historial de las ya cerradas), así que si
+    una operación anterior del mismo día ya cerró, la numeración de
+    las que quedan abiertas puede saltear números — es una limitación
+    conocida, no aplica al historial de señales (ver api_signals),
+    que sí tiene el historial completo en Postgres."""
+    with_time = [p for p in positions if p.get("open_time")]
+    without_time = [p for p in positions if not p.get("open_time")]
+    with_time.sort(key=lambda p: p["open_time"])
+
+    counters = {}
+    for p in with_time:
+        day = p["open_time"][:10]  # "YYYY-MM-DD" del ISO 8601 UTC
+        counters[day] = counters.get(day, 0) + 1
+        p["daily_seq"] = counters[day]
+        p["daily_seq_date"] = day
+
+    for p in without_time:
+        p["daily_seq"] = None
+        p["daily_seq_date"] = None
 
 
 VALID_POSITION_ACTIONS = ("SET_BE", "SET_TP_BE", "CLOSE")
@@ -324,15 +304,21 @@ def api_signals():
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # daily_seq: número de secuencia dentro del día de la señal (se
+            # reinicia cada día, orden cronológico ASC pese a que el listado
+            # final se devuelve DESC) — es el identificador amigable ("1ra
+            # señal del día") que se muestra en el dashboard en vez del id
+            # técnico. daily_seq_date acompaña para el caso "N del 20 ago"
+            # cuando el filtro trae señales de más de un día.
             cur.execute(
                 f"""
                 SELECT id, signal_uid, instrument, direction, status,
                        mt4_ticket, entry_price, sl, tp, created_at, updated_at,
                        CASE WHEN id % 20 = 0 THEN 20 ELSE id % 20 END AS cycle_position,
                        ROW_NUMBER() OVER (
-                           PARTITION BY date_trunc('day', created_at)
-                           ORDER BY created_at
-                       ) AS daily_seq
+                           PARTITION BY created_at::date ORDER BY created_at ASC
+                       ) AS daily_seq,
+                       created_at::date AS daily_seq_date
                 FROM signals
                 {where_clause}
                 ORDER BY created_at DESC
