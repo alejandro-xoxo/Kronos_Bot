@@ -259,7 +259,7 @@ async function sendPositionAction(ticket, action, btn) {
   }
 }
 
-let currentSignalsRange = "all";
+let currentSignalsRange = "today";
 
 async function loadSignals() {
   const bodyEl = document.getElementById("signals-body");
