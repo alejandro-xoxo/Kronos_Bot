@@ -5,7 +5,7 @@
 # del sistema (ver kronos-bot.desktop).
 set -euo pipefail
 
-REPO_DIR="/home/alejandroa/Proyectos/Kronos_Bot"
+REPO_DIR="/home/alejandroa/Proyectos/Kronos_Bot-prod"
 WINE_PREFIX_MT4="${HOME}/.wine-mt4"
 KRONOS_LOG="/tmp/kronos-start.log"
 
