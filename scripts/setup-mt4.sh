@@ -16,7 +16,11 @@
 
 set -euo pipefail
 
-WINE_PREFIX_MT4="${HOME}/.wine-mt4"
+# Configurable vía env var para poder correr este mismo script contra
+# el prefijo demo (WINE_PREFIX_MT4=~/.wine-mt4-demo bash scripts/setup-mt4.sh)
+# sin tocar el archivo — antes estaba hardcodeado a ~/.wine-mt4, lo que
+# hacía imposible reusarlo para un segundo prefijo sin editarlo a mano.
+WINE_PREFIX_MT4="${WINE_PREFIX_MT4:-${HOME}/.wine-mt4}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MT4_BRIDGE_DIR="${REPO_ROOT}/mt4-bridge"
 

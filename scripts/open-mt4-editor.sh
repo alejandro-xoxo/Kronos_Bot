@@ -27,17 +27,16 @@ for exe in "${TERMINAL_EXE}" "${METAEDITOR_EXE}"; do
     fi
 done
 
-# Igual que en start-kronos.sh: si MT4 ya está corriendo en este
-# prefijo específico (por PID + WINEPREFIX real, no solo por nombre
-# de proceso — evita confundirlo con una instancia del prefijo demo),
-# no se relanza.
+# Igual que en start-kronos.sh: si MT4 ya está corriendo, no se
+# relanza. Antes esto se detectaba leyendo /proc/<pid>/environ para
+# comparar WINEPREFIX, pero eso falla silenciosamente si el kernel
+# restringe ptrace (mismo bug que se encontró y corrigió en
+# start-kronos.sh) — se simplifica a pgrep por nombre de proceso,
+# válido porque en esta máquina solo corre un prefijo de MT4 a la vez.
 mt4_already_running=""
-for pid in $(pgrep -f "terminal.exe" 2>/dev/null || true); do
-    if tr '\0' '\n' < "/proc/${pid}/environ" 2>/dev/null | grep -qx "WINEPREFIX=${WINE_PREFIX_MT4}"; then
-        mt4_already_running="1"
-        break
-    fi
-done
+if pgrep -x "terminal.exe" >/dev/null 2>&1; then
+    mt4_already_running="1"
+fi
 
 echo "== Prefijo de producción: ${WINE_PREFIX_MT4} =="
 
