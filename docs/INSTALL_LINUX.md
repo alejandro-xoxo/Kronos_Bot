@@ -187,9 +187,16 @@ metatrader4.com.
 3. Seguir el instalador gráfico hasta el final (Next, Next, Finish).
 
 4. Abrir MT4 (mismo `WINEPREFIX` ya exportado, o repetirlo si es una
-   terminal nueva):
+   terminal nueva). **No asumir el nombre exacto de la carpeta** — el
+   instalador de VT Markets la crea como `VT Markets (Pty) MT4
+   Terminal`, no `VT Markets MT4` (nombre distinto al que usan otros
+   brokers/instaladores genéricos de MT4). Confirmar primero:
    ```fish
-   wine "$WINEPREFIX/drive_c/Program Files (x86)/VT Markets MT4/terminal.exe"
+   ls "$WINEPREFIX/drive_c/Program Files (x86)/"
+   ```
+   Y recién con el nombre real confirmado:
+   ```fish
+   wine "$WINEPREFIX/drive_c/Program Files (x86)/VT Markets (Pty) MT4 Terminal/terminal.exe"
    ```
 
 5. Loguearse con las credenciales reales de la cuenta VT Markets
@@ -298,12 +305,15 @@ dentro de MT4 — esto sí es manual, requiere interfaz gráfica.
 3. **Tildar "Allow live trading".** En la ventana que se abre al
    soltarlo, pestaña **Common**: tildar **"Allow live trading"** —
    sin esto el EA corre pero nunca puede enviar órdenes.
-4. **Configurar `InpSymbolSuffix`.** Pestaña **Inputs**: el bróker
-   (VT Markets) usa un sufijo distinto según el tipo de cuenta —
-   `"-VIP"` en la cuenta demo, `"-STD"` en la cuenta real. Dejar el
-   valor que corresponda a la cuenta con la que estás logueado ahora
-   mismo (ver `scripts/setup-mt4.sh` o `PROTOCOLOS_KRONOS_BOT.md`
-   para más contexto de por qué existe este mapeo). Click OK.
+4. **Configurar `InpProfile`.** Pestaña **Inputs**: el EA usa un enum
+   `ENUM_KRONOS_PROFILE` (no un input de texto libre — versión vieja
+   del EA, ya reemplazada) con dos valores: `PROFILE_PROD_STD` (cuenta
+   real `23096429`, símbolo con sufijo `-STD`) y `PROFILE_DEMO_VIP`
+   (cuenta demo `911260411`, símbolo con sufijo `-VIP`). Elegir el que
+   corresponda a la cuenta con la que estás logueado ahora mismo — el
+   EA valida en cada ciclo que `AccountNumber()` coincida con el
+   perfil activo y bloquea la ejecución si no coincide
+   (`ValidateAccountProfile()`). Click OK.
 5. **Activar el AutoTrading global.** Además del punto 3 (que es por
    EA/gráfico), hay un interruptor separado en la barra de
    herramientas principal de MT4: el botón **"AutoTrading"**. Tiene
@@ -321,10 +331,10 @@ un gráfico, la instancia en memoria sigue ejecutando el código
 **viejo** — MT4 no recarga sola un EA ya adjunto. Hay que sacarlo y
 volver a ponerlo: click derecho sobre el gráfico → `Expert Advisors →
 Remove`, y volver a arrastrar `KronosBridgeEA` desde el Navigator.
-Repetir esto cada vez que se recompile, incluidos cambios de
-`InpSymbolSuffix` en el código fuente (cambiar el *valor* del input
-desde Properties, en cambio, no requiere recompilar ni recargar — ver
-punto 4).
+Repetir esto cada vez que se recompile, incluidos cambios al enum
+`ENUM_KRONOS_PROFILE` en el código fuente (cambiar el *valor* de
+`InpProfile` desde Properties, en cambio, no requiere recompilar ni
+recargar — ver punto 4).
 
 ## 11. Puente n8n → MT4 (escritura de órdenes)
 
@@ -398,9 +408,10 @@ pero no pasa nada, o `results/{id}.json` reporta error):**
    resultado, éxito o fallo, con `error_message` legible.
 2. Si el error es `INSTRUMENT_NOT_SUPPORTED` o `SYMBOL_NOT_FOUND`: el
    instrumento de la señal no está en el mapeo del EA (solo
-   XAUUSD/EURUSD hoy), o `InpSymbolSuffix` no coincide con el sufijo
-   real del símbolo en Market Watch de esa cuenta — revisar sección
-   10, punto 4.
+   XAUUSD/EURUSD hoy), o `InpProfile` no coincide con la cuenta
+   realmente logueada (el EA valida esto solo y lo reporta como
+   `ACCOUNT MISMATCH` en la pestaña Experts) — revisar sección 10,
+   punto 4.
 3. Si no se escribe ningún `results/` en absoluto: revisar la pestaña
    **Experts** de MT4 (logs del EA) y confirmar "Allow live trading"
    + AutoTrading global (sección 10, puntos 3 y 5).

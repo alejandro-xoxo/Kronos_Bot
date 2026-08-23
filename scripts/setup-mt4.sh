@@ -194,11 +194,16 @@ Lo automatizable ya quedó listo. Faltan estos pasos manuales:
 3. Seguir el instalador gráfico hasta el final (Next, Next, Finish).
    MT4 debería quedar instalado dentro de:
 
-     ${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/VT Markets MT4/
+     ${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/VT Markets (Pty) MT4 Terminal/
+
+   (nombre exacto de carpeta, confirmar con
+   'ls "${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/"' si el
+   instalador usó un nombre distinto — puede variar entre versiones
+   del instalador de VT Markets).
 
 4. Abrir MT4 con ese mismo prefijo:
 
-     WINEPREFIX="${WINE_PREFIX_MT4}" wine "${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/VT Markets MT4/terminal.exe"
+     WINEPREFIX="${WINE_PREFIX_MT4}" wine "${WINE_PREFIX_MT4}/drive_c/Program Files (x86)/VT Markets (Pty) MT4 Terminal/terminal.exe"
 
 5. Recién AHORA, dentro de la plataforma ya instalada, conectarte al
    servidor específico de VT Markets: en MT4 ir a

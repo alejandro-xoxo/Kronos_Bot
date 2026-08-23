@@ -256,9 +256,11 @@ Windows nativo, no cambia nada por no usar Wine):
 2. **Arrastrar al gráfico** del instrumento que quieras (ej. XAUUSD)
    desde el Navigator.
 3. **Pestaña Common → tildar "Allow live trading".**
-4. **Pestaña Inputs → `InpSymbolSuffix`**: `"-VIP"` en cuenta demo,
-   `"-STD"` en cuenta real (VT Markets usa un sufijo distinto según
-   el tipo de cuenta).
+4. **Pestaña Inputs → `InpProfile`**: enum `ENUM_KRONOS_PROFILE`, no
+   texto libre. `PROFILE_DEMO_VIP` en cuenta demo (sufijo `-VIP`),
+   `PROFILE_PROD_STD` en cuenta real (sufijo `-STD`). El EA valida
+   que `AccountNumber()` coincida con el perfil elegido y bloquea la
+   ejecución (log `ACCOUNT MISMATCH` en Experts) si no coincide.
 5. **Botón global "AutoTrading"** de la barra de herramientas de MT4
    en verde — es un interruptor aparte del punto 3, y sin él ningún
    EA ejecuta nada.
@@ -268,7 +270,7 @@ Windows nativo, no cambia nada por no usar Wine):
 **Si recompilás (`F7`) con el EA ya corriendo en un gráfico**, la
 instancia en memoria sigue con el código viejo — sacarlo
 (`Expert Advisors → Remove`) y volver a arrastrarlo. Cambiar el
-*valor* de `InpSymbolSuffix` desde Properties, en cambio, no requiere
+*valor* de `InpProfile` desde Properties, en cambio, no requiere
 recompilar ni recargar.
 
 ## 11. Puente n8n → MT4 (escritura de órdenes)

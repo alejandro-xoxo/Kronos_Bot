@@ -207,10 +207,11 @@ Igual que en producción: `F4` (MetaEditor) → abrir
 `~/.wine-mt4-demo/.../MQL4/Experts/` primero, no está ahí todavía) →
 `F7` para compilar → volver a MT4 → arrastrar el EA al gráfico del
 símbolo que quieras probar (ej. `XAUUSD-VIP` o el sufijo que use la
-cuenta demo) → confirmar en **Inputs** que `InpSymbolSuffix` coincide
-con el sufijo real de la cuenta demo (mismo tipo de chequeo que el bug
-que ya encontramos en producción — doble verificar acá para no
-repetirlo del otro lado).
+cuenta demo) → confirmar en **Inputs** que `InpProfile` está en
+`PROFILE_DEMO_VIP` (el EA valida `AccountNumber()` contra el perfil
+elegido y bloquea la ejecución con `ACCOUNT MISMATCH` en Experts si
+no coincide — doble verificar acá para no repetir del lado demo el
+mismo tipo de bug ya visto en producción).
 
 ---
 
@@ -292,9 +293,15 @@ docker compose -f docker-compose.dev.yml --env-file .env.dev logs ngrok | grep -
    `NGROK_AUTHTOKEN_DEV`.
 4. Sección 1 → `docker compose -f docker-compose.dev.yml --env-file .env.dev up -d`.
 5. Entrar a `http://localhost:5679`, importar
-   `n8n-workflows/webhook-mvp-workflow.json` a mano (Import from File
+   `n8n-workflows/webhook-dev-workflow.json` a mano (Import from File
    en la UI de n8n) — **no lo sube nadie por API a esta instancia
    dev automáticamente**, es un paso manual la primera vez.
+   **NUNCA importar `webhook-mvp-workflow.json`** (el de
+   producción) en la instancia dev — ver la regla no negociable de
+   `CLAUDE.md` sobre los nodos de entrada (`Webhook`+Telethon en
+   prod vs `Telegram Trigger` en dev): son estructuralmente
+   distintos y permanentes por ambiente, nunca se restauran uno
+   desde el otro.
 6. Sección 5 → conectar el bot de Telegram nuevo a los nodos de
    Telegram del workflow recién importado.
 7. Activar el workflow en n8n dev, mandar un mensaje de prueba al
