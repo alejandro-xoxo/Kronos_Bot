@@ -131,9 +131,81 @@ fi
 # alacritty (este mismo script) sigue siendo la ventana activa, al
 # cerrarse alacritty Hyprland devuelve el foco al workspace anterior y
 # el cambio se pierde — reproducido.
+# Las windowrules de kronos-layout.conf ya NO fijan tamaño/posición
+# con `size %`/`move %`: cuando el monitor secundario (HDMI-A-1) no
+# está conectado, Hyprland calcula esos porcentajes contra el monitor
+# "asignado" al workspace (HDMI-A-1) en vez de contra el monitor donde
+# el workspace realmente termina cayendo (eDP-1), y las ventanas
+# aparecen con coordenadas negativas, fuera de pantalla — bug real,
+# reproducido 2026-08-24 (se veía como "el gráfico no está" pese a que
+# el proceso de MT4 sí estaba corriendo). Por eso el tamaño/posición se
+# calculan acá, en píxeles reales, contra el monitor efectivo de cada
+# ventana vía `hyprctl monitors`/`clients` — inmune a ese bug.
+#
+# Cada ventana se posiciona apenas SU PROPIA ventana existe en Hyprland
+# (poll con timeout), no con un `sleep` fijo global: Telegram Web tarda
+# bastante más en mapear su ventana que Dashboard (carga una SPA
+# completa), así que un sleep único pensado para el caso rápido llegaba
+# antes de que Telegram existiera, el dispatch de resize/move no
+# encontraba la ventana y se perdía en silencio — quedaba con el
+# tamaño/posición chico por defecto, tapada debajo del Dashboard, y
+# parecía "no haber abierto" aunque el proceso sí estaba corriendo —
+# bug real, reproducido 2026-08-24.
+posicionar_ventanas_kronos() {
+    command -v jq >/dev/null 2>&1 || { echo "jq no disponible, no se reposicionan ventanas."; return 0; }
+
+    local x y w h reserved_top usable_h
+
+    posicionar_una() {
+        # clase_literal: nombre exacto tal cual aparece en `.class` de
+        # hyprctl (sin escapar) — se usa para comparar con jq.
+        # clase_regex: mismo nombre pero apto como patrón de `class:`
+        # en hyprctl dispatch (con metacaracteres regex escapados,
+        # ej. el punto de "terminal.exe"). Usar clase_regex también
+        # para el filtro de jq (como se hacía antes) nunca matcheaba
+        # "terminal.exe" porque jq compara texto literal, no regex —
+        # bug real, reproducido 2026-08-24: la ventana de MT4 nunca se
+        # encontraba y quedaba sin reposicionar.
+        local clase_literal="$1" clase_regex="$2" frac_x="$3" frac_w="$4" timeout_s="${5:-20}"
+        local esperado=0 mon_id=""
+        while [ "${esperado}" -lt "${timeout_s}" ]; do
+            mon_id="$(hyprctl clients -j | jq -r --arg c "${clase_literal}" '.[] | select(.class==$c) | .monitor' | head -n1)"
+            [ -n "${mon_id}" ] && break
+            sleep 1
+            esperado=$((esperado + 1))
+        done
+        if [ -z "${mon_id}" ]; then
+            echo "posicionar_ventanas_kronos: ${clase_literal} no apareció tras ${timeout_s}s, se omite."
+            return 0
+        fi
+
+        local geo
+        geo="$(hyprctl monitors -j | jq -r --argjson id "${mon_id}" '.[] | select(.id==$id) | "\(.x) \(.y) \(.width/.scale|floor) \(.height/.scale|floor) \(.reserved[1])"')"
+        [ -n "${geo}" ] || return 0
+        read -r x y w h reserved_top <<<"${geo}"
+        usable_h=$((h - reserved_top))
+        local win_x=$((x + (w * frac_x / 100)))
+        local win_y=$((y + reserved_top))
+        local win_w=$((w * frac_w / 100))
+        hyprctl dispatch focuswindow "class:^(${clase_regex})\$" >/dev/null 2>&1
+        hyprctl dispatch resizewindowpixel exact "${win_w} ${usable_h}","class:^(${clase_regex})\$" >/dev/null 2>&1
+        hyprctl dispatch movewindowpixel exact "${win_x} ${win_y}","class:^(${clase_regex})\$" >/dev/null 2>&1
+    }
+
+    # Las tres corren en paralelo (cada una espera solo lo que su
+    # propia ventana tarde) en vez de en secuencia, para no sumar los
+    # timeouts de las que tardan.
+    posicionar_una "KronosDashboard" "KronosDashboard" 0 65 &
+    posicionar_una "KronosTelegram" "KronosTelegram" 65 35 &
+    posicionar_una "terminal.exe" "terminal\\.exe" 0 100 &
+    wait
+}
+
 if command -v hyprctl >/dev/null 2>&1; then
     systemd-run --user --unit="kronos-focus-ws9-$$" -- \
         bash -c 'sleep 1; hyprctl dispatch workspace 9; hyprctl dispatch workspace 10' >/dev/null 2>&1 || true
+    systemd-run --user --unit="kronos-layout-$$" -- \
+        bash -c "$(declare -f posicionar_ventanas_kronos); posicionar_ventanas_kronos" >/dev/null 2>&1 || true
 fi
 
 echo "== Listo. Dashboard: http://localhost:8088 =="
