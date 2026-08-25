@@ -9,3 +9,4 @@ mt4-bridge/orders/results/*
 !mt4-bridge/orders/pending/.gitkeep
 !mt4-bridge/orders/results/.gitkeep
 __pycache__/
+kronos_group_export.md
