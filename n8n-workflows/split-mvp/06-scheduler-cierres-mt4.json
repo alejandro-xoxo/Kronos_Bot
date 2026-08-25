@@ -1,0 +1,245 @@
+{
+  "name": "Kronos 06 - Scheduler cierres MT4",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 5. Detección de cierres (TP/SL)\nTrigger periódico lee los cierres reportados por el EA (TP o SL alcanzado), actualiza el status en Postgres y notifica el resultado por Telegram.",
+        "height": 500,
+        "width": 1700,
+        "color": 2
+      },
+      "id": "b65e381d-1960-40b4-a44a-3d96812198ef",
+      "name": "Nota: 5. Detección de cierres TP-SL",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        3330
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "7d7e7f70-0001-4a1a-8a1a-000000000051",
+      "name": "Trigger: leer cierres MT4",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2600,
+        3600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $env.MT4_ORDERS_DIR }}/closed/*.json",
+        "options": {}
+      },
+      "id": "7d7e7f70-0002-4a1a-8a1a-000000000052",
+      "name": "Leer cierres (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -2350,
+        3600
+      ],
+      "notes": "Lee mt4-bridge/orders/closed/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — cierre TP/SL (puente MT4): parsea cada archivo leído de\n// mt4-bridge/orders/closed/{ticket}.json (formato en\n// mt4-bridge/FORMATO_ARCHIVOS.md sección 5.1).\n// Mismo patrón que 'Parsear resultado (MT4)': binario en modo\n// filesystem-v2, se lee con this.helpers.getBinaryDataBuffer.\nconst results = [];\nconst items = $input.all();\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const binaryMeta = item.binary.data;\n  const fullPath = `${binaryMeta.directory}/${binaryMeta.fileName}`;\n  const buffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const parsed = JSON.parse(buffer.toString('utf-8'));\n\n  results.push({\n    json: {\n      ticket: parsed.ticket,\n      signal_uid: parsed.signal_uid,\n      symbol: parsed.symbol,\n      reason: parsed.reason,\n      close_price: parsed.close_price,\n      profit: parsed.profit,\n      close_time: parsed.close_time,\n      fileName: fullPath,\n    },\n  });\n}\n\nreturn results;"
+      },
+      "id": "7d7e7f70-0003-4a1a-8a1a-000000000053",
+      "name": "Parsear cierre (MT4)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2100,
+        3600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET\n    status = $2,\n    close_price = $3,\n    profit_loss = $4,\n    close_timestamp = $5::timestamp,\n    mt4_ticket = COALESCE(mt4_ticket, $6),\n    updated_at = NOW()\n  WHERE signal_uid = $1 AND status = 'OPEN'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, $1::text AS signal_uid;",
+        "options": {
+          "queryReplacement": "={{ [$json.signal_uid, $json.reason, $json.close_price, $json.profit, $json.close_time, $json.ticket] }}"
+        }
+      },
+      "id": "7d7e7f70-0004-4a1a-8a1a-000000000054",
+      "name": "Actualizar status: cierre TP/SL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1850,
+        3600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "UPDATE idempotente (mismo patron que 'Actualizar status: OPEN/PENDING_MANUAL'): solo actualiza si status='OPEN', correlaciona por signal_uid (closed/*.json no trae el id numerico de Postgres, solo signal_uid). Si el mismo archivo se reprocesa, el segundo UPDATE no encuentra fila en status='OPEN' y no hace nada."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated-closed",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7d7e7f70-0005-4a1a-8a1a-000000000055",
+      "name": "¿Se actualizó cierre ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        3600
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "={{ ($('Parsear cierre (MT4)').item.json.reason === 'TP_REACHED' ? '🎯 TP alcanzado — señal ' : ($('Parsear cierre (MT4)').item.json.reason === 'SL_REACHED' ? '🛑 SL alcanzado — señal ' : '✋ Cierre manual — señal ')) + $('Parsear cierre (MT4)').item.json.signal_uid + ' (ticket ' + $('Parsear cierre (MT4)').item.json.ticket + '), precio ' + $('Parsear cierre (MT4)').item.json.close_price + ', resultado ' + $('Parsear cierre (MT4)').item.json.profit }}",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "7d7e7f70-0006-4a1a-8a1a-000000000056",
+      "name": "Avisar en chat: Cierre TP/SL",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        3500
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — cierre TP/SL: borra el archivo de\n// mt4-bridge/orders/closed/{ticket}.json ya procesado.\n// Se ejecuta siempre (haya notificado o no) — mismo criterio que\n// 'Borrar archivo de resultado'. fileName se recupera del nodo\n// 'Parsear cierre (MT4)' porque el nodo Postgres intermedio reemplaza\n// item.json por las columnas devueltas por la query.\nconst fs = require('fs');\n\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const paired = items[i].pairedItem;\n  const idx = Array.isArray(paired) ? paired[0].item : paired.item;\n  const fileName = $('Parsear cierre (MT4)').all()[idx].json.fileName;\n  await fs.promises.unlink(fileName);\n}\n\nreturn items;"
+      },
+      "id": "7d7e7f70-0007-4a1a-8a1a-000000000057",
+      "name": "Borrar archivo de cierre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1350,
+        3700
+      ],
+      "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml (ya habilitado para 'Borrar archivo de resultado')."
+    }
+  ],
+  "connections": {
+    "Trigger: leer cierres MT4": {
+      "main": [
+        [
+          {
+            "node": "Leer cierres (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer cierres (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Parsear cierre (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear cierre (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Actualizar status: cierre TP/SL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: cierre TP/SL": {
+      "main": [
+        [
+          {
+            "node": "¿Se actualizó cierre ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se actualizó cierre ahora?": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Cierre TP/SL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Borrar archivo de cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar en chat: Cierre TP/SL": {
+      "main": [
+        [
+          {
+            "node": "Borrar archivo de cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

@@ -1,0 +1,122 @@
+{
+  "name": "Kronos 02 - Señal nueva (parseo confirmado)",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "2db36409-2c2d-4e01-ab4a-6ded6bd440af",
+      "name": "Recibido de otro workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1900,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signals (signal_uid, message_id, chat_id, sender, raw_text, signal_timestamp, reply_to_message_id, instrument, direction, execution_type, entry_price, sl, tp, interpreted_by, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.signal_uid, $json.message_id, $json.chat_id, $json.sender, $json.raw_text, $json.timestamp, $json.reply_to_message_id, $json.instrument, $json.direction, $json.execution_type, $json.entry_price, $json.sl, $json.tp, $json.interpreted_by, $json.status] }}"
+        }
+      },
+      "id": "12cc7923-075d-4144-8f62-8de4e62fe1bd",
+      "name": "Insertar señal (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1600,
+        -120
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Parámetros $1..$14 mapeados 1:1 en el mismo orden que las columnas del INSERT (ver columnas de la tabla signals en db/schema.sql). Credencial: host=postgres, port=5432, database/user/password según .env."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Parsear señal (regex)').item.json.instrument }}\nDirección: {{ $('Parsear señal (regex)').item.json.direction }}\nTipo: {{ $('Parsear señal (regex)').item.json.execution_type }}\nEntrada: {{ $('Parsear señal (regex)').item.json.entry_price }}\nTP: {{ $('Parsear señal (regex)').item.json.tp }}\nSL: {{ $('Parsear señal (regex)').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Confirmar",
+                    "additionalFields": {
+                      "callback_data": "=confirm:{{ $json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Rechazar",
+                    "additionalFields": {
+                      "callback_data": "=reject:{{ $json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "id": "d6926da1-b0d0-4ba8-93ce-e268cbdb0e6f",
+      "name": "Notificar Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        -120
+      ],
+      "notesInFlow": true,
+      "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
+      "credentials": {
+        "telegramApi": {
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
+    }
+  ],
+  "connections": {
+    "Insertar señal (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "Notificar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recibido de otro workflow": {
+      "main": [
+        [
+          {
+            "node": "Insertar señal (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

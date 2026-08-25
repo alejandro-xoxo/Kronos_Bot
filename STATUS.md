@@ -8,6 +8,68 @@
 > alcance de v1 (qué incluye y qué queda afuera a propósito),
 > `docs/versions/v1.md`.
 
+## Excepción registrada: migración del workflow monolítico al split (commit directo a `main`)
+
+**2026-08-25** — cambio de infraestructura aplicado directo sobre
+`main`/producción, autorizado explícitamente por el usuario como
+excepción al flujo normal `feature/* → develop → main` (mismo patrón
+que la excepción de acceso remoto al dashboard, abajo, y la de
+LIMIT/MERCADO). Motivo: el workflow monolítico de producción
+(`Kronos Bot - MVP Fase 3...`, id `c63WzDgtnYMN6Ll7`) compartía una
+sola cola de ejecución entre todos los canales — un canal lento (ej.
+Gemini) podía bloquear a los demás.
+
+Cambios:
+
+- Se trajeron a `main` los 7 archivos de `n8n-workflows/split-mvp/`
+  (ya existían en `develop`, nunca se habían mergeado a `main`).
+  Contienen el mismo nodo de entrada de producción
+  (`n8n-nodes-base.webhook`, path `kronos-telethon-signal`, no el
+  `Telegram Trigger` de dev) — ver regla de `CLAUDE.md` sobre nodos de
+  entrada no sincronizables entre ambientes.
+- Se corrigieron los dos `scheduleTrigger` (resultados/cierres MT4)
+  que en el split venían en 1s: se dejaron en 5s, igual que el
+  monolítico de producción hasta este cambio — el split no debía
+  alterar funcionalidad, solo reorganizar el workflow en 7 piezas
+  independientes conectadas con `Execute Workflow`
+  (`waitForSubWorkflow: false`).
+- Se verificó paridad 1:1 de los 56 nodos funcionales del monolítico
+  contra la unión de los 7 archivos del split antes de aplicar nada
+  (solo se agregan 4 nodos de conexión —
+  `n8n-nodes-base.executeWorkflow` / `executeWorkflowTrigger` — que no
+  existían por ser reorganización, no lógica nueva).
+- Aplicado directo contra la instancia real de n8n vía API
+  (`http://localhost:5678/api/v1`, con `N8N_API_KEY` del `.env` de
+  `Kronos_Bot-prod/`, sin pasar por Caddy/ngrok que solo rutea
+  `/webhook/*` a n8n): se crearon los 7 workflows nuevos, se
+  reconectaron los 3 nodos `Ejecutar: ...` con los IDs reales
+  devueltos por la API, se desactivó el workflow monolítico
+  (`c63WzDgtnYMN6Ll7`, **sin borrar**, queda como rollback), y se
+  activaron los 7 workflows del split. IDs nuevos: `01` →
+  `mhLpVNQbkcQFACBx`, `02` → `EiozKB436D4FYoI3`, `03` →
+  `xlUe5LE7T8FlAul6`, `04` → `8KIJztUvYzj2FhCr`, `05` →
+  `ac8VZ4gHsLjzdTrS`, `06` → `yXVAtajinNUNzWfv`, `07` →
+  `wabC0aOMrV2se0PE`.
+- Se probó el webhook de entrada (`POST
+  /webhook/kronos-telethon-signal`) post-migración: responde `200`
+  igual que antes. **No se probó todavía una señal real de punta a
+  punta** (confirmación Telegram → MT4 → resultado) contra el split en
+  producción — pendiente de observar la próxima señal real del grupo.
+- Fase 4 (Gemini, workflow `07`) sigue **bloqueada** para producción
+  por decisión del usuario — esta migración no cambia ese estado, el
+  workflow `07` está activo pero sin `GEMINI_API_KEY` configurada, tal
+  como estaba la rama de Fase 4 dentro del monolítico.
+- El `07-seguimiento-gemini.json` que se subió a `main` es la versión
+  de `split-mvp` (equivalente al monolítico congelado antes de la
+  pieza 4a) — **no** incluye las piezas nuevas de Fase 4
+  (`CLOSE_AT_PRICE` con `TP<n>`/`TP_NO_EXISTE`, `SL_CHANGE`) que se
+  siguen acumulando solo en `n8n-workflows/split-dev/07-seguimiento-gemini.json`,
+  consistente con que Fase 4 sigue sin aprobación para producción.
+
+**Rollback:** reactivar `c63WzDgtnYMN6Ll7` y desactivar los 7 del
+split revierte al estado anterior sin pérdida de datos (Postgres y
+`mt4-bridge/` no cambiaron).
+
 ## Excepción registrada: acceso remoto al dashboard (commit directo a `main`)
 
 **2026-08-21** — cambio de infraestructura aplicado directo sobre
