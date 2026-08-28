@@ -8,6 +8,131 @@
 > alcance de v1 (qué incluye y qué queda afuera a propósito),
 > `docs/versions/v1.md`.
 
+## Reporte — primera prueba con tráfico real del grupo, stack dev + MT4 demo (2026-08-28)
+
+Sesión larga (madrugada del 27 al 28/08) probando el ciclo completo con
+**mensajes reales** del grupo de Telegram, redirigidos temporalmente
+del Telethon de producción hacia el stack dev, ejecutando contra la
+cuenta **demo** de MT4 (`911260411`). Detalle completo del
+procedimiento de redirección (nodo Webhook temporal + credencial
+Header Auth, aplicado solo en la instancia de n8n dev, nunca en el
+repo) en el historial de conversación — acá solo el resultado.
+
+### Resultado: el ciclo completo funciona de punta a punta
+
+Grupo real → Telethon → webhook temporal → parser regex → inserción en
+Postgres → auto-confirmación (mecanismo temporal, solo para esta
+prueba, no forma parte del MVP) → ejecución real en MT4 demo → lectura
+de resultado → notificación por Telegram. Verificado con tickets
+reales: `#204144208`, `#204145069`, `#204146047`, `#204150530`,
+`#204153921` (aperturas y cierres reales, incluida una orden `LIMIT`
+por desfasaje de precio, y un cierre manual vía instrucción de
+seguimiento real).
+
+### 5 bugs reales encontrados y corregidos (solo en n8n dev, vía API — nunca se tocó el repo ni producción)
+
+Todos comparten el mismo patrón: una expresión `$('NombreDeNodo')`
+que referencia un nodo que existe en **otro** workflow (típicamente
+`01`), rota porque cada pieza del split (`n8n-workflows/split-mvp/` y
+`split-dev/`) corre como ejecución independiente sin acceso a los
+nodos del workflow que la llamó. El fix siempre es el mismo patrón:
+cambiar la referencia cruzada por `$json` o por
+`$('Recibido de otro workflow').item.json` (el nodo trigger local del
+propio sub-workflow, en modo `passthrough`).
+
+1. **Workflow `02`** (`Notificar Telegram`) — nunca había funcionado
+   la notificación de "nueva señal detectada", ni antes de esta
+   sesión. Referenciaba `$('Parsear señal (regex)')` (nodo de `01`).
+2. **Workflow `04`** (`Obtener señal confirmada`) — sin este fix,
+   **ninguna** ejecución en MT4 funciona, ni con confirmación manual.
+   Referenciaba `$('Parsear callback')` (nodo de `03`).
+3. **Workflow `06`** (`¿Se actualizó cierre ahora?`) — la rama sin
+   match borraba el archivo de cierre del EA sin notificar,
+   perdiéndolo para siempre. No era referencia cruzada, era lógica de
+   reintento faltante: se corrigió para que esa rama no borre el
+   archivo y se reintente en el próximo ciclo del scheduler.
+4. **Workflow `07`, pieza 7a** (`Buscar señal referenciada`) —
+   referenciaba `$('¿Señal válida?')` (nodo de `01`). Sin este fix,
+   **todo** el camino de seguimiento fallaba antes de llegar al
+   regex — ninguna instrucción de seguimiento se procesaba nunca.
+5. **Workflow `07`** (`¿Tiene acción EA?`, `Preparar acción EA (JSON)`,
+   `Escribir acción EA (MT4)`, y los dos nodos `Avisar en chat`) — el
+   más grave: `Insertar modificación (Postgres)` pisa `$json` con
+   `RETURNING id`, así que `ea_action`/`mt4_ticket`/etc. se perdían.
+   **`CLOSE_AT_PRICE`, `CANCEL` y cualquier modificación con acción
+   real en el EA quedaban "registradas" en Postgres pero nunca se
+   ejecutaban de verdad en MT4** — el sistema reportaba "sin acción
+   automática" como si fuera el comportamiento esperado. Ya estaba
+   anotado como riesgo conocido en una nota del propio nodo
+   `¿Tiene acción EA?` (dejada por una sesión anterior), confirmado y
+   corregido en esta.
+
+### Otros hallazgos (documentados, algunos corregidos solo en dev)
+
+- **Modelo de Gemini deprecado**: `gemini-1.5-flash` (404, retirado) →
+  se probó `gemini-2.5-flash` (también retirado, Google recomienda
+  `gemini-3.6-flash` en el mensaje de error) → se fijó en
+  **`gemini-flash-latest`** (alias estable, apunta siempre al flash
+  vigente). Corregido en los 3 nodos HTTP de Gemini del workflow `07`
+  dev. Ver disponibilidad de modelos reales con
+  `GET https://generativelanguage.googleapis.com/v1beta/models?key=...`
+  antes de fijar un nombre de modelo a mano en el futuro.
+- **`settings.capital_real` nunca se escribe** desde ningún workflow
+  de n8n (ni dev ni `split-mvp`) — se sembró a mano en dev
+  (`INSERT INTO settings (capital_real) VALUES (772.22)`) para poder
+  probar. En producción debe estar cargado a mano en algún momento —
+  no hay automatismo real pese a lo que sugiere `CLAUDE.md`. Sin
+  resolver.
+- **Discrepancia lotaje MVP vs código real**: `04-ejecución-en-mt4.json`
+  (dev y `split-mvp`) ya calcula lotaje dinámico
+  (`floor(capital_real/100)*0.01`), no el lotaje fijo `0.01` que
+  describe el alcance documentado del MVP. Sin resolver, requiere
+  decisión del usuario.
+- **Faltaban carpetas en el prefijo Wine demo** (`orders/closed/`,
+  `orders/actions/`) — `DEV_SETUP.md` las menciona pero no se habían
+  creado. Creadas manualmente.
+- **`account_mismatch` del EA** bloqueaba `ProcessPendingOrders()`
+  contra la cuenta demo (el EA esperaba el perfil `PROD_STD`, cuenta
+  `23096429`) — resuelto escribiendo `orders/config.json` con
+  `{"profile": "DEMO_VIP"}` (mecanismo ya existente en el EA, sin
+  recompilar).
+- **Ejecuciones de n8n dev con retención muy agresiva** — el stack
+  dev tiene `EXECUTIONS_DATA_PRUNE`/similar configurado de forma que
+  los schedulers de 1-2s (`05`, `06`) saturan rápido el historial
+  global de ejecuciones, "empujando" ejecuciones raras (como las del
+  workflow `07`) fuera de la retención en segundos. Dificultó el
+  debugging esta noche. Sin resolver, no es bloqueante pero vale la
+  pena revisar la config de retención de `docker-compose.dev.yml`.
+- **Credenciales de n8n corrompidas al guardar desde la UI** — pasó
+  dos veces (la de `Header Auth` para el webhook temporal, y
+  aparentemente algo similar con la de Telegram, aunque en este caso
+  el problema real terminó siendo que el usuario le escribía a un bot
+  distinto al configurado). El fix que funcionó ambas veces fue
+  **recrear la credencial desde cero por API** en vez de editar el
+  valor de la existente.
+
+### Decisiones de producto registradas esta sesión (ver rama
+`feature/docs-fase8-lotaje-capital`, no mezclada acá)
+
+- Fórmula de lotaje para el modo 100% automático (Fase 8, futuro):
+  `floor(capital/500)*0.01`, capital = `AccountBalance()` completo
+  (con crédito), tope fijo de 2 operaciones simultáneas.
+- Invalidación de órdenes `LIMIT` sin llenar a los 4 minutos — solo
+  aplica al modo 100% automático, sin implementar.
+
+### Pendiente / no bloqueante
+
+- Notificación de Telegram: resuelta durante esta sesión (era el bot
+  equivocado, no un bug de configuración).
+- Camino de confirmación manual por botones (workflow `03`) — no se
+  probó esta sesión, se usó un auto-confirmador temporal para saltarlo.
+- Tipos de modificación sin probar: `TP_NO_EXISTE`,
+  `TP_UPDATE_SIN_VALOR`, `SL_CHANGE`, `TP_UPDATE`, `CLOSE_ALL_TO_BE`.
+- Llevar los 5 fixes de bugs a `n8n-workflows/split-mvp/*.json` y a
+  producción, siguiendo el flujo normal (`feature/* → develop → main`)
+  — **no aplicado todavía a ningún archivo del repo, solo a la
+  instancia de n8n dev en caliente.**
+
 ## Excepción registrada: acceso remoto al dashboard (commit directo a `main`)
 
 **2026-08-21** — cambio de infraestructura aplicado directo sobre
