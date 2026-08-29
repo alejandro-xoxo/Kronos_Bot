@@ -41,11 +41,17 @@ reales**:
 ```dotenv
 # n8n
 N8N_HOST=
-DASHBOARD_USER=
-DASHBOARD_PASSWORD=
 N8N_API_KEY=
 
-# ngrok (túnel para exponer el webhook de n8n)
+# Dashboard (Flask, autenticación HTTP Basic — ver sección 4)
+DASHBOARD_USER=
+DASHBOARD_PASSWORD=
+
+# Webhook Telethon -> n8n (secreto compartido, cualquier cadena larga
+# random sirve — ej. `openssl rand -hex 32`)
+KRONOS_WEBHOOK_SECRET=
+
+# ngrok (túnel para exponer n8n + dashboard, vía Caddy)
 NGROK_AUTHTOKEN=
 
 # Postgres
@@ -60,10 +66,18 @@ TELEGRAM_PHONE=
 TELEGRAM_GROUP_ID=
 TELEGRAM_USER_CHAT_ID=
 
-# Puente n8n -> MT4 (ver sección 11 — se agrega DESPUÉS de instalar
+# Puente n8n -> MT4 (ver sección 12 — se agrega DESPUÉS de instalar
 # MT4 y correr scripts/setup-mt4.sh, no antes; sin Wine todavía no
 # existe la ruta real que va acá)
 MT4_ORDERS_HOST_PATH=
+```
+
+Podés validar que no falta ni quedó vacía ninguna de estas variables
+(salvo `N8N_API_KEY`/`MT4_ORDERS_HOST_PATH`, que se completan después)
+con:
+
+```bash
+bash scripts/check-env.sh
 ```
 
 - `N8N_API_KEY` se genera desde la propia UI de n8n (Settings → n8n
@@ -86,8 +100,8 @@ MT4_ORDERS_HOST_PATH=
   Confirmar/Rechazar. Se obtiene fácil hablándole a `@userinfobot` en
   Telegram (te devuelve tu ID al toque), o revisando el `chat.id` de
   cualquier update que le mandes a tu propio bot una vez creado (ver
-  sección 5).
-- `MT4_ORDERS_HOST_PATH` se completa en la sección 11, no ahora —
+  sección 6).
+- `MT4_ORDERS_HOST_PATH` se completa en la sección 12, no ahora —
   depende de una ruta que solo existe después de instalar Wine/MT4.
 
 ## 4. Levantar el stack de Docker
@@ -96,13 +110,19 @@ MT4_ORDERS_HOST_PATH=
 docker compose up -d
 ```
 
-Esto levanta 4 servicios (ver `docker-compose.yml`):
+Esto levanta 6 servicios (ver `docker-compose.yml`):
 
-- `n8n` — orquestador, expuesto en el puerto `5678`.
-- `ngrok` — túnel público hacia n8n (dominio fijo vía `N8N_HOST`).
+- `n8n` — orquestador, en `127.0.0.1:5678` (solo localhost, no
+  expuesto a la red — el acceso real es vía `caddy` + `ngrok`).
+- `caddy` — proxy que rutea `/webhook/*` hacia `n8n` y todo lo demás
+  hacia `dashboard`, ambos detrás de la misma URL pública.
+- `ngrok` — túnel público hacia `caddy` (dominio fijo vía `N8N_HOST`).
 - `postgres` — base de datos (`signals`, `signal_modifications`,
-  `settings`).
+  `settings`, `daily_pnl`).
 - `telethon` — microservicio que escucha el grupo de Telegram.
+- `dashboard` — panel web (Flask) con las posiciones abiertas y
+  controles BE/Cerrar, protegido con HTTP Basic Auth
+  (`DASHBOARD_USER`/`DASHBOARD_PASSWORD`).
 
 El servicio `postgres` monta `./db/schema.sql` en
 `/docker-entrypoint-initdb.d/`, así que si el volumen `postgres_data`
@@ -110,7 +130,50 @@ se crea desde cero, el schema se aplica automáticamente sin pasos
 manuales. Esto **no** aplica si el volumen ya existe (ver siguiente
 sección).
 
-## 5. Aplicar `schema.sql` manualmente (solo si el volumen ya existía)
+## 5. Bot de Telegram y primer import del workflow de n8n
+
+Un n8n recién levantado arranca sin ningún workflow — este paso no
+existía documentado antes y había que hacerlo a mano, sin guía, desde
+la UI. Cubre desde crear el bot hasta dejar el workflow principal
+importado.
+
+1. **Crear el bot de Telegram.** Hablarle a `@BotFather` en Telegram:
+   `/newbot`, elegir nombre y username, y guardar el **token** que
+   devuelve (formato `123456789:ABCdef...`) — no se guarda en `.env`
+   directamente; se carga como credencial dentro de n8n en el paso 4.
+2. **Entrar a n8n** (`https://` + el valor de `N8N_HOST`, o
+   `http://localhost:5678` si estás en la misma máquina) y crear tu
+   usuario admin la primera vez que abre (pantalla de setup inicial).
+3. **Generar `N8N_API_KEY`**: `Settings` (ícono de engranaje) → `n8n
+   API` → `Create an API Key`. Copiar el valor a `N8N_API_KEY=` en
+   `.env`.
+4. **Cargar las credenciales que usa el workflow**, desde `Credentials`
+   → `New`:
+   - **Postgres**: host `postgres` (nombre del servicio en la red de
+     Docker, no `localhost`), puerto `5432`, y el mismo
+     `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` de tu `.env`.
+   - **Telegram**: el token del bot creado en el paso 1.
+5. **Importar el workflow principal:**
+
+   ```bash
+   bash scripts/import-n8n-workflow.sh
+   ```
+
+   Sin argumentos, importa `n8n-workflows/webhook-mvp-workflow.json`
+   (el de producción) a `http://localhost:5678` usando la
+   `N8N_API_KEY` de `.env`. El script deja el workflow **importado
+   pero sin activar** — antes de activarlo hace falta reasignar, nodo
+   por nodo, las credenciales Postgres/Telegram del paso 4 (los ids
+   que trae el JSON son de la instancia donde se armó originalmente,
+   no de la tuya). Una vez reasignadas: `Settings` del workflow (menú
+   `⋮` arriba a la derecha del editor) → `Active`.
+6. **Configurar el secreto del webhook.** El nodo `Webhook Telethon`
+   del workflow valida el header `X-Kronos-Secret` contra
+   `KRONOS_WEBHOOK_SECRET` (variable de entorno, ya en tu `.env` desde
+   la sección 3) — Telethon lo manda automáticamente en cada request,
+   no requiere configuración aparte de que la variable exista.
+
+## 6. Aplicar `schema.sql` manualmente (solo si el volumen ya existía)
 
 Si `postgres_data` ya tenía datos de una instalación previa (no es un
 volumen recién creado), el init script de Postgres no se ejecuta.
@@ -120,13 +183,13 @@ Aplicar el schema a mano:
 docker exec -i kronos_bot-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/schema.sql
 ```
 
-Verificar que las 3 tablas quedaron creadas:
+Verificar que las tablas quedaron creadas:
 
 ```bash
 docker exec kronos_bot-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\dt"'
 ```
 
-## 6. Wine + winetricks (para MT4)
+## 7. Wine + winetricks (para MT4)
 
 MT4 es una aplicación de Windows; en Linux corre vía Wine. El script
 `scripts/setup-mt4.sh` automatiza lo que se puede automatizar:
@@ -150,11 +213,11 @@ Qué hace:
    repo: si MT4 todavía no corrió en esta máquina, deja carpetas
    reales con `.gitkeep` (para que git las trackee vacías); si ya
    encuentra `Common/Files` en el prefijo de Wine, las reemplaza por
-   symlinks hacia ahí (ver sección 8 — es lo mismo que antes había
+   symlinks hacia ahí (ver sección 9 — es lo mismo que antes había
    que hacer a mano, ahora está automatizado y es idempotente).
 4. Imprime los pasos manuales pendientes (siguiente sección).
 
-## 7. Instalar MT4 (instalador de VT Markets)
+## 8. Instalar MT4 (instalador de VT Markets)
 
 A diferencia de lo que se pensó originalmente, **VT Markets sí
 distribuye su propio instalador** (`vtmarkets4setup.exe`, descargado
@@ -197,7 +260,7 @@ metatrader4.com.
    Estas credenciales **nunca** se automatizan ni se guardan en
    ningún archivo del repo.
 
-## 8. Symlinks de `mt4-bridge/` hacia `Common\Files\` de Wine
+## 9. Symlinks de `mt4-bridge/` hacia `Common\Files\` de Wine
 
 MQL4 no permite acceso a rutas de archivo arbitrarias — las funciones
 nativas `FileOpen`/`FileWrite` están restringidas a la carpeta
@@ -234,7 +297,7 @@ carpeta `MQL4/Experts/` de ese terminal y crea ahí un symlink
 del repo — dirección inversa a los symlinks de `orders/` de arriba
 (acá el repo es la fuente real, versionada en git; el symlink vive
 del lado de Wine). Esto es lo que hace que el EA aparezca en el
-Navigator de MetaEditor sin copiarlo a mano — ver sección 10. Si
+Navigator de MetaEditor sin copiarlo a mano — ver sección 11. Si
 corriste el script ANTES de instalar MT4, volvé a correrlo después de
 abrirlo por primera vez para que este symlink se cree.
 
@@ -264,7 +327,7 @@ ln -s "$COMMON_FILES/orders/results" mt4-bridge/orders/results
   todavía) tenga las carpetas `pending/`/`results/` como directorios
   reales vacíos, no rotos.
 
-## 9. Verificar el puente de archivos
+## 10. Verificar el puente de archivos
 
 Con los symlinks en su lugar, un archivo escrito desde el lado del
 repo debe aparecer instantáneamente del lado de Wine:
@@ -278,10 +341,10 @@ rm mt4-bridge/orders/pending/999.json
 Si el `cat` muestra el mismo contenido, el puente está listo para el
 EA.
 
-## 10. Compilar y activar el EA en MT4
+## 11. Compilar y activar el EA en MT4
 
 `scripts/setup-mt4.sh` (paso 6) ya dejó `KronosBridgeEA.mq4` enlazado
-en `MQL4/Experts/` (ver sección 8). Falta compilarlo y activarlo
+en `MQL4/Experts/` (ver sección 9). Falta compilarlo y activarlo
 dentro de MT4 — esto sí es manual, requiere interfaz gráfica.
 
 1. **Compilar.** Con MT4 abierto: `Ver → Navigator` (o `Ctrl+N`) →
@@ -326,10 +389,10 @@ Repetir esto cada vez que se recompile, incluidos cambios de
 desde Properties, en cambio, no requiere recompilar ni recargar — ver
 punto 4).
 
-## 11. Puente n8n → MT4 (escritura de órdenes)
+## 12. Puente n8n → MT4 (escritura de órdenes)
 
 n8n corre en Docker y no tiene acceso al filesystem del host donde
-vive `mt4-bridge/orders/` (los symlinks de la sección 8 apuntan a
+vive `mt4-bridge/orders/` (los symlinks de la sección 9 apuntan a
 Wine, fuera del contenedor). Para que el nodo de n8n que escribe
 `orders/pending/{signal_id}.json` funcione, hace falta un bind mount
 adicional, ya configurado en `docker-compose.yml` pero que depende de
@@ -344,7 +407,7 @@ una variable de tu `.env`:
    ```
 
    Es la misma carpeta padre de `pending/` y `results/` que ya
-   verificaste en la sección 9 — no la subcarpeta `pending` sola.
+   verificaste en la sección 10 — no la subcarpeta `pending` sola.
 
 2. **Recrear el contenedor de n8n** para que tome el volumen nuevo:
 
@@ -370,20 +433,20 @@ falla con `"The file ... is not writable"` aunque los permisos Unix
 del archivo estén perfectamente bien. Si alguna vez ves ese error
 exacto en una ejecución de n8n, la causa casi segura es que el
 contenedor se recreó desde una versión vieja de `docker-compose.yml`
-sin esta variable — ver sección 12.
+sin esta variable — ver sección 13.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 **El nodo de n8n "Escribir orden pending (MT4)" falla con `"is not
 writable"`:** falta `N8N_RESTRICT_FILE_ACCESS_TO` en el servicio
-`n8n` de `docker-compose.yml` (sección 11), o el contenedor no se
+`n8n` de `docker-compose.yml` (sección 12), o el contenedor no se
 recreó después de agregarla — `docker compose up -d n8n` para
 aplicarla.
 
 **Confirmás una señal en Telegram pero no aparece nada en
 `orders/pending/` del lado de Wine:** revisar en este orden:
 1. ¿`MT4_ORDERS_HOST_PATH` está seteada en `.env` y el contenedor
-   `n8n` se recreó después de setearla? (sección 11).
+   `n8n` se recreó después de setearla? (sección 12).
 2. ¿La ejecución del workflow en n8n (pestaña *Executions* de la UI)
    marca error en el nodo `Escribir orden pending (MT4)`? Ahí sale el
    motivo exacto.
@@ -403,11 +466,11 @@ pero no pasa nada, o `results/{id}.json` reporta error):**
    10, punto 4.
 3. Si no se escribe ningún `results/` en absoluto: revisar la pestaña
    **Experts** de MT4 (logs del EA) y confirmar "Allow live trading"
-   + AutoTrading global (sección 10, puntos 3 y 5).
+   + AutoTrading global (sección 11, puntos 3 y 5).
 4. **Si acabás de recompilar el `.mq4` y sigue fallando con un error
    que ya habías arreglado en el código:** con altísima probabilidad
    el EA en el gráfico sigue corriendo la versión vieja en memoria —
-   sacarlo del gráfico y volver a arrastrarlo (sección 10, nota al
+   sacarlo del gráfico y volver a arrastrarlo (sección 11, nota al
    final). Este es el bug más fácil de confundir con un error de
    código real.
 
