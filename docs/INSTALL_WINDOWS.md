@@ -8,7 +8,7 @@ del lado Linux (Docker, n8n, Postgres, Telethon, MT4) — el equivalente
 en Windows no se ha ejecutado todavía en la práctica, así que estos
 pasos están documentados pero **no verificados end-to-end** como sí
 lo está `docs/INSTALL_LINUX.md`. Los pasos de compilar/activar el EA
-(sección 10) y el puente n8n → MT4 (sección 11) sí están escritos acá,
+(sección 11) y el puente n8n → MT4 (sección 12) sí están escritos acá,
 trasladados 1:1 de lo verificado en Linux (la UI de MetaEditor/MT4 y
 los nodos de n8n son idénticos en ambas plataformas). `scripts/setup-mt4.ps1`
 automatiza los symlinks de `orders/{pending,results}` y del `.mq4` a
@@ -53,7 +53,11 @@ DASHBOARD_USER=
 DASHBOARD_PASSWORD=
 N8N_API_KEY=
 
-# ngrok (túnel para exponer el webhook de n8n)
+# Webhook Telethon -> n8n (secreto compartido, cualquier cadena larga
+# random sirve — ej. `openssl rand -hex 32`)
+KRONOS_WEBHOOK_SECRET=
+
+# ngrok (túnel para exponer n8n + dashboard, vía Caddy)
 NGROK_AUTHTOKEN=
 
 # Postgres
@@ -68,14 +72,21 @@ TELEGRAM_PHONE=
 TELEGRAM_GROUP_ID=
 TELEGRAM_USER_CHAT_ID=
 
-# Puente n8n -> MT4 (ver sección 11 — se completa DESPUÉS de instalar
+# Puente n8n -> MT4 (ver sección 12 — se completa DESPUÉS de instalar
 # MT4, no antes)
 MT4_ORDERS_HOST_PATH=
 ```
 
+Podés validar que no falta ni quedó vacía ninguna de estas variables
+con (bash, vía WSL2 o Git Bash):
+
+```bash
+bash scripts/check-env.sh
+```
+
 - `N8N_API_KEY` se genera desde la UI de n8n (Settings → n8n API →
   Create an API Key) después del primer arranque.
-- `MT4_ORDERS_HOST_PATH` se completa en la sección 11.
+- `MT4_ORDERS_HOST_PATH` se completa en la sección 12.
 
 ## 4. Levantar el stack de Docker
 
@@ -83,13 +94,61 @@ MT4_ORDERS_HOST_PATH=
 docker compose up -d
 ```
 
-Mismos 4 servicios que en Linux (`n8n`, `ngrok`, `postgres`,
-`telethon`) — el `docker-compose.yml` es el mismo archivo, no hay
-variante para Windows. `postgres` monta `./db/schema.sql` en
+Mismos 6 servicios que en Linux (`n8n`, `caddy`, `ngrok`, `postgres`,
+`telethon`, `dashboard`) — el `docker-compose.yml` es el mismo
+archivo, no hay variante para Windows. `n8n` queda en
+`127.0.0.1:5678` (no expuesto a la red, el acceso real es vía `caddy`
++ `ngrok`); `caddy` rutea `/webhook/*` hacia `n8n` y todo lo demás
+hacia `dashboard`. `postgres` monta `./db/schema.sql` en
 `/docker-entrypoint-initdb.d/` y lo aplica automáticamente si el
 volumen `postgres_data` se crea desde cero.
 
-## 5. Aplicar `schema.sql` manualmente (solo si el volumen ya existía)
+## 5. Bot de Telegram y primer import del workflow de n8n
+
+Un n8n recién levantado arranca sin ningún workflow — este paso no
+existía documentado antes y había que hacerlo a mano, sin guía, desde
+la UI. Cubre desde crear el bot hasta dejar el workflow principal
+importado.
+
+1. **Crear el bot de Telegram.** Hablarle a `@BotFather` en Telegram:
+   `/newbot`, elegir nombre y username, y guardar el **token** que
+   devuelve (formato `123456789:ABCdef...`) — no se guarda en `.env`
+   directamente; se carga como credencial dentro de n8n en el paso 4.
+2. **Entrar a n8n** (`https://` + el valor de `N8N_HOST`, o
+   `http://localhost:5678` si estás en la misma máquina) y crear tu
+   usuario admin la primera vez que abre (pantalla de setup inicial).
+3. **Generar `N8N_API_KEY`**: `Settings` (ícono de engranaje) → `n8n
+   API` → `Create an API Key`. Copiar el valor a `N8N_API_KEY=` en
+   `.env`.
+4. **Cargar las credenciales que usa el workflow**, desde `Credentials`
+   → `New`:
+   - **Postgres**: host `postgres` (nombre del servicio en la red de
+     Docker, no `localhost`), puerto `5432`, y el mismo
+     `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` de tu `.env`.
+   - **Telegram**: el token del bot creado en el paso 1.
+5. **Importar el workflow principal.** `scripts/import-n8n-workflow.sh`
+   es un script bash (usa `curl`/`python3`); en Windows corré esto
+   desde WSL2 o Git Bash, apuntando `ENV_FILE`/`N8N_URL` si hace falta:
+
+   ```bash
+   bash scripts/import-n8n-workflow.sh
+   ```
+
+   Sin argumentos, importa `n8n-workflows/webhook-mvp-workflow.json`
+   (el de producción) a `http://localhost:5678` usando la
+   `N8N_API_KEY` de `.env`. El script deja el workflow **importado
+   pero sin activar** — antes de activarlo hace falta reasignar, nodo
+   por nodo, las credenciales Postgres/Telegram del paso 4 (los ids
+   que trae el JSON son de la instancia donde se armó originalmente,
+   no de la tuya). Una vez reasignadas: `Settings` del workflow (menú
+   `⋮` arriba a la derecha del editor) → `Active`.
+6. **Configurar el secreto del webhook.** El nodo `Webhook Telethon`
+   del workflow valida el header `X-Kronos-Secret` contra
+   `KRONOS_WEBHOOK_SECRET` (variable de entorno, ya en tu `.env` desde
+   la sección 3) — Telethon lo manda automáticamente en cada request,
+   no requiere configuración aparte de que la variable exista.
+
+## 6. Aplicar `schema.sql` manualmente (solo si el volumen ya existía)
 
 ```powershell
 docker exec -i kronos_bot-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/schema.sql
@@ -101,7 +160,7 @@ Verificar:
 docker exec kronos_bot-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\dt"'
 ```
 
-## 6. MT4 nativo (sin Wine)
+## 7. MT4 nativo (sin Wine)
 
 En Windows, MT4 corre nativo — no hace falta Wine ni ningún prefijo
 dedicado. El script `scripts/setup-mt4.ps1` automatiza la parte que
@@ -117,10 +176,10 @@ Qué hace:
    está instalado/abierto en esta máquina, deja carpetas reales con
    `.gitkeep`; si ya detecta el terminal de MT4 (`%APPDATA%\MetaQuotes\Terminal\Common`),
    las reemplaza por symlinks hacia `Common\Files\orders\{pending,results}`
-   — idempotente, igual que en Linux (sección 8).
+   — idempotente, igual que en Linux (sección 9).
 2. Enlaza `mt4-bridge\ea\KronosBridgeEA.mq4` a `MQL4\Experts\` del
    terminal detectado (si ya existe) — mismo mecanismo, dirección
-   inversa (ver sección 8).
+   inversa (ver sección 9).
 3. Imprime los pasos manuales pendientes (siguiente sección).
 
 No instala paquetes — a diferencia del script de Linux, no hay nada
@@ -134,7 +193,7 @@ para poder crear los symlinks (`New-Item -ItemType SymbolicLink`) —
 sin uno de los dos, PowerShell tira un error de privilegios en los
 pasos 1 y 2, pero el resto del script sigue igual (no aborta).
 
-## 7. Instalar MT4 (instalador de VT Markets)
+## 8. Instalar MT4 (instalador de VT Markets)
 
 1. Descargar `vtmarkets4setup.exe` desde el sitio de VT Markets.
 2. Correr el instalador normalmente (doble clic), como cualquier
@@ -145,7 +204,7 @@ pasos 1 y 2, pero el resto del script sigue igual (no aborta).
    (número de cuenta, contraseña, servidor). Nunca se automatizan ni
    se guardan en el repo.
 
-## 8. Diferencias de ruta: `Common\Files\` en Windows nativo vs Wine
+## 9. Diferencias de ruta: `Common\Files\` en Windows nativo vs Wine
 
 En Linux con Wine, la carpeta `Common\Files\` vive dentro del prefijo
 de Wine (`~/.wine-mt4/drive_c/users/<usuario>/AppData/Roaming/...`).
@@ -231,9 +290,9 @@ cmd /c mklink "$ExpertsDir\KronosBridgeEA.mq4" "$RepoEa"
 Requiere PowerShell como Administrador. Repetir solo si el symlink se
 rompe (ej. se reinstaló MT4 con un ID de terminal nuevo) — editar el
 `.mq4` del repo no requiere rehacer este paso, solo recompilar (ver
-sección 10).
+sección 11).
 
-## 9. Verificar el puente de archivos
+## 10. Verificar el puente de archivos
 
 ```powershell
 '{"test": true}' | Out-File -Encoding utf8 mt4-bridge\orders\pending\999.json
@@ -243,7 +302,7 @@ Remove-Item mt4-bridge\orders\pending\999.json
 
 Si el contenido coincide, el puente está listo para el EA.
 
-## 10. Compilar y activar el EA en MT4
+## 11. Compilar y activar el EA en MT4
 
 Mismos pasos que en Linux (la UI de MetaEditor/MT4 es idéntica en
 Windows nativo, no cambia nada por no usar Wine):
@@ -271,7 +330,7 @@ instancia en memoria sigue con el código viejo — sacarlo
 *valor* de `InpSymbolSuffix` desde Properties, en cambio, no requiere
 recompilar ni recargar.
 
-## 11. Puente n8n → MT4 (escritura de órdenes)
+## 12. Puente n8n → MT4 (escritura de órdenes)
 
 n8n corre en Docker (Docker Desktop o WSL2) y no tiene acceso directo
 al filesystem de Windows donde vive `mt4-bridge/orders/`. Hace falta
@@ -279,7 +338,7 @@ un bind mount, ya configurado en `docker-compose.yml`, que depende de
 una variable de tu `.env`:
 
 1. **Completar `MT4_ORDERS_HOST_PATH`** con la ruta de
-   `Common\Files\orders` (sección 8), en formato compatible con Docker
+   `Common\Files\orders` (sección 9), en formato compatible con Docker
    Desktop (rutas de Windows tipo `C:\Users\...` funcionan directo en
    Docker Desktop; si corrés Docker dentro de WSL2, usar la ruta
    `/mnt/c/Users/...` equivalente):
@@ -307,14 +366,14 @@ para `n8n` (no requiere acción tuya en `.env`) — n8n restringe por
 defecto el acceso a filesystem de los nodos "Read/Write File" a
 `~/.n8n-files`; sin esa variable, el nodo que escribe las órdenes
 falla con `"The file ... is not writable"` aunque los permisos estén
-bien. Ver sección 12 si te aparece ese error.
+bien. Ver sección 13 si te aparece ese error.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 Mismos síntomas y causas que en Linux (ver `docs/INSTALL_LINUX.md`
-sección 12) — no se repiten acá para no duplicar mantenimiento; el
+sección 13) — no se repiten acá para no duplicar mantenimiento; el
 único punto realmente distinto en Windows es que si algo de la
-sección 8 (symlink del EA) o 11 (bind mount de n8n) falla, revisar
+sección 9 (symlink del EA) o 12 (bind mount de n8n) falla, revisar
 primero permisos de Administrador (PowerShell) y, si Docker corre
 dentro de WSL2, que la ruta de `MT4_ORDERS_HOST_PATH` esté en formato
 `/mnt/c/...` y no `C:\...`.
@@ -324,5 +383,5 @@ dentro de WSL2, que la ruta de `MT4_ORDERS_HOST_PATH` esté en formato
 *Este documento se actualiza junto con cada etapa nueva del proyecto.
 Los pasos de Docker/`.env`/Postgres/EA están alineados 1:1 con
 `docs/INSTALL_LINUX.md`; solo difieren MT4 (nativo, sin Wine), la ruta
-de `Common\Files\`, y que los symlinks (sección 8) se crean con
+de `Common\Files\`, y que los symlinks (sección 9) se crean con
 `New-Item -ItemType SymbolicLink` (PowerShell nativo) en vez de `ln -s`.*

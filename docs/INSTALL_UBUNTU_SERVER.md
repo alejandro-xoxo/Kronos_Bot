@@ -65,7 +65,11 @@ DASHBOARD_USER=
 DASHBOARD_PASSWORD=
 N8N_API_KEY=
 
-# ngrok (túnel para exponer el webhook de n8n)
+# Webhook Telethon -> n8n (secreto compartido, cualquier cadena larga
+# random sirve — ej. `openssl rand -hex 32`)
+KRONOS_WEBHOOK_SECRET=
+
+# ngrok (túnel para exponer n8n + dashboard, vía Caddy)
 NGROK_AUTHTOKEN=
 
 # Postgres
@@ -80,9 +84,17 @@ TELEGRAM_PHONE=
 TELEGRAM_GROUP_ID=
 TELEGRAM_USER_CHAT_ID=
 
-# Puente n8n -> MT4 (ver sección 12 — se completa DESPUÉS de instalar
+# Puente n8n -> MT4 (ver sección 13 — se completa DESPUÉS de instalar
 # MT4 y correr scripts/setup-mt4-ubuntu.sh, no antes)
 MT4_ORDERS_HOST_PATH=
+```
+
+Podés validar que no falta ni quedó vacía ninguna de estas variables
+(salvo `N8N_API_KEY`/`MT4_ORDERS_HOST_PATH`, que se completan después)
+con:
+
+```bash
+bash scripts/check-env.sh
 ```
 
 - `N8N_API_KEY` se genera desde la propia UI de n8n (Settings → n8n
@@ -91,7 +103,7 @@ MT4_ORDERS_HOST_PATH=
 - `TELEGRAM_GROUP_ID` y `TELEGRAM_USER_CHAT_ID` se obtienen inspeccionando
   los IDs reales de Telegram (grupo de señales y tu chat privado con
   el bot, respectivamente).
-- `MT4_ORDERS_HOST_PATH` se completa en la sección 12.
+- `MT4_ORDERS_HOST_PATH` se completa en la sección 13.
 
 ## 4. Levantar el stack de Docker
 
@@ -99,13 +111,19 @@ MT4_ORDERS_HOST_PATH=
 docker compose up -d
 ```
 
-Esto levanta 4 servicios (ver `docker-compose.yml`):
+Esto levanta 6 servicios (ver `docker-compose.yml`):
 
-- `n8n` — orquestador, expuesto en el puerto `5678`.
-- `ngrok` — túnel público hacia n8n (dominio fijo vía `N8N_HOST`).
+- `n8n` — orquestador, en `127.0.0.1:5678` (solo localhost, no
+  expuesto a la red — el acceso real es vía `caddy` + `ngrok`).
+- `caddy` — proxy que rutea `/webhook/*` hacia `n8n` y todo lo demás
+  hacia `dashboard`, ambos detrás de la misma URL pública.
+- `ngrok` — túnel público hacia `caddy` (dominio fijo vía `N8N_HOST`).
 - `postgres` — base de datos (`signals`, `signal_modifications`,
-  `settings`).
+  `settings`, `daily_pnl`).
 - `telethon` — microservicio que escucha el grupo de Telegram.
+- `dashboard` — panel web (Flask) con las posiciones abiertas y
+  controles BE/Cerrar, protegido con HTTP Basic Auth
+  (`DASHBOARD_USER`/`DASHBOARD_PASSWORD`).
 
 El servicio `postgres` monta `./db/schema.sql` en
 `/docker-entrypoint-initdb.d/`, así que si el volumen `postgres_data`
@@ -113,7 +131,50 @@ se crea desde cero, el schema se aplica automáticamente sin pasos
 manuales. Esto **no** aplica si el volumen ya existe (ver siguiente
 sección).
 
-## 5. Aplicar `schema.sql` manualmente (solo si el volumen ya existía)
+## 5. Bot de Telegram y primer import del workflow de n8n
+
+Un n8n recién levantado arranca sin ningún workflow — este paso no
+existía documentado antes y había que hacerlo a mano, sin guía, desde
+la UI. Cubre desde crear el bot hasta dejar el workflow principal
+importado.
+
+1. **Crear el bot de Telegram.** Hablarle a `@BotFather` en Telegram:
+   `/newbot`, elegir nombre y username, y guardar el **token** que
+   devuelve (formato `123456789:ABCdef...`) — no se guarda en `.env`
+   directamente; se carga como credencial dentro de n8n en el paso 4.
+2. **Entrar a n8n** (`https://` + el valor de `N8N_HOST`, o
+   `http://localhost:5678` si estás en la misma máquina) y crear tu
+   usuario admin la primera vez que abre (pantalla de setup inicial).
+3. **Generar `N8N_API_KEY`**: `Settings` (ícono de engranaje) → `n8n
+   API` → `Create an API Key`. Copiar el valor a `N8N_API_KEY=` en
+   `.env`.
+4. **Cargar las credenciales que usa el workflow**, desde `Credentials`
+   → `New`:
+   - **Postgres**: host `postgres` (nombre del servicio en la red de
+     Docker, no `localhost`), puerto `5432`, y el mismo
+     `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` de tu `.env`.
+   - **Telegram**: el token del bot creado en el paso 1.
+5. **Importar el workflow principal:**
+
+   ```bash
+   bash scripts/import-n8n-workflow.sh
+   ```
+
+   Sin argumentos, importa `n8n-workflows/webhook-mvp-workflow.json`
+   (el de producción) a `http://localhost:5678` usando la
+   `N8N_API_KEY` de `.env`. El script deja el workflow **importado
+   pero sin activar** — antes de activarlo hace falta reasignar, nodo
+   por nodo, las credenciales Postgres/Telegram del paso 4 (los ids
+   que trae el JSON son de la instancia donde se armó originalmente,
+   no de la tuya). Una vez reasignadas: `Settings` del workflow (menú
+   `⋮` arriba a la derecha del editor) → `Active`.
+6. **Configurar el secreto del webhook.** El nodo `Webhook Telethon`
+   del workflow valida el header `X-Kronos-Secret` contra
+   `KRONOS_WEBHOOK_SECRET` (variable de entorno, ya en tu `.env` desde
+   la sección 3) — Telethon lo manda automáticamente en cada request,
+   no requiere configuración aparte de que la variable exista.
+
+## 6. Aplicar `schema.sql` manualmente (solo si el volumen ya existía)
 
 Si `postgres_data` ya tenía datos de una instalación previa (no es un
 volumen recién creado), el init script de Postgres no se ejecuta.
@@ -123,13 +184,13 @@ Aplicar el schema a mano:
 docker exec -i kronos_bot-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/schema.sql
 ```
 
-Verificar que las 3 tablas quedaron creadas:
+Verificar que las tablas quedaron creadas:
 
 ```bash
 docker exec kronos_bot-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "\dt"'
 ```
 
-## 6. Wine + winetricks (para MT4)
+## 7. Wine + winetricks (para MT4)
 
 MT4 es una aplicación de Windows; en Linux corre vía Wine. Ubuntu
 Server trae en sus repos default una versión de Wine vieja (o
@@ -165,13 +226,13 @@ Qué hace:
    repo: si MT4 todavía no corrió en esta máquina, deja carpetas
    reales con `.gitkeep`; si ya encuentra `Common/Files` en el
    prefijo de Wine, las reemplaza por symlinks hacia ahí (ver sección
-   9 — idempotente, mismo mecanismo que en `docs/INSTALL_LINUX.md`).
+   10 — idempotente, mismo mecanismo que en `docs/INSTALL_LINUX.md`).
 5. Enlaza `mt4-bridge/ea/KronosBridgeEA.mq4` a `MQL4/Experts/` del
    terminal detectado, si ya existe (symlink, dirección inversa al
-   punto anterior — ver sección 9).
+   punto anterior — ver sección 10).
 6. Imprime los pasos manuales pendientes (siguiente sección).
 
-## 7. Acceso gráfico en un server headless (Xvfb + VNC, o X11 forwarding)
+## 8. Acceso gráfico en un server headless (Xvfb + VNC, o X11 forwarding)
 
 El instalador de MT4, el login a la cuenta VT Markets y compilar el EA
 en MetaEditor son pasos que **sí o sí** requieren ver una ventana —
@@ -212,7 +273,7 @@ automáticamente) — **no** sirve para loguearte en MT4 ni para
 MetaEditor, porque ahí necesitás ver e interactuar con la ventana de
 verdad.
 
-## 8. Instalar MT4 (instalador de VT Markets)
+## 9. Instalar MT4 (instalador de VT Markets)
 
 A diferencia de lo que se pensó originalmente, **VT Markets sí
 distribuye su propio instalador** (`vtmarkets4setup.exe`, descargado
@@ -252,7 +313,7 @@ metatrader4.com.
    Estas credenciales **nunca** se automatizan ni se guardan en ningún
    archivo del repo.
 
-## 9. Symlinks de `mt4-bridge/` hacia `Common\Files\` de Wine
+## 10. Symlinks de `mt4-bridge/` hacia `Common\Files\` de Wine
 
 MQL4 no permite acceso a rutas de archivo arbitrarias — las funciones
 nativas `FileOpen`/`FileWrite` están restringidas a la carpeta
@@ -301,7 +362,7 @@ ln -s "$COMMON_FILES/orders/results" mt4-bridge/orders/results
   todavía) tenga las carpetas `pending/`/`results/` como directorios
   reales vacíos, no rotos.
 
-## 10. Verificar el puente de archivos
+## 11. Verificar el puente de archivos
 
 Con los symlinks en su lugar, un archivo escrito desde el lado del
 repo debe aparecer instantáneamente del lado de Wine:
@@ -315,10 +376,10 @@ rm mt4-bridge/orders/pending/999.json
 Si el `cat` muestra el mismo contenido, el puente está listo para el
 EA.
 
-## 11. Compilar y activar el EA en MT4
+## 12. Compilar y activar el EA en MT4
 
 `scripts/setup-mt4-ubuntu.sh` (paso 6) ya dejó `KronosBridgeEA.mq4`
-enlazado en `MQL4/Experts/` (sección 9). Falta compilarlo y
+enlazado en `MQL4/Experts/` (sección 10). Falta compilarlo y
 activarlo — esto es gráfico, necesitás VNC o X11 forwarding (sección
 7) para verlo:
 
@@ -345,10 +406,10 @@ instancia en memoria sigue con el código viejo — sacarlo
 *valor* de `InpSymbolSuffix` desde Properties no requiere recompilar
 ni recargar.
 
-## 12. Puente n8n → MT4 (escritura de órdenes)
+## 13. Puente n8n → MT4 (escritura de órdenes)
 
 n8n corre en Docker y no tiene acceso al filesystem del host donde
-vive `mt4-bridge/orders/` (los symlinks de la sección 9 apuntan a
+vive `mt4-bridge/orders/` (los symlinks de la sección 10 apuntan a
 Wine, fuera del contenedor). Hace falta un bind mount, ya configurado
 en `docker-compose.yml`, que depende de una variable de tu `.env`:
 
@@ -379,18 +440,18 @@ para `n8n` (no requiere acción tuya en `.env`) — n8n restringe por
 defecto el acceso a filesystem de los nodos "Read/Write File" a
 `~/.n8n-files`; sin esa variable, el nodo que escribe las órdenes
 falla con `"The file ... is not writable"` aunque los permisos Unix
-estén bien. Ver sección 13 si te aparece ese error.
+estén bien. Ver sección 14 si te aparece ese error.
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
-Mismos síntomas y causas que `docs/INSTALL_LINUX.md` (sección 12) —
+Mismos síntomas y causas que `docs/INSTALL_LINUX.md` (sección 13) —
 no se repiten acá para no duplicar mantenimiento. Diferencia real en
 un server headless: si el EA no reacciona a nada y no es ninguno de
 los problemas de esa sección, confirmar primero que la sesión VNC/X11
 sigue activa y que estás viendo la ventana correcta de MT4 — es fácil
 perder de vista una sesión Xvfb que murió sin avisar.
 
-## 14. Mantener el acceso gráfico disponible entre sesiones
+## 15. Mantener el acceso gráfico disponible entre sesiones
 
 Un server headless no deja una sesión gráfica corriendo sola por
 defecto. Si vas a necesitar volver a entrar a MT4 (relogueo, cambios
