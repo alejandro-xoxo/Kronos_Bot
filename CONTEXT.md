@@ -132,9 +132,11 @@ Todos los servicios viven en `docker-compose.yml`, en la red `trading_net`.
   `mt4-bridge/orders/actions/` para que el EA los ejecute. También permite
   reintentar señales en `PENDING_MANUAL` (reescribe el archivo en
   `pending/`), ver historial de señales desde Postgres con filtros por
-  período, y cambiar el sufijo de símbolo del bróker (`-VIP`/`-STD`) vía
-  `mt4-bridge/orders/config.json`, que el EA relee en caliente sin
-  recompilar. Sin autenticación — solo pensado para exposición local.
+  período, y cambiar el perfil de cuenta activo (`PROD_STD`/`DEMO_VIP`,
+  que determina el sufijo de símbolo del bróker `-STD`/`-VIP`) vía
+  `mt4-bridge/orders/config.json` (`{"profile": "PROD_STD"}`), que el
+  EA relee en caliente sin recompilar. Sin autenticación — solo
+  pensado para exposición local.
 
 ### 3.1 Captura de mensajes (Telethon)
 

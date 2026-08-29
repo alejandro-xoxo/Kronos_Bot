@@ -96,18 +96,19 @@ confirmación). Se reutiliza este id en vez de inventar uno nuevo.
 Archivo opcional, escrito por un dashboard externo (fuera de este
 documento del lado del EA — ver la documentación del dashboard para
 cómo lo genera). El EA lo lee al inicio de **cada ciclo** de
-`OnTimer()`, antes de procesar `pending/`. Si no existe, o el JSON no
-parsea, o el valor no es uno de los dos soportados, el EA lo ignora
-silenciosamente y conserva el último `symbol_suffix` válido (o el
-input `InpSymbolSuffix` si todavía no leyó ninguno).
+`OnTimer()`, antes de procesar `pending/` (`UpdateProfileFromConfig()`
+en el código). Si no existe, o el JSON no parsea, o el valor no es uno
+de los dos soportados, el EA lo ignora silenciosamente y conserva el
+último perfil válido (o el input `InpProfile` si todavía no leyó
+ninguno).
 
 ```json
-{ "symbol_suffix": "-STD" }
+{ "profile": "PROD_STD" }
 ```
 
 | Campo | Tipo | Notas |
 |---|---|---|
-| `symbol_suffix` | string | Únicos valores válidos: `"-VIP"` (cuenta demo) o `"-STD"` (cuenta real). Cualquier otro valor se ignora (validación estricta, igual criterio que `ResolveBrokerSymbol` con los instrumentos). Permite cambiar de cuenta sin recompilar el EA. |
+| `profile` | string | Únicos valores válidos: `"PROD_STD"` (cuenta real, `AccountNumber()` esperado `23096429`, sufijo de símbolo `-STD`) o `"DEMO_VIP"` (cuenta demo `911260411`, sufijo `-VIP`). Cualquier otro valor se ignora (validación estricta vía `StringToProfile`). El sufijo real (`g_SymbolSuffix`) se deriva del perfil, nunca se escribe suelto — evita que cuenta y sufijo queden desincronizados entre sí (bug real del sistema viejo `symbol_suffix`/`InpSymbolSuffix`, ya reemplazado). Permite cambiar de cuenta sin recompilar el EA. |
 
 No se borra tras leerlo (a diferencia de `pending/`/`results/`) — se
 relee en cada ciclo porque representa configuración persistente, no
@@ -307,23 +308,23 @@ o no llegó a su primer ciclo de escritura), el endpoint responde
 `{"positions": [], "account": null, "stale": true}` con status 200
 — es un estado esperado antes/durante el arranque, no un error.
 
-### 4.2 Configuración de sufijo de símbolo — `mt4-bridge/orders/config.json`
+### 4.2 Configuración de perfil de cuenta — `mt4-bridge/orders/config.json`
 
 El dashboard lo escribe (`POST /api/config` desde la UI web); el EA
-lo lee para saber qué sufijo de símbolo del bróker anteponer al
-instrumento (`XAUUSD` → `XAUUSD-VIP` en demo, `XAUUSD-STD` en real)
-al ejecutar órdenes.
+lo lee para saber qué perfil de cuenta está activo y deriva de ahí el
+sufijo de símbolo del bróker a anteponer al instrumento (`XAUUSD` →
+`XAUUSD-VIP` en demo, `XAUUSD-STD` en real) al ejecutar órdenes.
 
 ```json
-{ "symbol_suffix": "-STD" }
+{ "profile": "PROD_STD" }
 ```
 
 | Campo | Tipo | Notas |
 |---|---|---|
-| `symbol_suffix` | string | Únicos dos valores válidos: `"-VIP"` (demo) o `"-STD"` (real). El dashboard rechaza cualquier otro valor con 400 antes de escribir el archivo — el EA no necesita validar texto libre. |
+| `profile` | string | Únicos dos valores válidos (`VALID_PROFILES` en `dashboard/main.py`): `"PROD_STD"` (real) o `"DEMO_VIP"` (demo). El dashboard rechaza cualquier otro valor con 400 antes de escribir el archivo. |
 
 Si el archivo no existe todavía, `GET /api/config` del dashboard
-responde `{"symbol_suffix": null}` con status 200.
+responde `{"profile": null}` con status 200.
 
 ### 4.3 Comandos sobre posiciones abiertas — `mt4-bridge/orders/actions/{ticket}-{action}.json`
 

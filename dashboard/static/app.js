@@ -173,12 +173,12 @@ async function loadPositions() {
 // intenta un BE con la posición todavía en pérdida). El backend borra
 // cualquier resultado viejo del mismo ticket+acción al encolar el
 // comando nuevo, así que un "found: true" acá siempre corresponde a
-// ESTE intento, no a uno anterior. Reintenta cada 1.5s hasta ~10
+// ESTE intento, no a uno anterior. Reintenta cada 500ms hasta ~30
 // veces (~15s); si se agota, deja el aviso de "seguimos esperando".
 async function pollActionResult(ticket, action, statusEl) {
-  const maxAttempts = 10;
+  const maxAttempts = 30;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     let data;
     try {
