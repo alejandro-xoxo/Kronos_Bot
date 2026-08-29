@@ -159,8 +159,14 @@ Postgres descartable:**
 - `ALTER TABLE` de `daily_pnl` (wins/losses/instruments) y `settings`
   (`day_start_capital`, `day_start_date`, `capital_inicial_plan`).
 - Backfill de las 5 señales ya cerradas hoy en dev (`daily_pnl` con
-  fecha `2026-08-28`, `capital_inicial_plan` calculado hacia atrás
-  desde `capital_real` actual).
+  fecha `2026-08-28`). `capital_inicial_plan` primero se calculó hacia
+  atrás desde `capital_real` (dio `676.10`, valor de prueba
+  incorrecto) — **corregido 2026-08-29 a `1000`**, el capital real con
+  el que arrancó la cuenta demo (confirmado por el usuario: la cuenta
+  demo MT4 empezó en 1000 EUR). Con `capital_real` en `868.34`, la
+  cuenta está efectivamente **en negativo** respecto al arranque
+  (`-131.66`, `-13.17%`) — el cálculo de ganancia/% en `growth.js` ya
+  maneja negativos sin problema, no requirió cambio de código.
 - Workflow `08` corregido, subido y verificado contra la instancia
   real de n8n dev.
 
@@ -182,7 +188,8 @@ por un fork) y las dos piezas que faltaban ya están resueltas:**
   híbrido tal como describe
   `PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md`. Probado contra el
   endpoint real (`curl` con auth básica): responde
-  `{"capital_inicial_plan":676.1,"registros":[...]}`.
+  `{"capital_inicial_plan":1000.0,"capital_real":868.34,"registros":[...]}`
+  (valor de `capital_inicial_plan` ya corregido, ver nota arriba).
 - **Workflow nuevo `Kronos Dev 09 - Sync capital_real`**
   (`n8n-workflows/split-dev/09-sync-capital-real.json`): lee
   `orders/status.json` cada 5s y actualiza `settings.capital_real` —
