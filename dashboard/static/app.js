@@ -314,42 +314,6 @@ async function loadSignals() {
   }
 }
 
-async function loadSummary() {
-  const bodyEl = document.getElementById("summary-body");
-  try {
-    const res = await fetch("api/signals/summary");
-    const data = await res.json();
-    const summaries = data.summaries || [];
-
-    if (summaries.length === 0) {
-      bodyEl.innerHTML = "";
-      return;
-    }
-
-    bodyEl.innerHTML = summaries
-      .map((s) => {
-        const statusCounts = Object.entries(s.status_counts || {})
-          .map(([status, count]) => `${STATUS_LABELS[status] || status}: ${count}`)
-          .join(" · ");
-        const period = `${fmtDate(s.period_start)} — ${fmtDate(s.period_end)}`;
-        const pl = s.total_profit_loss;
-        const plClass = pl == null ? "" : pl >= 0 ? "profit-pos" : "profit-neg";
-        const plText = pl == null ? "-" : (pl >= 0 ? "+" : "") + Number(pl).toFixed(2);
-        return `<div class="summary-row">
-          <div class="summary-row-top">
-            <span>${fmt(s.signal_count)} señales archivadas</span>
-            <span class="${plClass}" style="font-family: var(--font-data);">${plText}</span>
-          </div>
-          <div class="summary-row-period">${period}</div>
-          <div class="summary-row-meta">${statusCounts || "-"} · ${fmt(s.instruments)}</div>
-        </div>`;
-      })
-      .join("");
-  } catch (err) {
-    bodyEl.innerHTML = '<div class="empty-state">Error consultando el resumen archivado.</div>';
-  }
-}
-
 async function retrySignal(id, btn) {
   const statusEl = document.querySelector(`.retry-status[data-id="${id}"]`);
   btn.disabled = true;
@@ -437,7 +401,6 @@ document.getElementById("btn-std").addEventListener("click", () => setProfile("P
 
 loadPositions();
 loadSignals();
-loadSummary();
 loadConfig();
 setInterval(loadPositions, POLL_INTERVAL_MS);
 setInterval(loadSignals, POLL_INTERVAL_MS);
