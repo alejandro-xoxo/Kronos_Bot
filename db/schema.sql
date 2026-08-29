@@ -118,13 +118,30 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- =========================================================
 -- Tabla: settings
 -- Configuración del sistema (sección 5.1)
--- capital_real es reportado automáticamente por el EA de MT4
--- (AccountBalance() - AccountCredit()), no editado a mano en
--- operación normal.
+-- capital_real es reportado automáticamente por el EA de MT4 como
+-- AccountBalance() completo (incluye crédito del bróker, decisión
+-- explícita del usuario 2026-08-28), no editado a mano en operación
+-- normal.
+--
+-- day_start_capital / day_start_date (agregado 2026-08-28, SOLO
+-- usado por la auto-confirmación experimental de split-dev): capital
+-- registrado al inicio del día en curso, para calcular la ganancia
+-- del día como (capital_real - day_start_capital) / day_start_capital.
+-- Se resetea automáticamente cuando day_start_date != CURRENT_DATE
+-- (ver workflow split-dev/02-señal-nueva-parseo-confirmado.json).
+-- NOTA DE DESPLIEGUE: en una base ya existente (creada antes de este
+-- cambio) hay que agregar las columnas a mano con:
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_capital REAL;
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_date DATE;
+-- Este CREATE TABLE con IF NOT EXISTS no las agrega a una tabla que
+-- ya existe (mismo patrón conocido que el resto de columnas nuevas
+-- del proyecto, ver punto 21 de STATUS.md).
 -- =========================================================
 CREATE TABLE IF NOT EXISTS settings (
     id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
+    day_start_capital     REAL,
+    day_start_date        DATE,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

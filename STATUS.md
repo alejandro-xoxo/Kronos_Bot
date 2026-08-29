@@ -8,6 +8,86 @@
 > alcance de v1 (qué incluye y qué queda afuera a propósito),
 > `docs/versions/v1.md`.
 
+## Experimento de auto-confirmación con límite y lotaje sobre capital total (2026-08-28)
+
+**Decisión explícita del usuario, SOLO stack dev por ahora.** Contradice
+dos reglas previas del sistema — documentado acá para que quede
+explícito, no accidental:
+
+1. **Capital para lotaje ahora incluye crédito del bróker.** Reemplaza
+   la regla anterior de `CLAUDE.md` sección "Seguridad" y de
+   `PROTOCOLOS_KRONOS_BOT.md` sección 5.1/12.2 (que excluía el crédito
+   restando `AccountCredit()`). El EA (`KronosBridgeEA.mq4`) ahora
+   reporta `capital_real = AccountBalance()` completo. La fórmula de
+   lotaje en sí no cambió: `floor(capital_real / 100) * 0.01` (mismo
+   divisor 100 ya documentado en sección 5.2 del protocolo), solo
+   cambió qué significa `capital_real`.
+2. **Auto-confirmación de señales nuevas, con límite de 2 operaciones
+   OPEN simultáneas — solo en `n8n-workflows/split-dev/`.** Contradice
+   el principio no negociable #3 del protocolo (confirmación humana
+   obligatoria) — a propósito, y únicamente para el stack dev, para
+   poder probar el ciclo completo sin depender de tocar botones cada
+   vez. Implementado en
+   `split-dev/02-señal-nueva-parseo-confirmado.json`: tras insertar la
+   señal, se cuenta cuántas señales están `OPEN`; si son menos de 2, se
+   auto-confirma (mismo `UPDATE ... WHERE status='PENDING_CONFIRMATION'`
+   idempotente que usa el flujo manual) y se dispara la ejecución en
+   MT4 sin esperar botones; si ya hay 2 o más, cae a la rama manual de
+   siempre (Confirmar/Rechazar). **No aplicado a `split-mvp/` ni a
+   producción — el flujo de producción sigue exigiendo confirmación
+   manual sin excepción.**
+
+**Pendiente de probar** — mercado cerrado al momento de implementar
+esto, no se pudo probar en real todavía. Falta: (a) subir
+`split-dev/02-señal-nueva-parseo-confirmado.json` a la instancia dev
+vía API, (b) probar con una señal real o simulada que efectivamente
+auto-confirme cuando hay <2 OPEN y que respete el límite cuando hay 2,
+(c) verificar que el `capital_real` que llega ahora a `settings`
+refleja el balance completo (con crédito) tras el próximo ciclo de
+`WritePositionsStatus()` del EA — requiere recompilar el `.ex4` en la
+máquina real (ver "Cómo se despliega de verdad un cambio del EA a
+producción" más abajo, mismo proceso manual).
+
+**Confirmado con el usuario (2026-08-28): el lotaje NO se reparte entre
+las 2 operaciones simultáneas por ahora, queda así a propósito.** Cada
+señal que se confirma (auto o manual) calcula `floor(capital_real/100)
+*0.01` de forma independiente contra el capital total, sin descontar
+lo ya usado por otra operación abierta — el límite de 2 solo controla
+cuántas pueden estar abiertas a la vez, no divide el capital entre
+ellas. **La idea a futuro es que el lotaje disponible SÍ se reparta**
+entre las operaciones simultáneas — esto es, en esencia, el mismo
+diseño de slots ya descrito en la sección 5.3 del protocolo (hoy
+diseñado pero no implementado, pensado para tope de 3 operaciones),
+ahora aplicado sobre capital que incluye crédito y con el nuevo tope
+de 2. No implementar todavía — dejar anotado como el siguiente paso
+natural de este experimento cuando se retome.
+
+**Circuit breaker diario del 6% de ganancia (implementado 2026-08-28,
+decisión explícita del usuario, SOLO stack dev).** Si la cuenta ya
+subió ≥6% respecto al capital del inicio del día en curso, se deja de
+auto-confirmar señales nuevas hasta el día siguiente — caen a
+confirmación manual (mismos botones Confirmar/Rechazar de siempre).
+**Las posiciones ya abiertas no se tocan**, siguen su curso normal con
+su SL/TP; esto solo bloquea la auto-confirmación de señales nuevas.
+
+- Requiere dos columnas nuevas en `settings`: `day_start_capital` y
+  `day_start_date` (agregadas a `db/schema.sql`, con nota de
+  despliegue — **una base ya existente necesita
+  `ALTER TABLE settings ADD COLUMN ...` a mano**, el `CREATE TABLE IF
+  NOT EXISTS` no las agrega solo a una tabla que ya existe).
+- Implementado en
+  `split-dev/02-señal-nueva-parseo-confirmado.json`: nodo `Chequear
+  ganancia del día (Postgres)` resetea `day_start_capital` a
+  `capital_real` automáticamente cuando cambia la fecha (nuevo día =
+  nueva base 0%), y el IF `¿Ganancia del día <6%?` corta a la rama
+  manual si ya se llegó al límite — corre **antes** del chequeo de
+  <2 operaciones OPEN, en la misma cadena.
+- **No aplicado a `split-mvp/` ni a producción.**
+- Pendiente de probar (mismo bloqueo que el resto del experimento:
+  mercado cerrado) — falta aplicar el `ALTER TABLE` en la base dev,
+  subir el workflow, y verificar que efectivamente resetea la base al
+  cambiar de día y bloquea al llegar al 6%.
+
 ## Reporte — primera prueba con tráfico real del grupo, stack dev + MT4 demo (2026-08-28)
 
 Sesión larga (madrugada del 27 al 28/08) probando el ciclo completo con
