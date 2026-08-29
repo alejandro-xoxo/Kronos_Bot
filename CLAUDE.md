@@ -33,7 +33,11 @@ reinterpretarse libremente.
 - ~~Google Sheets~~ — **descartado 2026-08-29**, reemplazado por
   `PVG_kronos` (Calendario/Crecimiento, ver
   `PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md`) como registro legible
-  para humanos, con datos reales vía `GET /api/registros`.
+  para humanos, con datos reales vía `GET /api/registros`. `PVG_kronos`
+  **no se creó para este proyecto** — es una herramienta genérica de
+  seguimiento de capital, desarrollada como proyecto externo e
+  independiente, que después se integró acá porque cubría mejor este
+  rol que construirlo de cero. Sigue existiendo como proyecto propio.
 
 Todo corre local en el EliteBook (CachyOS) por ahora — no hay VPS ni
 IA de pago todavía. Eso se evalúa después de validar que el sistema
