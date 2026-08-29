@@ -164,25 +164,54 @@ Postgres descartable:**
 - Workflow `08` corregido, subido y verificado contra la instancia
   real de n8n dev.
 
-**Pendiente para que esto sea útil de verdad (siguiente paso, no
-implementado todavía):**
-1. Copiar el frontend de `PVG_kronos` a `dashboard/static/` **con
-   cuidado** — es el dashboard que hoy se usa en producción real con
-   dinero, así que este reemplazo visual necesita su propia revisión
-   antes de aplicarse, no se hizo en esta sesión.
-2. Adaptar `PVG_kronos/js/storage.js` para detectar el backend
-   (`fetch('/api/registros')`) y usarlo en vez de (o además de)
-   `localStorage`.
-3. Reemplazar los datos mock de la pestaña "Panel de control" (creada
-   en `PVG_kronos` como demo) por los endpoints reales que ya existen
-   en `dashboard/main.py` (`/api/positions`, `/api/positions/<ticket>/action`).
-4. Eliminar la sección de historial de señales del dashboard actual
-   una vez que el Calendario de PVG la reemplace (confirmado con el
-   usuario, no implementado todavía).
-5. Llevar el workflow `08` (y su fix) también a `split-mvp/` y a
-   producción cuando corresponda, siguiendo el flujo normal
-   (`feature/* → develop → main → producción`) — hoy solo existe en
-   la instancia dev real y en `split-dev/` del repo.
+**Actualizado 2026-08-29 — dashboard real ya reemplazado (en paralelo,
+por un fork) y las dos piezas que faltaban ya están resueltas:**
+
+- `dashboard/static/` ya fue reemplazado por el frontend completo de
+  PVG_kronos, con el Panel de control conectado a los endpoints reales
+  (`/api/positions`, BE/Cerrar) — commit `b6d9045`, solo en el stack
+  dev, producción sin tocar.
+- **`dashboard/static/js/growth.js` ahora sincroniza con el backend**:
+  al iniciar, hace `fetch('/api/registros')`; si responde, usa
+  `capital_inicial_plan` y los registros reales en vez de
+  `localStorage`, deshabilita la carga/edición manual (los datos se
+  generan solos desde `daily_pnl`), y persiste en `Store` para que
+  `calendar.js` (que lee `localStorage` directo) también los vea. Si
+  el fetch falla (ej. demo estática en GitHub Pages sin backend), seguía
+  funcionando 100% con `localStorage` como siempre — comportamiento
+  híbrido tal como describe
+  `PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md`. Probado contra el
+  endpoint real (`curl` con auth básica): responde
+  `{"capital_inicial_plan":676.1,"registros":[...]}`.
+- **Workflow nuevo `Kronos Dev 09 - Sync capital_real`**
+  (`n8n-workflows/split-dev/09-sync-capital-real.json`): lee
+  `orders/status.json` cada 5s y actualiza `settings.capital_real` —
+  cierra el hueco de prioridad alta que estaba anotado desde antes de
+  esta sesión (punto 17 de errores persistentes, más abajo). **Subido,
+  activado y verificado en la instancia real de n8n dev**: pasó de
+  `772.22` (desactualizado) a `868.34` (valor real leído de
+  `orders/status.json`), 3 ejecuciones consecutivas sin error.
+- **Hallazgo real en el camino**: los archivos `split-dev/*.json` del
+  repo (02 a 07) referencian una credencial Postgres obsoleta
+  (`zZQ5m2frFb94qTh2`, "Postgres dev") que **ya no existe** en la
+  instancia — la real y activa es `vlp8K6c3mIwlQfkI` ("Postgres
+  account"), confirmado contra el workflow `02` que sí corre en vivo
+  con ese id correcto. Es el mismo patrón ya documentado de
+  "credenciales recreadas por corrupción, nunca resincronizadas al
+  repo". **Sin corregir todavía en los archivos existentes** (02-07)
+  — solo se corrigió en el workflow nuevo (`09`). Cualquier intento de
+  subir 02-07 tal como están hoy al repo fallaría con "Credential...
+  does not exist" hasta arreglar ese id.
+
+**Sigue pendiente:**
+1. Corregir el id de credencial Postgres obsoleto en
+   `split-dev/02-07*.json` antes de subirlos (ver hallazgo arriba).
+2. Eliminar la sección de historial de señales del dashboard actual
+   una vez confirmado que el Calendario de PVG la reemplaza del todo.
+3. Llevar los workflows `08` y `09` (y sus fixes) también a
+   `split-mvp/` y a producción cuando corresponda, siguiendo el flujo
+   normal (`feature/* → develop → main → producción`) — hoy solo
+   existen en la instancia dev real y en `split-dev/` del repo.
 
 ## Reporte — primera prueba con tráfico real del grupo, stack dev + MT4 demo (2026-08-28)
 

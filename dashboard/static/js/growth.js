@@ -18,6 +18,13 @@
   };
 
   let chart = null;
+  // true cuando /api/registros respondió con datos reales de Kronos_Bot —
+  // a partir de ahí los registros se generan solos (daily_pnl, ver
+  // db/schema.sql) y la carga/edición manual queda deshabilitada para no
+  // pisar datos que de todas formas se van a sobreescribir en el próximo
+  // sync. Si el fetch falla (ej. demo estática en GitHub Pages, sin
+  // backend), sigue funcionando 100% en localStorage como siempre.
+  let backendConnected = false;
 
   function guardar() {
     Store.set('inicio', state.inicio);
@@ -152,14 +159,16 @@
       c(f.nota);
 
       const tdDel = document.createElement('td');
-      const btn = document.createElement('button');
-      btn.className = 'del';
-      btn.type = 'button';
-      btn.textContent = '×';
-      btn.title = 'Eliminar registro';
-      btn.setAttribute('aria-label', 'Eliminar registro del ' + Fmt.fecha(f.fecha));
-      btn.addEventListener('click', function () { eliminar(f.id); });
-      tdDel.appendChild(btn);
+      if (!backendConnected) {
+        const btn = document.createElement('button');
+        btn.className = 'del';
+        btn.type = 'button';
+        btn.textContent = '×';
+        btn.title = 'Eliminar registro';
+        btn.setAttribute('aria-label', 'Eliminar registro del ' + Fmt.fecha(f.fecha));
+        btn.addEventListener('click', function () { eliminar(f.id); });
+        tdDel.appendChild(btn);
+      }
       tr.appendChild(tdDel);
 
       tbody.appendChild(tr);
@@ -207,12 +216,14 @@
   }
 
   function eliminar(id) {
+    if (backendConnected) return; // ver nota de backendConnected más arriba
     state.registros = state.registros.filter(function (r) { return r.id !== id; });
     guardar();
     render();
   }
 
   function agregar() {
+    if (backendConnected) return; // ver nota de backendConnected más arriba
     const fecha = $('reg-fecha').value || hoyISO();
     const tipo = $('reg-tipo').value;
     const valorRaw = $('reg-valor').value;
@@ -292,6 +303,52 @@
     const f = $('reg-fecha').value;
     if (!f) return;
     $('reg-operable').checked = Cal.diaSemana(f) < 5;
+  }
+
+  /* Deshabilita la carga manual de registros/capital inicial: cuando hay
+     backend, esos valores los genera Kronos_Bot solo (daily_pnl +
+     capital_inicial_plan en settings, ver db/schema.sql), y cualquier
+     edición manual se perdería en el próximo sync. */
+  function disableManualEntry() {
+    ['capital-inicial', 'reg-fecha', 'reg-tipo', 'reg-valor', 'reg-operable',
+     'reg-nota', 'btn-add', 'btn-reset'].forEach(function (id) {
+      const el = $(id);
+      if (el) el.disabled = true;
+    });
+    flash(
+      $('msg-crecimiento'),
+      'Conectado a Kronos_Bot — el capital inicial y los registros se generan automáticamente desde las señales cerradas, no se cargan a mano.',
+      'ok'
+    );
+  }
+
+  /* Intenta traer los registros reales desde el backend de Kronos_Bot
+     (GET /api/registros, ver dashboard/main.py). Si el fetch falla (ej.
+     demo estática en GitHub Pages, sin backend detrás), no hace nada y
+     el módulo sigue funcionando 100% con localStorage como hasta ahora —
+     mismo comportamiento híbrido descrito en
+     PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md. */
+  function syncFromBackend() {
+    if (typeof fetch !== 'function') return;
+    fetch('/api/registros')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !Array.isArray(data.registros)) return;
+        backendConnected = true;
+        if (data.capital_inicial_plan != null) {
+          state.inicial = Number(data.capital_inicial_plan);
+          $('capital-inicial').value = state.inicial;
+          Store.set('inicial', state.inicial);
+        }
+        state.registros = data.registros;
+        // calendar.js lee 'registros'/'inicial' directo de Store, no del
+        // estado en memoria de este módulo — hay que persistirlos acá
+        // para que el Calendario también refleje los datos reales.
+        Store.set('registros', state.registros);
+        disableManualEntry();
+        render();
+      })
+      .catch(function () { /* sin backend disponible — sigue en localStorage */ });
   }
 
   function init() {
@@ -381,6 +438,7 @@
     });
 
     render();
+    syncFromBackend();
   }
 
   window.Growth = { init: init, render: render };
