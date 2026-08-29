@@ -304,9 +304,30 @@ CREATE TRIGGER trg_compact_old_signals
 -- actividad real, no por día de la semana — pueden operarse domingos
 -- según el instrumento).
 -- =========================================================
+-- NOTA DE DESPLIEGUE: si `daily_pnl` ya existía sin wins/losses/
+-- instruments (creada en una sesión anterior de este mismo día),
+-- agregar a mano:
+--   ALTER TABLE daily_pnl ADD COLUMN IF NOT EXISTS wins INTEGER NOT NULL DEFAULT 0;
+--   ALTER TABLE daily_pnl ADD COLUMN IF NOT EXISTS losses INTEGER NOT NULL DEFAULT 0;
+--   ALTER TABLE daily_pnl ADD COLUMN IF NOT EXISTS instruments TEXT;
+--
+-- wins/losses/instruments (agregado 2026-08-28): permiten que el
+-- workflow "Kronos Dev 08 - Resumen diario" (vivo en n8n dev desde
+-- antes, nunca sincronizado al repo hasta ahora — ver
+-- n8n-workflows/split-dev/08-resumen-diario.json) lea el recap
+-- completo desde acá en vez de agregarlo en vivo contra `signals`.
+-- Esa versión anterior tenía el mismo riesgo de pérdida de datos que
+-- signals_archive_summary: si compact_old_signals() archiva señales
+-- cerradas más temprano el mismo día, antes de que el resumen de las
+-- 11am las lea, esas operaciones desaparecen del recap sin aviso.
+-- daily_pnl no tiene ese problema porque captura en el momento del
+-- cierre, no al final del día.
 CREATE TABLE IF NOT EXISTS daily_pnl (
     date                DATE PRIMARY KEY,
     profit_loss          REAL NOT NULL DEFAULT 0,
+    wins                  INTEGER NOT NULL DEFAULT 0,
+    losses                INTEGER NOT NULL DEFAULT 0,
+    instruments            TEXT,
     operable              BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -322,16 +343,33 @@ CREATE TABLE IF NOT EXISTS daily_pnl (
 CREATE OR REPLACE FUNCTION update_daily_pnl() RETURNS trigger AS $$
 DECLARE
     v_close_date DATE;
+    v_is_win INTEGER;
+    v_is_loss INTEGER;
 BEGIN
     IF NEW.status IN ('TP_REACHED', 'SL_REACHED', 'CLOSED_MANUAL', 'CLOSED_BY_PRICE_RACE')
        AND OLD.status IS DISTINCT FROM NEW.status
        AND NEW.close_timestamp IS NOT NULL THEN
         v_close_date := NEW.close_timestamp::date;
+        -- Mismo criterio que ya usaba la versión en vivo del workflow
+        -- 08 contra `signals`: ganadora si profit_loss > 0, perdedora
+        -- en cualquier otro caso (incluye 0, empate cuenta como no-win).
+        v_is_win := CASE WHEN COALESCE(NEW.profit_loss, 0) > 0 THEN 1 ELSE 0 END;
+        v_is_loss := CASE WHEN COALESCE(NEW.profit_loss, 0) > 0 THEN 0 ELSE 1 END;
 
-        INSERT INTO daily_pnl (date, profit_loss, operable, updated_at)
-        VALUES (v_close_date, COALESCE(NEW.profit_loss, 0), TRUE, NOW())
+        INSERT INTO daily_pnl (date, profit_loss, wins, losses, instruments, operable, updated_at)
+        VALUES (v_close_date, COALESCE(NEW.profit_loss, 0), v_is_win, v_is_loss, NEW.instrument, TRUE, NOW())
         ON CONFLICT (date) DO UPDATE SET
             profit_loss = daily_pnl.profit_loss + COALESCE(EXCLUDED.profit_loss, 0),
+            wins = daily_pnl.wins + EXCLUDED.wins,
+            losses = daily_pnl.losses + EXCLUDED.losses,
+            instruments = (
+                SELECT string_agg(DISTINCT instr, ', ' ORDER BY instr)
+                FROM unnest(
+                    string_to_array(COALESCE(daily_pnl.instruments, ''), ', ')
+                    || string_to_array(COALESCE(EXCLUDED.instruments, ''), ', ')
+                ) AS instr
+                WHERE instr <> ''
+            ),
             operable = TRUE,
             updated_at = NOW();
     END IF;

@@ -88,14 +88,39 @@ su SL/TP; esto solo bloquea la auto-confirmación de señales nuevas.
   subir el workflow, y verificar que efectivamente resetea la base al
   cambiar de día y bloquea al llegar al 6%.
 
+## Descubrimiento y fix real — "Kronos Dev 08 - Resumen diario" existía en n8n y nunca se sincronizó al repo (2026-08-28)
+
+Mientras se armaba el recap para PVG_kronos, salió a la luz que
+**ya existe un workflow en la instancia dev de n8n** (`oQgOomA3Qhe26i3m`,
+"Kronos Dev 08 - Resumen diario") que corre todos los días a las 11am
+y manda exactamente el mensaje de recap ("📊 Resumen del día...") que
+el usuario reportó — **nunca estuvo commiteado en el repo**, mismo
+patrón de drift ya documentado antes para otros workflows. Se
+sincronizó a `n8n-workflows/split-dev/08-resumen-diario.json`.
+
+**Bug real encontrado y corregido, mismo patrón que el bug histórico
+de `signals_archive_summary`:** la query original agregaba en vivo
+contra `signals` (`WHERE close_timestamp::date = CURRENT_DATE`) — si
+`compact_old_signals()` (tope de 20 filas) archivaba una señal cerrada
+más temprano el mismo día, esa operación desaparecía del resumen de
+las 11am sin ningún aviso. Corregido para que lea de `daily_pnl` en
+vez de `signals` (con un `LEFT JOIN` contra `(SELECT 1)` para seguir
+notificando "0 operaciones" si no hubo cierres, igual que antes).
+**Ya subido y probado en la instancia real de n8n dev** (`PUT
+/api/v1/workflows/oQgOomA3Qhe26i3m`, verificado corriendo la query
+final contra la base dev real: `total=5, wins=4, losses=1,
+total_pl=96.12, win_rate=80.0%`, coincide con el mensaje real que
+mandó el bot).
+
 ## Integración de PVG_kronos — backend del recap diario (2026-08-28)
 
 **Primera pieza real (no demo) de la integración de `PVG_kronos` como
 herramienta externa** (ver `PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md`).
-Implementado y probado en un Postgres descartable (no en la base dev
-real, para no tocarla sin permiso) — sin tocar nada de
-`dashboard/static/` todavía, así que el dashboard en uso real con
-dinero no cambió de comportamiento.
+La tabla `daily_pnl` y el trigger que la llena **ya se aplicaron a la
+base dev real** (no solo a un Postgres descartable) — ver sección de
+arriba, que reutiliza esta misma tabla para el fix del workflow `08`.
+`dashboard/static/` sigue sin tocarse, así que el dashboard en uso
+real con dinero no cambió de comportamiento.
 
 - **Tabla `daily_pnl`** (`db/schema.sql`): `date` (PK), `profit_loss`,
   `operable`. Se llena **en tiempo real vía trigger** (`update_daily_pnl`,
@@ -129,22 +154,35 @@ dinero no cambió de comportamiento.
   a mano la tabla `daily_pnl` + la función/trigger `update_daily_pnl`
   (`docker-entrypoint-initdb.d` solo corre en un volumen nuevo).
 
+**Ya aplicado a la base dev real (2026-08-28), no solo probado en
+Postgres descartable:**
+- `ALTER TABLE` de `daily_pnl` (wins/losses/instruments) y `settings`
+  (`day_start_capital`, `day_start_date`, `capital_inicial_plan`).
+- Backfill de las 5 señales ya cerradas hoy en dev (`daily_pnl` con
+  fecha `2026-08-28`, `capital_inicial_plan` calculado hacia atrás
+  desde `capital_real` actual).
+- Workflow `08` corregido, subido y verificado contra la instancia
+  real de n8n dev.
+
 **Pendiente para que esto sea útil de verdad (siguiente paso, no
 implementado todavía):**
-1. Cargar `capital_inicial_plan` a mano en la base real (dev primero).
-2. Copiar el frontend de `PVG_kronos` a `dashboard/static/` **con
+1. Copiar el frontend de `PVG_kronos` a `dashboard/static/` **con
    cuidado** — es el dashboard que hoy se usa en producción real con
    dinero, así que este reemplazo visual necesita su propia revisión
    antes de aplicarse, no se hizo en esta sesión.
-3. Adaptar `PVG_kronos/js/storage.js` para detectar el backend
+2. Adaptar `PVG_kronos/js/storage.js` para detectar el backend
    (`fetch('/api/registros')`) y usarlo en vez de (o además de)
    `localStorage`.
-4. Reemplazar los datos mock de la pestaña "Panel de control" (creada
+3. Reemplazar los datos mock de la pestaña "Panel de control" (creada
    en `PVG_kronos` como demo) por los endpoints reales que ya existen
    en `dashboard/main.py` (`/api/positions`, `/api/positions/<ticket>/action`).
-5. Eliminar la sección de historial de señales del dashboard actual
+4. Eliminar la sección de historial de señales del dashboard actual
    una vez que el Calendario de PVG la reemplace (confirmado con el
    usuario, no implementado todavía).
+5. Llevar el workflow `08` (y su fix) también a `split-mvp/` y a
+   producción cuando corresponda, siguiendo el flujo normal
+   (`feature/* → develop → main → producción`) — hoy solo existe en
+   la instancia dev real y en `split-dev/` del repo.
 
 ## Reporte — primera prueba con tráfico real del grupo, stack dev + MT4 demo (2026-08-28)
 
