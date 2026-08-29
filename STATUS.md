@@ -170,11 +170,20 @@ Postgres descartable:**
 - Workflow `08` corregido, subido y verificado contra la instancia
   real de n8n dev.
 
-**Actualizado 2026-08-29 — dashboard real ya reemplazado (en paralelo,
-por un fork) y las dos piezas que faltaban ya están resueltas:**
+**Actualizado 2026-08-29 — el frontend de `PVG_kronos` ya está integrado
+en `dashboard/static/` (en paralelo, por un fork) y las dos piezas que
+faltaban ya están resueltas:**
 
-- `dashboard/static/` ya fue reemplazado por el frontend completo de
-  PVG_kronos, con el Panel de control conectado a los endpoints reales
+`PVG_kronos` **no nació como parte de este proyecto ni lo reemplaza**
+— es una herramienta genérica de seguimiento de capital, desarrollada
+como proyecto externo e independiente (ver
+`PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md`). Se decidió integrarla
+acá porque cubría mejor un rol que Kronos_Bot necesitaba (panel de
+crecimiento/calendario, control de posiciones) que construirlo de
+cero. Sigue existiendo como proyecto propio, versionado aparte.
+
+- `dashboard/static/` ya integra el frontend completo de PVG_kronos,
+  con el Panel de control conectado a los endpoints reales
   (`/api/positions`, BE/Cerrar) — commit `b6d9045`, solo en el stack
   dev, producción sin tocar.
 - **`dashboard/static/js/growth.js` ahora sincroniza con el backend**:
