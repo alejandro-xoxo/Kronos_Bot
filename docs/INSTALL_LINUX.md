@@ -224,7 +224,30 @@ distribuye su propio instalador** (`vtmarkets4setup.exe`, descargado
 desde vtmarkets.com) — no es necesario usar el instalador genérico de
 metatrader4.com.
 
-1. Descargar `vtmarkets4setup.exe` desde el sitio de VT Markets,
+VT Markets no expone un link directo público al `.exe` — el archivo se
+genera/descarga desde dentro del portal de cliente, tras iniciar
+sesión con la cuenta VT Markets. Páginas oficiales de referencia:
+
+- MT4: https://www.vtmarkets.com/learn-forex/dowmload/ (sí, el
+  slug tiene la "dowmload" mal escrita en el propio sitio de VT
+  Markets — no es un typo nuestro) — iniciar sesión, elegir
+  MetaTrader 4 en el menú desplegable, descargar la versión para
+  Windows/PC. El instalador resultante es `vtmarkets4setup.exe`
+  (~4-5 MB).
+- MT5: https://www.vtmarkets.com/en-eu/metatrader-5/ (o el dominio
+  regional que corresponda, ej. `vtmarkets.net`, `vtmarketsglobal.com`
+  según el país de la cuenta) — mismo flujo de login, el instalador
+  suele llamarse `vtmarkets5setup.exe` o `mt5setup.exe` (~5-15 MB).
+  **Este proyecto usa MT4, no MT5** — se documenta el link solo como
+  referencia si en el futuro se evalúa migrar.
+
+**El instalador (`.exe`) nunca se sube a este repo** — es software
+propietario de VT Markets, redistribuirlo violaría su licencia, y un
+binario de varios MB no aporta nada versionable. Solo se documenta
+dónde conseguirlo.
+
+1. Descargar `vtmarkets4setup.exe` desde el sitio de VT Markets
+   (requiere login con tu cuenta VT Markets — ver links arriba),
    guardarlo en `~/Descargas` (o cualquier carpeta temporal).
 
 2. **Exportar `WINEPREFIX` para toda la sesión de la terminal** antes
@@ -361,12 +384,18 @@ dentro de MT4 — esto sí es manual, requiere interfaz gráfica.
 3. **Tildar "Allow live trading".** En la ventana que se abre al
    soltarlo, pestaña **Common**: tildar **"Allow live trading"** —
    sin esto el EA corre pero nunca puede enviar órdenes.
-4. **Configurar `InpSymbolSuffix`.** Pestaña **Inputs**: el bróker
-   (VT Markets) usa un sufijo distinto según el tipo de cuenta —
-   `"-VIP"` en la cuenta demo, `"-STD"` en la cuenta real. Dejar el
-   valor que corresponda a la cuenta con la que estás logueado ahora
-   mismo (ver `scripts/setup-mt4.sh` o `PROTOCOLOS_KRONOS_BOT.md`
-   para más contexto de por qué existe este mapeo). Click OK.
+4. **Configurar `InpProfile`.** Pestaña **Inputs**: elegir del
+   desplegable el perfil que corresponde a la cuenta con la que estás
+   logueado ahora mismo — `PROFILE_PROD_STD` (cuenta real `23096429`,
+   símbolo con sufijo `-STD`) o `PROFILE_DEMO_VIP` (cuenta demo
+   `911260411`, sufijo `-VIP`). El EA deriva el sufijo esperado del
+   símbolo automáticamente a partir del perfil elegido — ya no hay un
+   input de sufijo suelto para escribir a mano (sistema viejo,
+   reemplazado por este enum). Este valor también se puede
+   actualizar en caliente después, sin recompilar ni recargar el EA,
+   escribiendo `{"profile": "PROD_STD"}` (o `"DEMO_VIP"`) en
+   `orders/config.json` — ver `UpdateProfileFromConfig()` en el
+   `.mq4`. Click OK.
 5. **Activar el AutoTrading global.** Además del punto 3 (que es por
    EA/gráfico), hay un interruptor separado en la barra de
    herramientas principal de MT4: el botón **"AutoTrading"**. Tiene
@@ -376,7 +405,7 @@ dentro de MT4 — esto sí es manual, requiere interfaz gráfica.
    junto al nombre `KronosBridgeEA`, debe verse una carita 🙂 en
    verde (roja/triste = algo de los pasos 3 o 5 falta). En la pestaña
    **Experts** (panel inferior de MT4) debería aparecer el log
-   `Kronos EA: iniciado. Polling de orders\pending\*.json cada 2s
+   `Kronos EA: iniciado. Polling de orders\pending\*.json cada 1s
    (Common\Files).`
 
 **Si editás el `.mq4` y recompilás** (`F7`) con el EA ya corriendo en
@@ -385,9 +414,9 @@ un gráfico, la instancia en memoria sigue ejecutando el código
 volver a ponerlo: click derecho sobre el gráfico → `Expert Advisors →
 Remove`, y volver a arrastrar `KronosBridgeEA` desde el Navigator.
 Repetir esto cada vez que se recompile, incluidos cambios de
-`InpSymbolSuffix` en el código fuente (cambiar el *valor* del input
-desde Properties, en cambio, no requiere recompilar ni recargar — ver
-punto 4).
+`InpProfile` en el código fuente (cambiar el *valor* del input desde
+Properties, o escribir `orders/config.json`, en cambio, no requiere
+recompilar ni recargar — ver punto 4).
 
 ## 12. Puente n8n → MT4 (escritura de órdenes)
 
@@ -453,7 +482,7 @@ aplicarla.
 3. Si el archivo sí aparece en `orders/pending/` pero nunca
    desaparece: el EA no está corriendo o no tiene AutoTrading activo
    (ver siguiente punto) — el archivo debería borrarse solo en
-   segundos (polling cada `InpPollIntervalSeconds`, default 2s).
+   segundos (polling cada `InpPollIntervalSeconds`, default 1s).
 
 **El EA no ejecuta ninguna orden (el archivo de `pending/` desaparece
 pero no pasa nada, o `results/{id}.json` reporta error):**
@@ -461,9 +490,9 @@ pero no pasa nada, o `results/{id}.json` reporta error):**
    resultado, éxito o fallo, con `error_message` legible.
 2. Si el error es `INSTRUMENT_NOT_SUPPORTED` o `SYMBOL_NOT_FOUND`: el
    instrumento de la señal no está en el mapeo del EA (solo
-   XAUUSD/EURUSD hoy), o `InpSymbolSuffix` no coincide con el sufijo
-   real del símbolo en Market Watch de esa cuenta — revisar sección
-   10, punto 4.
+   XAUUSD/EURUSD hoy), o `InpProfile` (o `orders/config.json`) no
+   coincide con el sufijo real del símbolo en Market Watch de esa
+   cuenta — revisar sección 10, punto 4.
 3. Si no se escribe ningún `results/` en absoluto: revisar la pestaña
    **Experts** de MT4 (logs del EA) y confirmar "Allow live trading"
    + AutoTrading global (sección 11, puntos 3 y 5).

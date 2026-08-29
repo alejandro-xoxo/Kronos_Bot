@@ -315,9 +315,12 @@ Windows nativo, no cambia nada por no usar Wine):
 2. **Arrastrar al gráfico** del instrumento que quieras (ej. XAUUSD)
    desde el Navigator.
 3. **Pestaña Common → tildar "Allow live trading".**
-4. **Pestaña Inputs → `InpSymbolSuffix`**: `"-VIP"` en cuenta demo,
-   `"-STD"` en cuenta real (VT Markets usa un sufijo distinto según
-   el tipo de cuenta).
+4. **Pestaña Inputs → `InpProfile`**: elegir `PROFILE_PROD_STD`
+   (cuenta real, sufijo `-STD`) o `PROFILE_DEMO_VIP` (cuenta demo,
+   sufijo `-VIP`) — el sufijo se deriva del perfil automáticamente,
+   ya no hay un input de texto libre. También actualizable en
+   caliente sin recompilar vía `orders/config.json`
+   (`{"profile": "PROD_STD"}`).
 5. **Botón global "AutoTrading"** de la barra de herramientas de MT4
    en verde — es un interruptor aparte del punto 3, y sin él ningún
    EA ejecuta nada.
@@ -327,8 +330,8 @@ Windows nativo, no cambia nada por no usar Wine):
 **Si recompilás (`F7`) con el EA ya corriendo en un gráfico**, la
 instancia en memoria sigue con el código viejo — sacarlo
 (`Expert Advisors → Remove`) y volver a arrastrarlo. Cambiar el
-*valor* de `InpSymbolSuffix` desde Properties, en cambio, no requiere
-recompilar ni recargar.
+*valor* de `InpProfile` desde Properties, o escribir
+`orders/config.json`, en cambio, no requiere recompilar ni recargar.
 
 ## 12. Puente n8n → MT4 (escritura de órdenes)
 

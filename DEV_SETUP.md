@@ -207,10 +207,11 @@ Igual que en producción: `F4` (MetaEditor) → abrir
 `~/.wine-mt4-demo/.../MQL4/Experts/` primero, no está ahí todavía) →
 `F7` para compilar → volver a MT4 → arrastrar el EA al gráfico del
 símbolo que quieras probar (ej. `XAUUSD-VIP` o el sufijo que use la
-cuenta demo) → confirmar en **Inputs** que `InpSymbolSuffix` coincide
-con el sufijo real de la cuenta demo (mismo tipo de chequeo que el bug
-que ya encontramos en producción — doble verificar acá para no
-repetirlo del otro lado).
+cuenta demo) → confirmar en **Inputs** que `InpProfile` está en
+`PROFILE_DEMO_VIP` (el EA deriva el sufijo `-VIP` de ahí solo, ya no
+hay un input de sufijo suelto para chequear a mano — mismo tipo de
+chequeo que el bug que ya encontramos en producción con el sistema
+viejo, doble verificar acá para no repetirlo del otro lado).
 
 ---
 
