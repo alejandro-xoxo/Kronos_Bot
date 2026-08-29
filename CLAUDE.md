@@ -44,7 +44,14 @@ es rentable en modo semi-automático.
   protegiendo `.env`, `*.session`, y `telethon-service/session/`.
 - Antes de cualquier commit, verificar que no se está agregando ningún
   archivo con secretos, tokens, o la sesión de Telegram.
-- El cálculo de capital para lotaje **nunca** debe usar `AccountBalance()` solo (puede incluir crédito del bróker). Se calcula automáticamente en el EA como `AccountBalance() - AccountCredit()`, y el EA lo reporta a n8n para actualizar `capital_real` en la tabla `settings`. No requiere edición manual en operación normal.
+- **Actualizado 2026-08-28, decisión explícita del usuario** — el
+  cálculo de capital para lotaje usa `AccountBalance()` completo,
+  **incluyendo crédito del bróker**. Esto reemplaza la regla anterior
+  (que excluía el crédito restando `AccountCredit()`); el usuario
+  confirmó explícitamente que quiere el capital total, crédito
+  incluido, como base del cálculo. El EA reporta este valor como
+  `capital_real` a n8n para actualizar `settings.capital_real`. No
+  requiere edición manual en operación normal.
 - **`mt4-bridge/orders/pending/` y `mt4-bridge/orders/results/` son symlinks locales** en las máquinas donde MT4 ya está instalado (vía `scripts/setup-mt4.sh`), apuntando a la carpeta `Common/Files/orders/` del prefijo de Wine de esa máquina específica (ej. `~/.wine-mt4/drive_c/users/<usuario>/AppData/Roaming/MetaQuotes/Terminal/Common/Files/orders/`). Esa ruta es específica del usuario/máquina — **nunca se debe commitear** ese symlink ni el contenido que apunta a Wine. `git status` va a mostrar los `.gitkeep` originales como "borrados" y los symlinks como "sin seguimiento" — es el estado local esperado, no se stagea (nunca usar `git add -A` en este repo, y menos en `mt4-bridge/`). Los `.gitkeep` siguen versionados en el repo porque son necesarios para el estado por defecto de un clone nuevo, antes de correr el setup de Wine.
 
 ## MVP actual — Fase 1: señal del grupo → confirmación → ejecución en MT4
