@@ -6,6 +6,7 @@
 
 [![Estado](https://img.shields.io/badge/estado-v1%20MVP%20funcional-2ea44f)](docs/versions/v1.md)
 [![Ejecución real](https://img.shields.io/badge/ejecución-verificada%20en%20cuenta%20live-blue)](docs/versions/v1.md#-evidencia-real)
+[![Historial de versiones](https://img.shields.io/badge/versiones-v1.0%20→%20v1.6-orange)](docs/versions/v1.md#️-historial-de-versiones)
 [![Licencia](https://img.shields.io/badge/uso-personal%20%2F%20portafolio-lightgrey)](#-licencia)
 ![Python](https://img.shields.io/badge/Python-Telethon-3776AB?logo=python&logoColor=white)
 ![n8n](https://img.shields.io/badge/n8n-orquestación-EA4B71?logo=n8n&logoColor=white)

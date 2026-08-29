@@ -15,7 +15,13 @@ services:
     image: n8nio/n8n:latest
     restart: always
     ports:
-      - "5678:5678"
+      # Bind a localhost, no a todas las interfaces (2026-08-29,
+      # hallazgo de seguridad): sin esto, cualquiera con acceso de red
+      # al host (LAN, wifi compartida) llegaba al editor completo de
+      # n8n —workflows, credenciales, ejecución real en MT4— sin pasar
+      # por el Basic Auth del dashboard ni por Caddy/ngrok. El acceso
+      # real sigue andando igual, vía Caddy (puerto 8080) -> ngrok.
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_HOST=${N8N_HOST}
       - WEBHOOK_URL=https://${N8N_HOST}/
