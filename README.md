@@ -49,7 +49,7 @@ Arquitectura, retos técnicos, instalación y configuración están documentados
 | Versión | Estado | Qué es |
 |---|---|---|
 | **[v1](docs/versions/v1.md)** | ✅ MVP funcional, ejecución real verificada | Ciclo completo con confirmación humana: captura → parseo por regex → confirmación → ejecución real en MT4 → resultado. Arrancó el 10/08/2026. |
-| v2 | ⏸️ En pausa | Automatización completa (sin confirmación manual) + interpretación por Gemini de instrucciones de seguimiento en lenguaje libre. Todavía sin arrancar. |
+| v2 | 🚧 En desarrollo (solo cuenta demo) | Automatización completa (sin confirmación manual, con límite de operaciones simultáneas y circuit breaker de ganancia diaria) + interpretación por Gemini de instrucciones de seguimiento en lenguaje libre. Experimentando en stack de pruebas — nada en producción todavía. |
 
 Cada versión documenta su propia arquitectura, decisiones, retos técnicos, stack, instalación y roadmap — el README no repite ese detalle a propósito, para que quede versionado junto con el código al que corresponde.
 
