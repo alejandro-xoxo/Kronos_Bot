@@ -97,7 +97,11 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     ports:
-      - "5433:5432"
+      # Bind a localhost (2026-08-29, mismo hallazgo de seguridad que
+      # el puerto de n8n en docker-compose.yml): menor severidad
+      # porque Postgres tiene su propia autenticación, pero es
+      # superficie de red innecesaria expuesta a toda interfaz.
+      - "127.0.0.1:5433:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
