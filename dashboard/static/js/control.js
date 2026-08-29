@@ -110,10 +110,13 @@ var ControlPanel = (function () {
     }
   }
 
+  // 30 intentos cada 500ms (~15s) en vez de 10 cada 1.5s — mismo fix
+  // real ya aplicado en producción (ver historial de dashboard/main.py
+  // y el app.js viejo), mejora la responsividad percibida de BE/Cerrar.
   async function pollActionResult(ticket, action, statusEl) {
-    var maxAttempts = 10;
+    var maxAttempts = 30;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      await new Promise(function (resolve) { setTimeout(resolve, 1500); });
+      await new Promise(function (resolve) { setTimeout(resolve, 500); });
 
       var data;
       try {
