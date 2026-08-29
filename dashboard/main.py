@@ -357,36 +357,6 @@ def api_signals():
     return jsonify({"signals": rows, "range": range_param}), 200
 
 
-@app.route("/api/signals/summary")
-def api_signals_summary():
-    # Resumen acumulado de lo que se fue archivando cada vez que signals
-    # superó 20 filas (ver trigger compact_old_signals en db/schema.sql).
-    # Es una única fila (id=1) que se actualiza por UPSERT en cada
-    # compactación — no una fila nueva por tanda archivada, así esta
-    # tabla nunca crece sin límite (bug corregido 2026-08-21: antes
-    # insertaba una fila nueva por cada señal archivada).
-    conn = None
-    try:
-        conn = get_db_connection()
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT id, period_start, period_end, signal_count,
-                       status_counts, instruments, total_profit_loss, updated_at
-                FROM signals_archive_summary
-                WHERE id = 1
-                """
-            )
-            rows = cur.fetchall()
-    except psycopg2.Error as exc:
-        return jsonify({"error": f"error consultando la base de datos: {exc}"}), 500
-    finally:
-        if conn is not None:
-            conn.close()
-
-    return jsonify({"summaries": rows}), 200
-
-
 @app.route("/api/signals/<int:signal_id>/retry", methods=["POST"])
 def api_signal_retry(signal_id):
     # Solo reintenta señales que quedaron en PENDING_MANUAL (el EA las

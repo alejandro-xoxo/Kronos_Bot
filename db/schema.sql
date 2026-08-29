@@ -129,129 +129,58 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 -- =========================================================
--- Tabla: signals_archive_summary
--- Compactación automática de signals (ver trigger más abajo). Cuando
--- signals supera 20 filas, las más viejas (todo el excedente sobre
--- 20, no solo 1) se borran de signals y su agregado se acumula en
--- UNA ÚNICA fila (id=1, UPSERT) — no una fila nueva por cada tanda
--- archivada. Corrige un bug real: como el trigger dispara después de
--- cada INSERT y el excedente casi siempre es 1, la versión anterior
--- (INSERT por tanda) terminaba creando una fila nueva por señal
--- archivada — exactamente el crecimiento sin límite que esta tabla
--- pretendía evitar (detectado 2026-08-21, signals_archive_summary
--- había crecido a 44 filas). Se pierde el detalle fila por fila de lo
--- archivado, se conserva el agregado corriendo (conteos por status,
--- instrumentos, profit_loss total) en una sola fila que crece en
--- valor, no en cantidad de filas.
+-- Trigger: purge_old_signals (reemplaza compact_old_signals,
+-- 2026-08-29, decisión explícita del usuario)
+--
+-- Elimina por completo el mecanismo de archivado/resumen
+-- (signals_archive_summary) — ya no hace falta: `daily_pnl` (ver más
+-- abajo) guarda el P&L histórico de forma independiente de si la fila
+-- sigue existiendo en `signals` o no, así que no hay nada que
+-- preservar al purgar.
+--
+-- Regla nueva, mucho más simple: cuando `signals` llega a 200 filas,
+-- se borran las 100 más viejas (por created_at ASC) de una sola vez,
+-- dejando las 100 más recientes — sin acumular ningún agregado.
+-- Se dispara por statement (no por fila) después de cada INSERT,
+-- igual que la versión anterior, para no recalcular el COUNT(*) en
+-- cada fila de un INSERT masivo.
 -- =========================================================
-CREATE TABLE IF NOT EXISTS signals_archive_summary (
-    id                  INTEGER PRIMARY KEY DEFAULT 1,
-    period_start         TIMESTAMP,
-    period_end            TIMESTAMP,
-    signal_count           INTEGER NOT NULL DEFAULT 0,
-    -- Conteo acumulado de filas por status, ej: {"OPEN": 5, "EXPIRED": 2}
-    status_counts            JSONB NOT NULL DEFAULT '{}'::jsonb,
-    instruments                TEXT,
-    total_profit_loss            REAL,
-    updated_at                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT signals_archive_summary_single_row CHECK (id = 1)
-);
-
--- =========================================================
--- Trigger: compact_old_signals
--- Se dispara después de cada INSERT en signals. Si la tabla supera
--- 20 filas, archiva TODO el excedente (no solo 1 fila) — deja
--- siempre como máximo 20 filas activas en signals. Borra primero
--- signal_modifications de las filas archivadas (no hay ON DELETE
--- CASCADE en esa FK) para no romper la referencia. El agregado de lo
--- archivado se acumula en la única fila (id=1) de
--- signals_archive_summary vía UPSERT, nunca inserta una fila nueva.
--- =========================================================
-CREATE OR REPLACE FUNCTION compact_old_signals() RETURNS trigger AS $$
-DECLARE
-    excess_count INTEGER;
-    v_period_start TIMESTAMP;
-    v_period_end TIMESTAMP;
-    v_signal_count INTEGER;
-    v_status_counts JSONB;
-    v_instruments TEXT;
-    v_total_pl REAL;
+CREATE OR REPLACE FUNCTION purge_old_signals() RETURNS trigger AS $$
 BEGIN
-    SELECT GREATEST(COUNT(*) - 20, 0) INTO excess_count FROM signals;
-
-    IF excess_count = 0 THEN
+    IF (SELECT COUNT(*) FROM signals) < 200 THEN
         RETURN NULL;
     END IF;
 
-    -- DROP explícito antes de crear: "ON COMMIT DROP" solo limpia la
-    -- tabla temporal si la transacción efectivamente hace COMMIT. Si
-    -- una conexión pooled (ej. el nodo Postgres de n8n) deja una
-    -- transacción sin cerrar, la tabla persiste en esa sesión y el
-    -- próximo INSERT en signals revienta con "relation already
-    -- exists", bloqueando TODA inserción nueva hasta reiniciar n8n
-    -- (incidente real, 2026-08-18). Este DROP hace que la función sea
-    -- inmune a esa sesión colgada sin depender de por qué quedó así.
-    DROP TABLE IF EXISTS _signals_to_archive;
+    -- DROP explícito antes de crear: mismo motivo que la versión
+    -- anterior de este trigger — una conexión pooled con una
+    -- transacción sin cerrar podría dejar la tabla temporal viva de
+    -- una ejecución previa (incidente real, 2026-08-18).
+    DROP TABLE IF EXISTS _signals_to_purge;
 
-    CREATE TEMP TABLE _signals_to_archive ON COMMIT DROP AS
-    SELECT id, created_at, status, instrument, profit_loss
-    FROM signals
+    CREATE TEMP TABLE _signals_to_purge ON COMMIT DROP AS
+    SELECT id FROM signals
     ORDER BY created_at ASC
-    LIMIT excess_count;
+    LIMIT 100;
 
     DELETE FROM signal_modifications
-    WHERE signal_id IN (SELECT id FROM _signals_to_archive);
+    WHERE signal_id IN (SELECT id FROM _signals_to_purge);
 
     DELETE FROM signals
-    WHERE id IN (SELECT id FROM _signals_to_archive);
-
-    SELECT MIN(created_at), MAX(created_at), COUNT(*),
-           string_agg(DISTINCT instrument, ', '), SUM(profit_loss)
-    INTO v_period_start, v_period_end, v_signal_count, v_instruments, v_total_pl
-    FROM _signals_to_archive;
-
-    SELECT jsonb_object_agg(status, cnt) INTO v_status_counts
-    FROM (SELECT status, COUNT(*) AS cnt FROM _signals_to_archive GROUP BY status) s;
-
-    INSERT INTO signals_archive_summary
-        (id, period_start, period_end, signal_count, status_counts, instruments, total_profit_loss, updated_at)
-    VALUES (1, v_period_start, v_period_end, v_signal_count, v_status_counts, v_instruments, v_total_pl, NOW())
-    ON CONFLICT (id) DO UPDATE SET
-        period_start = LEAST(signals_archive_summary.period_start, EXCLUDED.period_start),
-        period_end   = GREATEST(signals_archive_summary.period_end, EXCLUDED.period_end),
-        signal_count = signals_archive_summary.signal_count + EXCLUDED.signal_count,
-        status_counts = (
-            SELECT jsonb_object_agg(key, sum_val)
-            FROM (
-                SELECT key, SUM(val::int) AS sum_val
-                FROM (
-                    SELECT * FROM jsonb_each_text(signals_archive_summary.status_counts)
-                    UNION ALL
-                    SELECT * FROM jsonb_each_text(EXCLUDED.status_counts)
-                ) t(key, val)
-                GROUP BY key
-            ) merged
-        ),
-        instruments = (
-            SELECT string_agg(DISTINCT instr, ', ' ORDER BY instr)
-            FROM unnest(
-                string_to_array(COALESCE(signals_archive_summary.instruments, ''), ', ')
-                || string_to_array(COALESCE(EXCLUDED.instruments, ''), ', ')
-            ) AS instr
-            WHERE instr <> ''
-        ),
-        total_profit_loss = COALESCE(signals_archive_summary.total_profit_loss, 0) + COALESCE(EXCLUDED.total_profit_loss, 0),
-        updated_at = NOW();
+    WHERE id IN (SELECT id FROM _signals_to_purge);
 
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_compact_old_signals ON signals;
-CREATE TRIGGER trg_compact_old_signals
+DROP FUNCTION IF EXISTS compact_old_signals();
+DROP TABLE IF EXISTS signals_archive_summary;
+
+DROP TRIGGER IF EXISTS trg_purge_old_signals ON signals;
+CREATE TRIGGER trg_purge_old_signals
     AFTER INSERT ON signals
     FOR EACH STATEMENT
-    EXECUTE FUNCTION compact_old_signals();
+    EXECUTE FUNCTION purge_old_signals();
 
 -- =========================================================
 -- NOTA DE DESPLIEGUE: en la base de producción (ya existente) hay que
