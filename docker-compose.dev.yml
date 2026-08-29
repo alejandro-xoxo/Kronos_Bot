@@ -58,6 +58,17 @@ services:
     networks:
       - trading_net_dev
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - n8n
+      - dashboard
+    networks:
+      - trading_net_dev
+
   ngrok:
     image: ngrok/ngrok:latest
     restart: unless-stopped
@@ -65,14 +76,20 @@ services:
       - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN_DEV}
     command:
       - "http"
-      - "n8n:5678"
+      - "caddy:8080"
       - "--domain=${N8N_HOST}"
+      # Mismo patrón que producción (ver proxy/Caddyfile): caddy rutea
+      # /webhook/* -> n8n:5678 (Telegram Trigger de este stack sigue
+      # registrando su webhook bajo esa ruta) y todo lo demás ->
+      # dashboard:8080 — así el dashboard con el Panel de control
+      # queda accesible por la misma URL pública de ngrok, sin
+      # necesitar un segundo túnel.
       # Si no tenés un segundo dominio fijo de ngrok reservado, borrá
       # la línea de arriba (--domain=...) para que use una URL
       # aleatoria — vas a tener que reconfigurar el webhook de
       # Telethon/Telegram cada vez que se reinicie este contenedor.
     depends_on:
-      - n8n
+      - caddy
     networks:
       - trading_net_dev
 
