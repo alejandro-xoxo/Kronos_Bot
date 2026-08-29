@@ -387,6 +387,62 @@ def api_signals_summary():
     return jsonify({"summaries": rows}), 200
 
 
+@app.route("/api/registros")
+def api_registros():
+    # Alimenta el panel "Crecimiento"/"Calendario" de PVG_kronos (integrado
+    # como herramienta externa, ver PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md)
+    # sin carga manual. daily_pnl se llena solo en tiempo real vía trigger
+    # (ver update_daily_pnl en db/schema.sql) cuando una señal cierra.
+    #
+    # El shape de salida coincide con el que espera growth.js de PVG_kronos:
+    # {id, fecha, tipo: 'capital', valor, operable, nota}. "valor" es el
+    # capital reconstruido ese día = capital_inicial_plan + suma acumulada
+    # de profit_loss hasta esa fecha (inclusive) — no el profit_loss crudo,
+    # para no requerir que el frontend sepa componer el capital él mismo.
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT capital_inicial_plan FROM settings ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            capital_inicial = row["capital_inicial_plan"] if row else None
+
+            if capital_inicial is None:
+                return jsonify({"registros": [], "capital_inicial_plan": None}), 200
+
+            cur.execute(
+                """
+                SELECT
+                    date AS fecha,
+                    operable,
+                    %s + SUM(profit_loss) OVER (ORDER BY date ASC) AS valor
+                FROM daily_pnl
+                ORDER BY date ASC
+                """,
+                (capital_inicial,),
+            )
+            rows = cur.fetchall()
+    except psycopg2.Error as exc:
+        return jsonify({"error": f"error consultando la base de datos: {exc}"}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+    registros = [
+        {
+            "id": idx + 1,
+            "fecha": r["fecha"].isoformat(),
+            "tipo": "capital",
+            "valor": r["valor"],
+            "operable": r["operable"],
+            "nota": "",
+        }
+        for idx, r in enumerate(rows)
+    ]
+
+    return jsonify({"registros": registros, "capital_inicial_plan": capital_inicial}), 200
+
+
 @app.route("/api/signals/<int:signal_id>/retry", methods=["POST"])
 def api_signal_retry(signal_id):
     # Solo reintenta señales que quedaron en PENDING_MANUAL (el EA las

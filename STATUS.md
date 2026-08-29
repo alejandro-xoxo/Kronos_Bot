@@ -88,6 +88,64 @@ su SL/TP; esto solo bloquea la auto-confirmación de señales nuevas.
   subir el workflow, y verificar que efectivamente resetea la base al
   cambiar de día y bloquea al llegar al 6%.
 
+## Integración de PVG_kronos — backend del recap diario (2026-08-28)
+
+**Primera pieza real (no demo) de la integración de `PVG_kronos` como
+herramienta externa** (ver `PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md`).
+Implementado y probado en un Postgres descartable (no en la base dev
+real, para no tocarla sin permiso) — sin tocar nada de
+`dashboard/static/` todavía, así que el dashboard en uso real con
+dinero no cambió de comportamiento.
+
+- **Tabla `daily_pnl`** (`db/schema.sql`): `date` (PK), `profit_loss`,
+  `operable`. Se llena **en tiempo real vía trigger** (`update_daily_pnl`,
+  disparado por `AFTER UPDATE ON signals`) cuando una señal transiciona
+  a un status de cierre real (`TP_REACHED`, `SL_REACHED`,
+  `CLOSED_MANUAL`, `CLOSED_BY_PRICE_RACE`) — no depende de un job batch
+  de n8n, así que no se pierde nada aunque `compact_old_signals()` borre
+  el detalle de `signals` más adelante. Probado con inserciones y
+  cierres de prueba: suma correctamente, y un `UPDATE` redundante sobre
+  una señal ya cerrada no vuelve a sumar (usa
+  `OLD.status IS DISTINCT FROM NEW.status`).
+- **"Operable" = hubo al menos un cierre real ese día** (decisión
+  explícita del usuario, 2026-08-28: no es lunes-a-viernes fijo, pueden
+  operarse domingos según el instrumento).
+- **Columna nueva `settings.capital_inicial_plan`**: ancla manual de una
+  sola vez (a diferencia de `capital_real`, que sí es automático) —
+  mismo concepto que "Capital inicial" en la sección Crecimiento de
+  PVG_kronos. Sin este valor cargado a mano, `GET /api/registros`
+  devuelve `registros: []`.
+- **Endpoint nuevo `GET /api/registros`** (`dashboard/main.py`):
+  reconstruye el capital de cada día como `capital_inicial_plan + suma
+  acumulada de profit_loss hasta esa fecha` (ventana SQL
+  `SUM(...) OVER (ORDER BY date ASC)`, probada con datos de ejemplo),
+  en el shape exacto que espera `growth.js` de PVG_kronos
+  (`{id, fecha, tipo: 'capital', valor, operable, nota}`). Ya queda
+  cubierto por el `@app.before_request` de autenticación básica
+  existente, sin cambios adicionales de seguridad.
+- **Nota de despliegue** (mismo patrón que el resto de columnas nuevas
+  de esta sesión): en una base ya existente hace falta
+  `ALTER TABLE settings ADD COLUMN capital_inicial_plan REAL;` y crear
+  a mano la tabla `daily_pnl` + la función/trigger `update_daily_pnl`
+  (`docker-entrypoint-initdb.d` solo corre en un volumen nuevo).
+
+**Pendiente para que esto sea útil de verdad (siguiente paso, no
+implementado todavía):**
+1. Cargar `capital_inicial_plan` a mano en la base real (dev primero).
+2. Copiar el frontend de `PVG_kronos` a `dashboard/static/` **con
+   cuidado** — es el dashboard que hoy se usa en producción real con
+   dinero, así que este reemplazo visual necesita su propia revisión
+   antes de aplicarse, no se hizo en esta sesión.
+3. Adaptar `PVG_kronos/js/storage.js` para detectar el backend
+   (`fetch('/api/registros')`) y usarlo en vez de (o además de)
+   `localStorage`.
+4. Reemplazar los datos mock de la pestaña "Panel de control" (creada
+   en `PVG_kronos` como demo) por los endpoints reales que ya existen
+   en `dashboard/main.py` (`/api/positions`, `/api/positions/<ticket>/action`).
+5. Eliminar la sección de historial de señales del dashboard actual
+   una vez que el Calendario de PVG la reemplace (confirmado con el
+   usuario, no implementado todavía).
+
 ## Reporte — primera prueba con tráfico real del grupo, stack dev + MT4 demo (2026-08-28)
 
 Sesión larga (madrugada del 27 al 28/08) probando el ciclo completo con

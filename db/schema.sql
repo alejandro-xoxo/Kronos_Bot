@@ -133,15 +133,27 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- cambio) hay que agregar las columnas a mano con:
 --   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_capital REAL;
 --   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_date DATE;
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS capital_inicial_plan REAL;
+-- (capital_inicial_plan documentado más abajo, junto a la definición
+-- de la columna, agregado en la misma sesión).
 -- Este CREATE TABLE con IF NOT EXISTS no las agrega a una tabla que
 -- ya existe (mismo patrón conocido que el resto de columnas nuevas
 -- del proyecto, ver punto 21 de STATUS.md).
 -- =========================================================
+-- capital_inicial_plan (agregado 2026-08-28): ancla manual, de una
+-- sola vez, del capital con el que arrancó el plan de trading — mismo
+-- concepto que "Capital inicial" en la sección Crecimiento de
+-- PVG_kronos. A diferencia de capital_real, este SÍ requiere una
+-- edición manual inicial (no lo reporta el EA); se usa en
+-- GET /api/registros (dashboard/main.py) para reconstruir el capital
+-- de cada día como capital_inicial_plan + suma acumulada de
+-- daily_pnl.profit_loss hasta esa fecha.
 CREATE TABLE IF NOT EXISTS settings (
     id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
     day_start_capital     REAL,
     day_start_date        DATE,
+    capital_inicial_plan   REAL,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -269,3 +281,67 @@ CREATE TRIGGER trg_compact_old_signals
     AFTER INSERT ON signals
     FOR EACH STATEMENT
     EXECUTE FUNCTION compact_old_signals();
+
+-- =========================================================
+-- NOTA DE DESPLIEGUE: en una base ya existente (creada antes de este
+-- cambio) hay que aplicar a mano el bloque completo de daily_pnl +
+-- update_daily_pnl + trg_update_daily_pnl que sigue — el
+-- docker-entrypoint-initdb.d solo corre en un volumen nuevo, no
+-- reaplica este archivo sobre una base que ya existe.
+--
+-- Tabla: daily_pnl (agregado 2026-08-28)
+-- Recap diario de ganancia/pérdida real, pensado para alimentar el
+-- panel "Crecimiento"/"Calendario" de PVG_kronos (integrado como
+-- herramienta externa, ver PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md)
+-- sin depender de carga manual. Se llena en tiempo real vía trigger
+-- (ver trg_update_daily_pnl más abajo), no por un job batch — así no
+-- se pierde nada aunque compact_old_signals() borre el detalle de
+-- signals más adelante (el agregado diario ya quedó grabado antes de
+-- que eso ocurra).
+--
+-- "operable" = hubo al menos un cierre real ese día (decisión
+-- explícita del usuario, 2026-08-28: un día operable se define por
+-- actividad real, no por día de la semana — pueden operarse domingos
+-- según el instrumento).
+-- =========================================================
+CREATE TABLE IF NOT EXISTS daily_pnl (
+    date                DATE PRIMARY KEY,
+    profit_loss          REAL NOT NULL DEFAULT 0,
+    operable              BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =========================================================
+-- Trigger: update_daily_pnl
+-- Se dispara cuando una señal transiciona a un status de cierre real
+-- (TP_REACHED, SL_REACHED, CLOSED_MANUAL, CLOSED_BY_PRICE_RACE) y
+-- trae close_timestamp. Sólo cuenta el cambio de status hacia un
+-- cierre (OLD.status IS DISTINCT FROM NEW.status), nunca re-suma un
+-- UPDATE posterior sobre una señal que ya estaba cerrada.
+-- =========================================================
+CREATE OR REPLACE FUNCTION update_daily_pnl() RETURNS trigger AS $$
+DECLARE
+    v_close_date DATE;
+BEGIN
+    IF NEW.status IN ('TP_REACHED', 'SL_REACHED', 'CLOSED_MANUAL', 'CLOSED_BY_PRICE_RACE')
+       AND OLD.status IS DISTINCT FROM NEW.status
+       AND NEW.close_timestamp IS NOT NULL THEN
+        v_close_date := NEW.close_timestamp::date;
+
+        INSERT INTO daily_pnl (date, profit_loss, operable, updated_at)
+        VALUES (v_close_date, COALESCE(NEW.profit_loss, 0), TRUE, NOW())
+        ON CONFLICT (date) DO UPDATE SET
+            profit_loss = daily_pnl.profit_loss + COALESCE(EXCLUDED.profit_loss, 0),
+            operable = TRUE,
+            updated_at = NOW();
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_update_daily_pnl ON signals;
+CREATE TRIGGER trg_update_daily_pnl
+    AFTER UPDATE ON signals
+    FOR EACH ROW
+    EXECUTE FUNCTION update_daily_pnl();
