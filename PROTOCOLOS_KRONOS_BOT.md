@@ -121,8 +121,14 @@ n8n envía el mensaje a Gemini
 
 ### 5.1. Fuente del capital
 
-- El campo `capital_real` se calcula **automáticamente en el EA** de MT4, usando `AccountBalance() - AccountCredit()` (funciones nativas de MQL4). Esto excluye el crédito del bróker sin necesidad de que el usuario lo edite a mano.
-- **Nunca se usa `AccountBalance()` solo** para este cálculo, ya que incluye crédito del bróker, el cual no debe contarse como capital real para efectos de gestión de riesgo. Siempre debe restarse `AccountCredit()`.
+- **Actualizado 2026-08-28, decisión explícita del usuario — reemplaza
+  la regla anterior de esta sección.** El campo `capital_real` se
+  calcula **automáticamente en el EA** de MT4 usando `AccountBalance()`
+  completo (función nativa de MQL4), **incluyendo el crédito del
+  bróker**. La versión anterior de esta regla excluía el crédito
+  restando `AccountCredit()`; el usuario confirmó explícitamente que
+  quiere el capital total, crédito incluido, como base del cálculo de
+  lotaje.
 - El EA reporta `capital_real` a n8n junto con el resto de datos de la cuenta (ej. en cada heartbeat o antes de cada ejecución), y n8n actualiza el valor en la tabla `settings`. No requiere edición manual del usuario en operación normal — solo se edita a mano si se necesita forzar un valor distinto por alguna razón excepcional.
 
 ### 5.2. Cálculo del lote total disponible
@@ -395,7 +401,7 @@ Notifica el resultado al usuario por Telegram
 ## 12. Principios de seguridad transversales (aplican a todo el sistema)
 
 1. **No se inventan datos.** Ningún campo (precio, SL, TP, lote) se completa con suposiciones; si falta información crítica, la señal no se ejecuta hasta tenerla.
-2. **El capital real nunca incluye el crédito del bróker.** Se calcula automáticamente en el EA como `AccountBalance() - AccountCredit()`, nunca usando el balance total solo — así se evita que el crédito infle el cálculo de riesgo.
+2. **Actualizado 2026-08-28 — el capital real SÍ incluye el crédito del bróker**, por decisión explícita del usuario (ver sección 5.1). Se calcula automáticamente en el EA como `AccountBalance()` completo.
 3. **Toda señal nueva pasa por confirmación humana** en esta fase del proyecto (Fase 1: semi-automático). Solo las modificaciones sobre operaciones ya aprobadas se ejecutan sin intervención.
 4. **Ningún loop de reintento es infinito.** Todo mecanismo de reintento automático tiene un tope máximo definido (2 intentos + 1 post-timeout) y termina en notificación al usuario si falla.
 5. **Las credenciales (.env) nunca se versionan en git** y deben rotarse inmediatamente si se exponen accidentalmente.

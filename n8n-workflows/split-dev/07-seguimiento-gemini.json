@@ -173,7 +173,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normaliza la respuesta de Gemini (structured JSON via responseSchema) al\n// mismo shape que produce \"Expandir targets\" para la rama regex, y la\n// enchufa al mismo INSERT/EA-action que la rama regex.\n//\n// Limitacion conocida (a reportar): a diferencia de la rama regex, esta\n// rama NO reintenta 1 vez en caso de error de Gemini (seccion 4.4 del\n// protocolo) ni marca PENDING_MANUAL si Gemini falla — el nodo HTTP\n// simplemente fallaria el workflow. Falta ese manejo de error, ver\n// resumen final de la tarea.\n//\n// Tambien: solo aplica sobre la PRIMERA sub-señal encontrada\n// (matched_signals[0]) — no reparte a multiples sub-señales como\n// CLOSE_ALL_TO_BE, porque los tipos que llegan por Gemini (ENTRY_CHANGE,\n// SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE) no tienen ese requisito\n// en el diseño de la tarea.\n\nconst context = $('Enrutar clasificación').item.json;\nconst raw = $json;\n\nlet parsed;\ntry {\n  const text = raw.candidates[0].content.parts[0].text;\n  parsed = JSON.parse(text);\n} catch (e) {\n  throw new Error('Fase 4: no se pudo parsear la respuesta estructurada de Gemini: ' + e.message);\n}\n\nconst target = context.matched_signals[0];\n\nlet ea_action = null; // ninguno de los tipos que llegan por Gemini tiene\n                       // accion de EA equivalente hoy (ver notas de la tarea).\n\nreturn [{\n  json: {\n    signal_id: target.id,\n    signal_uid: target.signal_uid,\n    mt4_ticket: target.mt4_ticket,\n    modification_type: parsed.modification_type,\n    target_price: parsed.target_price != null ? Number(parsed.target_price) : null,\n    raw_text: context.raw_text,\n    message_id: context.message_id,\n    interpreted_by: 'AI',\n    ea_action,\n  },\n}];\n"
+        "jsCode": "// Normaliza la respuesta de Gemini (structured JSON via responseSchema) al\n// mismo shape que produce \"Expandir targets\" para la rama regex, y la\n// enchufa al mismo INSERT/EA-action que la rama regex.\n//\n// Retry ya resuelto: 'Interpretar con Gemini' tiene retryOnFail (1\n// reintento inmediato, protocolo seccion 4.4) y onError=continueErrorOutput\n// hacia 'Insertar modificación: Gemini falló (PENDING_MANUAL)' si falla\n// tras el reintento — este Code node solo corre cuando Gemini SI respondio.\n//\n// Limitacion vigente: solo aplica sobre la PRIMERA sub-señal encontrada\n// (matched_signals[0]) — no reparte a multiples sub-señales como\n// CLOSE_ALL_TO_BE, porque los tipos que llegan por Gemini (ENTRY_CHANGE,\n// SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE) no tienen ese requisito\n// en el diseño de la tarea.\n\nconst context = $('Enrutar clasificación').item.json;\nconst raw = $json;\n\nlet parsed;\ntry {\n  const text = raw.candidates[0].content.parts[0].text;\n  parsed = JSON.parse(text);\n} catch (e) {\n  throw new Error('Fase 4: no se pudo parsear la respuesta estructurada de Gemini: ' + e.message);\n}\n\nconst target = context.matched_signals[0];\n\nlet ea_action = null; // ninguno de los tipos que llegan por Gemini tiene\n                       // accion de EA equivalente hoy (ver notas de la tarea).\n\nreturn [{\n  json: {\n    signal_id: target.id,\n    signal_uid: target.signal_uid,\n    mt4_ticket: target.mt4_ticket,\n    modification_type: parsed.modification_type,\n    target_price: parsed.target_price != null ? Number(parsed.target_price) : null,\n    raw_text: context.raw_text,\n    message_id: context.message_id,\n    interpreted_by: 'AI',\n    ea_action,\n  },\n}];\n"
       },
       "id": "0cd9fef6-b311-4a09-92f5-a7ad6c72d9f9",
       "name": "Parsear respuesta Gemini",
@@ -210,6 +210,19 @@
     },
     {
       "parameters": {
+        "jsCode": "// Fix bug conocido (ver nota historica de '¿Tiene accion EA?'): 'Insertar\n// modificacion (Postgres)' usa RETURNING id, asi que el item que sale de\n// ahi solo tiene el campo 'id' — ea_action, mt4_ticket, signal_id,\n// signal_uid, modification_type, etc. no viajan solos en $json. Se\n// recuperan del nodo de origen real (Expandir targets para la rama REGEX,\n// Parsear respuesta Gemini para la rama AI) usando el indice de\n// pairedItem, mismo patron ya usado en el workflow 05 para el problema\n// analogo de 'Borrar archivo de resultado' tras un nodo Postgres.\nconst expandTargets = $('Expandir targets').all();\nconst geminiParsed = $('Parsear respuesta Gemini').all();\n\nreturn $input.all().map((item) => {\n  const idx = item.pairedItem.item;\n  const source = expandTargets[idx] || geminiParsed[idx];\n  return {\n    json: {\n      ...source.json,\n      id: item.json.id,\n    },\n  };\n});\n"
+      },
+      "id": "b1c3f5a7-4d6e-4a2b-9f8c-1a2b3c4d5e6f",
+      "name": "Recuperar contexto (post-INSERT)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -475,
+        1750
+      ]
+    },
+    {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -241,7 +254,7 @@
         -350,
         1750
       ],
-      "notes": "IMPORTANTE (verificar en runtime): 'Insertar modificación (Postgres)' con RETURNING id devuelve un item nuevo cuyo unico campo es 'id' — ea_action, mt4_ticket, signal_id, signal_uid, modification_type NO viajan automaticamente en $json desde aca en adelante. Antes de activar en produccion, cambiar las expresiones de este nodo y de los siguientes (Preparar acción EA, Escribir acción EA, ambos Avisar en chat) para leer esos campos con referencia cruzada ($('Expandir targets').item.json / $('Parsear respuesta Gemini').item.json) en vez de $json, igual patron que 'Preparar orden pending (JSON)' usa $('Obtener señal confirmada').item.json en la rama de confirmacion existente."
+      "notes": "RESUELTO: el campo ea_action ahora llega correcto gracias al nodo 'Recuperar contexto (post-INSERT)' intercalado antes de este IF (ver su nota para el detalle del bug original)."
     },
     {
       "parameters": {
@@ -451,6 +464,17 @@
       ]
     },
     "Insertar modificación (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "Recuperar contexto (post-INSERT)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recuperar contexto (post-INSERT)": {
       "main": [
         [
           {

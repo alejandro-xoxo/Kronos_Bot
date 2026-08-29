@@ -357,25 +357,40 @@ def api_signals():
     return jsonify({"signals": rows, "range": range_param}), 200
 
 
-@app.route("/api/signals/summary")
-def api_signals_summary():
-    # Resumen acumulado de lo que se fue archivando cada vez que signals
-    # superó 20 filas (ver trigger compact_old_signals en db/schema.sql).
-    # Es una única fila (id=1) que se actualiza por UPSERT en cada
-    # compactación — no una fila nueva por tanda archivada, así esta
-    # tabla nunca crece sin límite (bug corregido 2026-08-21: antes
-    # insertaba una fila nueva por cada señal archivada).
+@app.route("/api/registros")
+def api_registros():
+    # Alimenta el panel "Crecimiento"/"Calendario" de PVG_kronos (integrado
+    # como herramienta externa, ver PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md)
+    # sin carga manual. daily_pnl se llena solo en tiempo real vía trigger
+    # (ver update_daily_pnl en db/schema.sql) cuando una señal cierra.
+    #
+    # El shape de salida coincide con el que espera growth.js de PVG_kronos:
+    # {id, fecha, tipo: 'capital', valor, operable, nota}. "valor" es el
+    # capital reconstruido ese día = capital_inicial_plan + suma acumulada
+    # de profit_loss hasta esa fecha (inclusive) — no el profit_loss crudo,
+    # para no requerir que el frontend sepa componer el capital él mismo.
     conn = None
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT capital_inicial_plan, capital_real FROM settings ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            capital_inicial = row["capital_inicial_plan"] if row else None
+            capital_real = row["capital_real"] if row else None
+
+            if capital_inicial is None:
+                return jsonify({"registros": [], "capital_inicial_plan": None, "capital_real": capital_real}), 200
+
             cur.execute(
                 """
-                SELECT id, period_start, period_end, signal_count,
-                       status_counts, instruments, total_profit_loss, updated_at
-                FROM signals_archive_summary
-                WHERE id = 1
-                """
+                SELECT
+                    date AS fecha,
+                    operable,
+                    %s + SUM(profit_loss) OVER (ORDER BY date ASC) AS valor
+                FROM daily_pnl
+                ORDER BY date ASC
+                """,
+                (capital_inicial,),
             )
             rows = cur.fetchall()
     except psycopg2.Error as exc:
@@ -384,7 +399,30 @@ def api_signals_summary():
         if conn is not None:
             conn.close()
 
-    return jsonify({"summaries": rows}), 200
+    registros = [
+        {
+            "id": idx + 1,
+            "fecha": r["fecha"].isoformat(),
+            "tipo": "capital",
+            "valor": r["valor"],
+            "operable": r["operable"],
+            "nota": "",
+        }
+        for idx, r in enumerate(rows)
+    ]
+
+    # capital_real (aparte de "valor" en cada registro): el balance real
+    # en vivo de la cuenta, sincronizado cada 5s desde orders/status.json
+    # (ver n8n-workflows/split-dev/09-sync-capital-real.json). Los
+    # registros reconstruyen el histórico día a día a partir de señales
+    # ya cerradas; capital_real es la verdad actual de la cuenta, que
+    # puede ir un paso adelante del último registro si hay operaciones
+    # abiertas o cambios de balance no capturados todavía en daily_pnl.
+    return jsonify({
+        "registros": registros,
+        "capital_inicial_plan": capital_inicial,
+        "capital_real": capital_real,
+    }), 200
 
 
 @app.route("/api/signals/<int:signal_id>/retry", methods=["POST"])

@@ -1,0 +1,946 @@
+/* ==========================================================================
+   Kronos — tema galáctico elegante
+   Estética sobria de dashboard financiero: imagen de galaxia de fondo,
+   partículas discretas, un único acento en azul acero apagado.
+   ========================================================================== */
+
+:root{
+  /* ------------------------------------------------------------------
+     IMAGEN DE FONDO — cámbiala por la tuya.
+     Basta con dejar tu archivo en /assets y escribir aquí su nombre.
+     Formatos válidos: .jpg, .png, .webp
+     Ej.:  --fondo-imagen: url("assets/mi-galaxia.webp");
+     ------------------------------------------------------------------ */
+  --fondo-imagen: url("assets/fondo-galaxia.jpg");
+
+  /* Ajustes de la imagen de fondo (para que nunca compita con el contenido) */
+  --fondo-brillo: 0.92;      /* 0 = negro · 1 = imagen original          */
+  --fondo-saturacion: 0.88;  /* < 1 apaga el color, más sobrio           */
+  --fondo-desenfoque: 1px;   /* desenfoque leve = sensación de lejanía   */
+  --fondo-velo: 0.38;        /* opacidad del velo oscuro sobre la imagen */
+
+  /* Superficies: negro, azul marino profundo y gris carbón */
+  --negro:      #05070c;
+  --marino:     #0b1220;
+  --carbon:     #141821;
+  --panel:      rgba(16, 21, 32, 0.48);
+  --panel-alto: rgba(20, 26, 39, 0.62);
+
+  /* Bordes finos, casi imperceptibles */
+  --borde:      rgba(196, 205, 224, 0.10);
+  --borde-alto: rgba(196, 205, 224, 0.18);
+
+  /* Texto */
+  --txt:      #e7eaf1;
+  --txt-dim:  #98a1b3;
+  --txt-mute: #6d768a;
+
+  /* Acento único: azul acero apagado, para datos e interacción */
+  --azul:      #6f8fac;
+  --azul-tenue:rgba(111, 143, 172, 0.16);
+
+  /* Semánticos, apagados a propósito (nada de verde/rojo chillón) */
+  --alza:  #6fae8e;
+  --baja:  #c07b7b;
+
+  --radio: 14px;
+  --sombra: 0 16px 40px rgba(0, 0, 0, 0.45);
+
+  --fuente: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+*{ box-sizing: border-box }
+html, body{ height: 100% }
+
+body{
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--fuente);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--txt);
+  background-color: var(--negro);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* --------------------------------------------------------------------------
+   Capas del fondo
+   1. .bg-imagen   imagen de galaxia, fija y atenuada
+   2. .bg-velo     velo oscuro degradado → garantiza contraste del texto
+   3. #starfield   partículas animadas (canvas)
+   El contenido va por encima, en z-index 2.
+   -------------------------------------------------------------------------- */
+.bg-imagen{
+  position: fixed;
+  inset: -2vmax;                     /* margen extra: el blur no deja bordes */
+  z-index: 0;
+  background-image: var(--fondo-imagen);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter:
+    brightness(var(--fondo-brillo))
+    saturate(var(--fondo-saturacion))
+    blur(var(--fondo-desenfoque));
+  pointer-events: none;
+}
+
+.bg-velo{
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(115% 85% at 50% 32%, rgba(5, 7, 12, 0.04) 0%, rgba(5, 7, 12, 0.52) 100%),
+    linear-gradient(180deg,
+      rgba(5, 7, 12, calc(var(--fondo-velo) * 0.70)) 0%,
+      rgba(11, 18, 32, var(--fondo-velo)) 45%,
+      rgba(5, 7, 12, calc(var(--fondo-velo) * 0.90)) 100%);
+}
+
+#starfield{
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.topbar, main, .footer{ position: relative; z-index: 2 }
+
+/* --------------------------------------------------------------------------
+   Cabecera y pestañas
+   -------------------------------------------------------------------------- */
+.topbar{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 26px clamp(16px, 4vw, 40px) 14px;
+}
+
+.brand{ display: flex; gap: 14px; align-items: center }
+
+.brand__mark{
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--borde-alto);
+  background: linear-gradient(150deg, var(--azul-tenue), rgba(111, 143, 172, 0.06));
+  color: var(--azul);
+}
+.brand__mark svg{ width: 19px; height: 19px; display: block }
+
+.brand h1{
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--txt);
+}
+.brand p{
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--txt-mute);
+  letter-spacing: 0.02em;
+}
+
+.tabs{
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--borde);
+  background: rgba(11, 16, 26, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.tab{
+  border: 0;
+  background: transparent;
+  color: var(--txt-dim);
+  font: inherit;
+  font-size: 14px;
+  padding: 9px 18px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background-color .25s ease, color .25s ease;
+}
+.tab:hover{ color: var(--txt); background: rgba(255, 255, 255, 0.035) }
+.tab.is-active{
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px var(--borde-alto);
+}
+.tab.is-active::after{
+  content: "";
+  display: block;
+  height: 1px;
+  margin: 6px 2px -4px;
+  background: linear-gradient(90deg, transparent, var(--azul), transparent);
+}
+
+main{ max-width: 1280px; margin: 0 auto; padding: 12px clamp(16px, 4vw, 40px) 48px }
+.hidden{ display: none }
+.mt{ margin-top: 24px }
+
+/* --------------------------------------------------------------------------
+   Tarjetas — glassmorphism sutil, borde fino
+   -------------------------------------------------------------------------- */
+.card{
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 22px;
+  backdrop-filter: blur(16px) saturate(1.05);
+  -webkit-backdrop-filter: blur(16px) saturate(1.05);
+  box-shadow: var(--sombra);
+}
+.card h2{
+  margin: 0 0 16px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+}
+
+.grid{ display: grid; gap: 18px; margin-bottom: 18px }
+.grid--2{ grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) }
+@media (max-width: 900px){ .grid--2{ grid-template-columns: 1fr } }
+
+/* --------------------------------------------------------------------------
+   Banda del contador de días
+   -------------------------------------------------------------------------- */
+.dayband{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 26px;
+  margin-bottom: 18px;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--panel-alto);
+  backdrop-filter: blur(16px) saturate(1.05);
+  -webkit-backdrop-filter: blur(16px) saturate(1.05);
+  box-shadow: var(--sombra);
+}
+.dayband__label{
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+}
+.dayband__main strong{
+  display: block;
+  margin: 8px 0 4px;
+  font-size: clamp(24px, 3.4vw, 32px);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  color: var(--txt);
+}
+.dayband__sub{ font-size: 12.5px; color: var(--txt-mute) }
+
+.dayband__stats{ display: flex; flex-wrap: wrap; gap: 10px }
+.dayband__stats > div{
+  min-width: 108px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  text-align: center;
+  border: 1px solid var(--borde);
+  background: rgba(5, 8, 14, 0.4);
+}
+.dayband__stats span{
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+}
+.dayband__stats strong{
+  display: block;
+  margin-top: 5px;
+  font-size: 20px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   KPIs
+   -------------------------------------------------------------------------- */
+.kpis{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.kpis--inline{ margin-bottom: 0 }
+.kpi{
+  position: relative;
+  overflow: hidden;
+  padding: 16px 18px;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+/* filete de 1 px, discreto */
+.kpi::before{
+  content: "";
+  position: absolute;
+  left: 0; top: 14px; bottom: 14px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, var(--azul), transparent);
+  opacity: .6;
+}
+.kpi__label{
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+}
+.kpi strong{
+  display: block;
+  margin-top: 7px;
+  font-size: 21px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* --------------------------------------------------------------------------
+   Formularios
+   -------------------------------------------------------------------------- */
+.field{ display: block; margin-bottom: 15px }
+.field > span{
+  display: block;
+  margin-bottom: 7px;
+  font-size: 12px;
+  color: var(--txt-dim);
+}
+.field-row{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
+
+input, select, textarea{
+  width: 100%;
+  padding: 11px 13px;
+  font: inherit;
+  font-size: 14.5px;
+  color: var(--txt);
+  background: rgba(5, 8, 14, 0.55);
+  border: 1px solid var(--borde);
+  border-radius: 9px;
+  transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
+}
+textarea{ resize: vertical; min-height: 66px; font-size: 14px; line-height: 1.65 }
+input::placeholder, textarea::placeholder{ color: var(--txt-mute) }
+input:hover, select:hover, textarea:hover{ border-color: var(--borde-alto) }
+input:focus, select:focus, textarea:focus{
+  outline: none;
+  border-color: rgba(111, 143, 172, 0.55);
+  box-shadow: 0 0 0 3px var(--azul-tenue);
+  background: rgba(5, 8, 14, 0.75);
+}
+select option{ background: var(--carbon); color: var(--txt) }
+
+input[type=range]{
+  padding: 0;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  accent-color: var(--azul);
+}
+input[type=range]:focus{ box-shadow: none }
+
+.check{
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  margin: 14px 0;
+  font-size: 13.5px;
+  color: var(--txt-dim);
+  cursor: pointer;
+}
+.check input{
+  width: 17px; height: 17px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  accent-color: var(--azul);
+}
+.check b{ color: var(--txt); font-weight: 600 }
+
+/* Días operables de la semana */
+.dow{ display: flex; flex-wrap: wrap; gap: 7px }
+.dow__item{
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 13px;
+  font-size: 13.5px;
+  color: var(--txt-dim);
+  border: 1px solid var(--borde);
+  border-radius: 9px;
+  background: rgba(5, 8, 14, 0.45);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .2s ease, background-color .2s ease, color .2s ease;
+}
+.dow__item:hover{ border-color: var(--borde-alto) }
+.dow__item input{ width: 15px; height: 15px; flex: 0 0 auto; accent-color: var(--azul) }
+.dow__item:has(input:checked){
+  color: var(--txt);
+  border-color: rgba(111, 143, 172, 0.42);
+  background: var(--azul-tenue);
+}
+
+/* --------------------------------------------------------------------------
+   Botones
+   -------------------------------------------------------------------------- */
+.btn-row{ display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px }
+.btn{
+  padding: 11px 19px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--txt-dim);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--borde);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background-color .2s ease, border-color .2s ease, color .2s ease;
+}
+.btn:hover{ color: var(--txt); background: rgba(255, 255, 255, 0.07); border-color: var(--borde-alto) }
+.btn--primary{
+  color: #10131a;
+  font-weight: 600;
+  background: linear-gradient(140deg, #8ba8c1, var(--azul));
+  border-color: transparent;
+}
+.btn--primary:hover{ background: linear-gradient(140deg, #97b2c8, #648099); color: #10131a }
+.btn--danger{ color: var(--baja); border-color: rgba(192, 123, 123, 0.3) }
+.btn--danger:hover{ color: #d59191; background: rgba(192, 123, 123, 0.1) }
+
+.hint{ margin: 13px 0 0; font-size: 12px; color: var(--txt-mute); line-height: 1.6 }
+.empty{ margin: 0; padding: 26px 0; font-size: 13px; color: var(--txt-mute); text-align: center }
+
+/* --------------------------------------------------------------------------
+   Tablas
+   -------------------------------------------------------------------------- */
+.table-wrap{ overflow-x: auto; -webkit-overflow-scrolling: touch }
+.table-wrap--tall{ max-height: 460px; overflow-y: auto }
+
+table{
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+th{
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 11px 12px;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+  background: rgba(12, 16, 25, 0.95);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--borde-alto);
+}
+th:first-child, td:first-child{ text-align: left }
+th:last-child, td:last-child{ text-align: center }
+td{
+  padding: 11px 12px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(196, 205, 224, 0.055);
+}
+tbody tr{ transition: background-color .15s ease }
+tbody tr:hover{ background: rgba(255, 255, 255, 0.025) }
+
+.pos{ color: var(--alza) }
+.neg{ color: var(--baja) }
+.dim{ color: var(--txt-mute) }
+
+/* Días no operables: atenuados, con filete plateado */
+tbody tr.row-noop{ background: rgba(182, 190, 205, 0.028); color: var(--txt-mute) }
+tbody tr.row-noop td:first-child{ box-shadow: inset 2px 0 0 rgba(182, 190, 205, 0.35) }
+
+.del{
+  padding: 2px 9px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--txt-mute);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color .2s ease, background-color .2s ease;
+}
+.del:hover{ color: var(--baja); background: rgba(192, 123, 123, 0.1) }
+
+/* --------------------------------------------------------------------------
+   Gráficos
+   -------------------------------------------------------------------------- */
+.chart-wrap{ position: relative; width: 100%; height: 320px }
+.chart-wrap canvas{ display: block; width: 100%; height: 100% }
+
+.lg{ display: inline-block; width: 20px; height: 2px; border-radius: 1px; vertical-align: middle }
+.lg--compound{ background: var(--azul) }
+.lg--simple{ background: #7c8698 }
+.lg--op{ width: 8px; height: 8px; border-radius: 50%; background: var(--azul) }
+.lg--noop{ width: 8px; height: 8px; border-radius: 50%; background: #7c8698 }
+
+/* --------------------------------------------------------------------------
+   Resultado del conversor
+   -------------------------------------------------------------------------- */
+.result{
+  margin: 8px 0 4px;
+  padding: 24px 20px;
+  text-align: center;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(201, 168, 106, 0.07), rgba(126, 163, 204, 0.05));
+}
+.result__label{
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+}
+.result strong{
+  display: block;
+  margin: 10px 0 6px;
+  font-size: clamp(28px, 5vw, 38px);
+  font-weight: 300;
+  letter-spacing: -0.015em;
+  color: var(--txt);
+}
+.result__sub{ font-size: 12px; color: var(--txt-mute) }
+
+/* --------------------------------------------------------------------------
+   Calendario de Trader
+   -------------------------------------------------------------------------- */
+
+/* Cabecera del calendario: navegación + KPIs del mes */
+.cal-header{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.cal-nav{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cal-nav__titulo{
+  min-width: 180px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: var(--txt);
+}
+.cal-nav__btn{
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.035);
+  color: var(--txt-dim);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background-color .2s ease, border-color .2s ease, color .2s ease;
+}
+.cal-nav__btn:hover{
+  color: var(--txt);
+  background: rgba(255,255,255,0.07);
+  border-color: var(--borde-alto);
+}
+.cal-nav__hoy{
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--txt-dim);
+  background: rgba(255,255,255,0.035);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color .2s ease, border-color .2s ease, color .2s ease;
+}
+.cal-nav__hoy:hover{
+  color: var(--txt);
+  background: rgba(255,255,255,0.07);
+  border-color: var(--borde-alto);
+}
+/* Cuando el mes mostrado ES el mes actual */
+.cal-nav__hoy--activo{
+  color: var(--azul);
+  border-color: rgba(111, 143, 172, 0.45);
+  background: var(--azul-tenue);
+}
+
+/* KPIs del mes: total a la derecha + stats pequeños */
+.cal-kpis{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+  align-items: center;
+}
+.cal-kpi{
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 10px 16px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.cal-kpi--total{
+  border-color: var(--borde-alto);
+  background: var(--panel-alto);
+}
+.cal-kpi__label{
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+}
+.cal-kpi__val{
+  font-size: 18px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--txt);
+}
+.cal-kpi--total .cal-kpi__val{
+  font-size: 22px;
+  font-weight: 400;
+}
+
+/* Cabecera de días de la semana */
+.cal-weekdays{
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.cal-weekday{
+  padding: 6px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+  text-align: center;
+}
+.cal-weekday:nth-child(6),
+.cal-weekday:nth-child(7){ color: rgba(196,205,224,0.35) }
+
+/* Cuadrícula del calendario */
+.cal-grid{
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+/* Celdas */
+.cal-cell{
+  position: relative;
+  min-height: 88px;
+  padding: 10px 10px 8px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: border-color .2s ease, background-color .2s ease;
+  overflow: hidden;
+}
+.cal-cell--empty{
+  background: transparent;
+  border-color: transparent;
+  pointer-events: none;
+}
+.cal-cell--futuro{
+  background: rgba(16,21,32,0.25);
+  border-color: rgba(196,205,224,0.05);
+}
+.cal-cell--sin-dato{
+  background: rgba(16,21,32,0.30);
+  border-style: dashed;
+  border-color: rgba(196,205,224,0.07);
+}
+.cal-cell--noop{
+  background: rgba(16,21,32,0.35);
+  border-color: rgba(196,205,224,0.07);
+}
+.cal-cell--pos{
+  background: rgba(111,174,142,0.10);
+  border-color: rgba(111,174,142,0.28);
+}
+.cal-cell--pos:hover{
+  background: rgba(111,174,142,0.16);
+  border-color: rgba(111,174,142,0.45);
+}
+.cal-cell--neg{
+  background: rgba(192,123,123,0.10);
+  border-color: rgba(192,123,123,0.28);
+}
+.cal-cell--neg:hover{
+  background: rgba(192,123,123,0.16);
+  border-color: rgba(192,123,123,0.45);
+}
+.cal-cell--hoy{
+  box-shadow: 0 0 0 1.5px var(--azul);
+  border-color: var(--azul) !important;
+}
+
+/* Número del día */
+.cal-cell__num{
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--txt-mute);
+  line-height: 1;
+}
+.cal-cell--hoy .cal-cell__num{
+  color: var(--azul);
+}
+
+/* Delta monetario (valor central de la celda) */
+.cal-cell__delta{
+  display: block;
+  font-size: clamp(12px, 1.1vw, 15px);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--txt);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-cell--pos .cal-cell__delta{ color: var(--alza) }
+.cal-cell--neg .cal-cell__delta{ color: var(--baja) }
+
+/* Porcentaje del día */
+.cal-cell__pct{
+  display: block;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--txt-mute);
+  white-space: nowrap;
+}
+.cal-cell--pos .cal-cell__pct{ color: rgba(111,174,142,0.7) }
+.cal-cell--neg .cal-cell__pct{ color: rgba(192,123,123,0.7) }
+
+/* Nota corta */
+.cal-cell__nota{
+  display: block;
+  font-size: 9.5px;
+  color: var(--txt-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: auto;
+}
+
+/* Etiqueta "No operable" */
+.cal-cell__noop-label{
+  display: block;
+  font-size: 9.5px;
+  color: rgba(196,205,224,0.28);
+  margin-top: auto;
+}
+
+/* Responsive: en móvil el calendario colapsa a 1 columna por día */
+@media (max-width: 700px){
+  .cal-cell{ min-height: 60px; padding: 7px 7px 5px }
+  .cal-cell__delta{ font-size: 11px }
+  .cal-nav__titulo{ min-width: 130px; font-size: 15px }
+  .cal-kpis{ margin-left: 0; width: 100% }
+  .cal-kpi{ flex: 1 1 auto }
+}
+@media (max-width: 480px){
+  .cal-grid{ gap: 3px }
+  .cal-cell{ min-height: 46px; padding: 5px 5px 4px; border-radius: 6px }
+  .cal-cell__num{ font-size: 10px }
+  .cal-cell__delta{ font-size: 9px }
+  .cal-cell__pct, .cal-cell__nota, .cal-cell__noop-label{ display: none }
+}
+
+/* --------------------------------------------------------------------------
+   Pie
+   -------------------------------------------------------------------------- */
+.footer{
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 4vw, 40px) 44px;
+  font-size: 11.5px;
+  color: var(--txt-mute);
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   Panel de control (demo)
+   -------------------------------------------------------------------------- */
+.demo-banner{
+  border: 1px solid var(--borde-alto);
+  background: linear-gradient(150deg, rgba(199, 122, 17, 0.12), rgba(199, 122, 17, 0.04));
+  color: var(--txt-dim);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.demo-banner strong{ color: var(--txt) }
+
+.section-title-row{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 26px 0 12px;
+}
+.section-title-row:first-of-type{ margin-top: 0 }
+.section-title{
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--txt-mute);
+  margin: 0;
+}
+.section-count{ font-size: 12px; color: var(--txt-dim) }
+
+.segmented{
+  display: flex;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+}
+.segmented__btn{
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--txt-dim);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 12px;
+  min-height: 42px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s ease, color .15s ease;
+}
+.segmented__btn.is-active{
+  background: rgba(255,255,255,0.06);
+  color: var(--azul);
+  box-shadow: inset 0 0 0 1px var(--borde-alto);
+}
+
+.positions{ display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px }
+.ctrl-card{
+  background: rgba(255,255,255,0.035);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--borde);
+  border-left: 3px solid var(--borde-alto);
+  border-radius: 16px;
+  padding: 16px 16px 14px;
+}
+.ctrl-card.is-profit{ border-left-color: var(--alza) }
+.ctrl-card.is-loss{ border-left-color: var(--baja) }
+
+.ctrl-top{ display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 4px }
+.ctrl-instrument{ display: flex; align-items: center; gap: 8px }
+.ctrl-symbol{ font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--txt) }
+.ctrl-dir{ font-size: 10px; font-weight: 700; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 6px; text-transform: uppercase }
+.ctrl-dir.dir-buy{ background: rgba(111, 174, 142, 0.16); color: var(--alza) }
+.ctrl-dir.dir-sell{ background: rgba(192, 123, 123, 0.16); color: var(--baja) }
+
+.ctrl-profit-block{ text-align: right; flex-shrink: 0 }
+.ctrl-profit{ font-variant-numeric: tabular-nums; font-size: 19px; font-weight: 700 }
+.ctrl-profit.pos{ color: var(--alza) }
+.ctrl-profit.neg{ color: var(--baja) }
+.ctrl-ticket{ font-size: 11px; color: var(--txt-mute); margin-top: 2px }
+
+.ctrl-meta{
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--borde);
+  border-bottom: 1px solid var(--borde);
+  margin-bottom: 14px;
+}
+.ctrl-meta-item{ display: flex; flex-direction: column; gap: 2px; min-width: 0 }
+.ctrl-meta-item span{ font-size: 10px; color: var(--txt-mute); text-transform: uppercase; letter-spacing: 0.06em }
+.ctrl-meta-item strong{ font-variant-numeric: tabular-nums; font-size: 13px; color: var(--txt) }
+.ctrl-meta-item strong.pos{ color: var(--alza) }
+.ctrl-meta-item strong.neg{ color: var(--baja) }
+
+.ctrl-actions{ display: flex; gap: 8px }
+.ctrl-actions .btn{ flex: 1; min-height: 44px }
+.ctrl-status{ margin: 10px 0 0; font-size: 12px; color: var(--txt-mute); min-height: 1em }
+
+/* --------------------------------------------------------------------------
+   Responsive
+   -------------------------------------------------------------------------- */
+@media (max-width: 560px){
+  body{ font-size: 14.5px }
+  .field-row{ grid-template-columns: 1fr }
+  .topbar{ padding-top: 18px; gap: 14px }
+  .tabs{ width: 100%; justify-content: center }
+  .tab{ flex: 1 1 auto; text-align: center; padding: 10px 12px }
+  .card{ padding: 18px }
+  .dayband{ padding: 18px; gap: 16px }
+  .dayband__stats{ width: 100% }
+  .dayband__stats > div{ flex: 1 1 calc(50% - 5px); min-width: 0; padding: 10px 12px }
+  .dow__item{ flex: 1 1 calc(33.333% - 5px); justify-content: center; padding: 9px 6px }
+  .ctrl-meta{ grid-template-columns: repeat(2, 1fr) }
+  .chart-wrap{ height: 250px }
+  /* En móvil el fondo se atenúa levemente más: equilibrio entre visual e inmersión */
+  .bg-imagen{ filter: brightness(.78) saturate(.82) blur(2px) }
+}
+
+/* Menos movimiento si el sistema lo pide */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

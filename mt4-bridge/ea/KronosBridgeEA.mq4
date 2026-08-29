@@ -876,10 +876,10 @@ void WritePositionsStatus()
    json += "    \"number\": " + IntegerToString(AccountNumber()) + ",\n";
    json += "    \"balance\": " + DoubleToString(AccountBalance(), 2) + ",\n";
    json += "    \"equity\": " + DoubleToString(AccountEquity(), 2) + ",\n";
-   // capital_real (PROTOCOLOS_KRONOS_BOT.md sección 5.2): AccountBalance() solo
-   // puede incluir crédito del bróker, que no es capital propio para el cálculo
-   // de lotaje. Se resta AccountCredit() para que n8n reciba el número correcto.
-   json += "    \"capital_real\": " + DoubleToString(AccountBalance() - AccountCredit(), 2) + "\n";
+   // capital_real (decisión explícita del usuario, 2026-08-28, reemplaza la regla
+   // anterior de PROTOCOLOS_KRONOS_BOT.md sección 5.2): el lotaje se calcula sobre
+   // AccountBalance() completo, incluyendo crédito del bróker.
+   json += "    \"capital_real\": " + DoubleToString(AccountBalance(), 2) + "\n";
    json += "  },\n";
    json += "  \"active_profile\": \"" + GetProfileInfo(g_ActiveProfile).label + "\",\n";
    if(g_ProfileUpdatedAt > 0)

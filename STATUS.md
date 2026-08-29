@@ -8,6 +8,343 @@
 > alcance de v1 (qué incluye y qué queda afuera a propósito),
 > `docs/versions/v1.md`.
 
+## Experimento de auto-confirmación con límite y lotaje sobre capital total (2026-08-28)
+
+**Decisión explícita del usuario, SOLO stack dev por ahora.** Contradice
+dos reglas previas del sistema — documentado acá para que quede
+explícito, no accidental:
+
+1. **Capital para lotaje ahora incluye crédito del bróker.** Reemplaza
+   la regla anterior de `CLAUDE.md` sección "Seguridad" y de
+   `PROTOCOLOS_KRONOS_BOT.md` sección 5.1/12.2 (que excluía el crédito
+   restando `AccountCredit()`). El EA (`KronosBridgeEA.mq4`) ahora
+   reporta `capital_real = AccountBalance()` completo. La fórmula de
+   lotaje en sí no cambió: `floor(capital_real / 100) * 0.01` (mismo
+   divisor 100 ya documentado en sección 5.2 del protocolo), solo
+   cambió qué significa `capital_real`.
+2. **Auto-confirmación de señales nuevas, con límite de 2 operaciones
+   OPEN simultáneas — solo en `n8n-workflows/split-dev/`.** Contradice
+   el principio no negociable #3 del protocolo (confirmación humana
+   obligatoria) — a propósito, y únicamente para el stack dev, para
+   poder probar el ciclo completo sin depender de tocar botones cada
+   vez. Implementado en
+   `split-dev/02-señal-nueva-parseo-confirmado.json`: tras insertar la
+   señal, se cuenta cuántas señales están `OPEN`; si son menos de 2, se
+   auto-confirma (mismo `UPDATE ... WHERE status='PENDING_CONFIRMATION'`
+   idempotente que usa el flujo manual) y se dispara la ejecución en
+   MT4 sin esperar botones; si ya hay 2 o más, cae a la rama manual de
+   siempre (Confirmar/Rechazar). **No aplicado a `split-mvp/` ni a
+   producción — el flujo de producción sigue exigiendo confirmación
+   manual sin excepción.**
+
+**Pendiente de probar** — mercado cerrado al momento de implementar
+esto, no se pudo probar en real todavía. Falta: (a) subir
+`split-dev/02-señal-nueva-parseo-confirmado.json` a la instancia dev
+vía API, (b) probar con una señal real o simulada que efectivamente
+auto-confirme cuando hay <2 OPEN y que respete el límite cuando hay 2,
+(c) verificar que el `capital_real` que llega ahora a `settings`
+refleja el balance completo (con crédito) tras el próximo ciclo de
+`WritePositionsStatus()` del EA — requiere recompilar el `.ex4` en la
+máquina real (ver "Cómo se despliega de verdad un cambio del EA a
+producción" más abajo, mismo proceso manual).
+
+**Confirmado con el usuario (2026-08-28): el lotaje NO se reparte entre
+las 2 operaciones simultáneas por ahora, queda así a propósito.** Cada
+señal que se confirma (auto o manual) calcula `floor(capital_real/100)
+*0.01` de forma independiente contra el capital total, sin descontar
+lo ya usado por otra operación abierta — el límite de 2 solo controla
+cuántas pueden estar abiertas a la vez, no divide el capital entre
+ellas. **La idea a futuro es que el lotaje disponible SÍ se reparta**
+entre las operaciones simultáneas — esto es, en esencia, el mismo
+diseño de slots ya descrito en la sección 5.3 del protocolo (hoy
+diseñado pero no implementado, pensado para tope de 3 operaciones),
+ahora aplicado sobre capital que incluye crédito y con el nuevo tope
+de 2. No implementar todavía — dejar anotado como el siguiente paso
+natural de este experimento cuando se retome.
+
+**Circuit breaker diario del 6% de ganancia (implementado 2026-08-28,
+decisión explícita del usuario, SOLO stack dev).** Si la cuenta ya
+subió ≥6% respecto al capital del inicio del día en curso, se deja de
+auto-confirmar señales nuevas hasta el día siguiente — caen a
+confirmación manual (mismos botones Confirmar/Rechazar de siempre).
+**Las posiciones ya abiertas no se tocan**, siguen su curso normal con
+su SL/TP; esto solo bloquea la auto-confirmación de señales nuevas.
+
+- Requiere dos columnas nuevas en `settings`: `day_start_capital` y
+  `day_start_date` (agregadas a `db/schema.sql`, con nota de
+  despliegue — **una base ya existente necesita
+  `ALTER TABLE settings ADD COLUMN ...` a mano**, el `CREATE TABLE IF
+  NOT EXISTS` no las agrega solo a una tabla que ya existe).
+- Implementado en
+  `split-dev/02-señal-nueva-parseo-confirmado.json`: nodo `Chequear
+  ganancia del día (Postgres)` resetea `day_start_capital` a
+  `capital_real` automáticamente cuando cambia la fecha (nuevo día =
+  nueva base 0%), y el IF `¿Ganancia del día <6%?` corta a la rama
+  manual si ya se llegó al límite — corre **antes** del chequeo de
+  <2 operaciones OPEN, en la misma cadena.
+- **No aplicado a `split-mvp/` ni a producción.**
+- Pendiente de probar (mismo bloqueo que el resto del experimento:
+  mercado cerrado) — falta aplicar el `ALTER TABLE` en la base dev,
+  subir el workflow, y verificar que efectivamente resetea la base al
+  cambiar de día y bloquea al llegar al 6%.
+
+## Descubrimiento y fix real — "Kronos Dev 08 - Resumen diario" existía en n8n y nunca se sincronizó al repo (2026-08-28)
+
+Mientras se armaba el recap para PVG_kronos, salió a la luz que
+**ya existe un workflow en la instancia dev de n8n** (`oQgOomA3Qhe26i3m`,
+"Kronos Dev 08 - Resumen diario") que corre todos los días a las 11am
+y manda exactamente el mensaje de recap ("📊 Resumen del día...") que
+el usuario reportó — **nunca estuvo commiteado en el repo**, mismo
+patrón de drift ya documentado antes para otros workflows. Se
+sincronizó a `n8n-workflows/split-dev/08-resumen-diario.json`.
+
+**Bug real encontrado y corregido, mismo patrón que el bug histórico
+de `signals_archive_summary`:** la query original agregaba en vivo
+contra `signals` (`WHERE close_timestamp::date = CURRENT_DATE`) — si
+`compact_old_signals()` (tope de 20 filas) archivaba una señal cerrada
+más temprano el mismo día, esa operación desaparecía del resumen de
+las 11am sin ningún aviso. Corregido para que lea de `daily_pnl` en
+vez de `signals` (con un `LEFT JOIN` contra `(SELECT 1)` para seguir
+notificando "0 operaciones" si no hubo cierres, igual que antes).
+**Ya subido y probado en la instancia real de n8n dev** (`PUT
+/api/v1/workflows/oQgOomA3Qhe26i3m`, verificado corriendo la query
+final contra la base dev real: `total=5, wins=4, losses=1,
+total_pl=96.12, win_rate=80.0%`, coincide con el mensaje real que
+mandó el bot).
+
+## Integración de PVG_kronos — backend del recap diario (2026-08-28)
+
+**Primera pieza real (no demo) de la integración de `PVG_kronos` como
+herramienta externa** (ver `PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md`).
+La tabla `daily_pnl` y el trigger que la llena **ya se aplicaron a la
+base dev real** (no solo a un Postgres descartable) — ver sección de
+arriba, que reutiliza esta misma tabla para el fix del workflow `08`.
+`dashboard/static/` sigue sin tocarse, así que el dashboard en uso
+real con dinero no cambió de comportamiento.
+
+- **Tabla `daily_pnl`** (`db/schema.sql`): `date` (PK), `profit_loss`,
+  `operable`. Se llena **en tiempo real vía trigger** (`update_daily_pnl`,
+  disparado por `AFTER UPDATE ON signals`) cuando una señal transiciona
+  a un status de cierre real (`TP_REACHED`, `SL_REACHED`,
+  `CLOSED_MANUAL`, `CLOSED_BY_PRICE_RACE`) — no depende de un job batch
+  de n8n, así que no se pierde nada aunque `compact_old_signals()` borre
+  el detalle de `signals` más adelante. Probado con inserciones y
+  cierres de prueba: suma correctamente, y un `UPDATE` redundante sobre
+  una señal ya cerrada no vuelve a sumar (usa
+  `OLD.status IS DISTINCT FROM NEW.status`).
+- **"Operable" = hubo al menos un cierre real ese día** (decisión
+  explícita del usuario, 2026-08-28: no es lunes-a-viernes fijo, pueden
+  operarse domingos según el instrumento).
+- **Columna nueva `settings.capital_inicial_plan`**: ancla manual de una
+  sola vez (a diferencia de `capital_real`, que sí es automático) —
+  mismo concepto que "Capital inicial" en la sección Crecimiento de
+  PVG_kronos. Sin este valor cargado a mano, `GET /api/registros`
+  devuelve `registros: []`.
+- **Endpoint nuevo `GET /api/registros`** (`dashboard/main.py`):
+  reconstruye el capital de cada día como `capital_inicial_plan + suma
+  acumulada de profit_loss hasta esa fecha` (ventana SQL
+  `SUM(...) OVER (ORDER BY date ASC)`, probada con datos de ejemplo),
+  en el shape exacto que espera `growth.js` de PVG_kronos
+  (`{id, fecha, tipo: 'capital', valor, operable, nota}`). Ya queda
+  cubierto por el `@app.before_request` de autenticación básica
+  existente, sin cambios adicionales de seguridad.
+- **Nota de despliegue** (mismo patrón que el resto de columnas nuevas
+  de esta sesión): en una base ya existente hace falta
+  `ALTER TABLE settings ADD COLUMN capital_inicial_plan REAL;` y crear
+  a mano la tabla `daily_pnl` + la función/trigger `update_daily_pnl`
+  (`docker-entrypoint-initdb.d` solo corre en un volumen nuevo).
+
+**Ya aplicado a la base dev real (2026-08-28), no solo probado en
+Postgres descartable:**
+- `ALTER TABLE` de `daily_pnl` (wins/losses/instruments) y `settings`
+  (`day_start_capital`, `day_start_date`, `capital_inicial_plan`).
+- Backfill de las 5 señales ya cerradas hoy en dev (`daily_pnl` con
+  fecha `2026-08-28`). `capital_inicial_plan` primero se calculó hacia
+  atrás desde `capital_real` (dio `676.10`, valor de prueba
+  incorrecto) — **corregido 2026-08-29 a `1000`**, el capital real con
+  el que arrancó la cuenta demo (confirmado por el usuario: la cuenta
+  demo MT4 empezó en 1000 EUR). Con `capital_real` en `868.34`, la
+  cuenta está efectivamente **en negativo** respecto al arranque
+  (`-131.66`, `-13.17%`) — el cálculo de ganancia/% en `growth.js` ya
+  maneja negativos sin problema, no requirió cambio de código.
+- Workflow `08` corregido, subido y verificado contra la instancia
+  real de n8n dev.
+
+**Actualizado 2026-08-29 — dashboard real ya reemplazado (en paralelo,
+por un fork) y las dos piezas que faltaban ya están resueltas:**
+
+- `dashboard/static/` ya fue reemplazado por el frontend completo de
+  PVG_kronos, con el Panel de control conectado a los endpoints reales
+  (`/api/positions`, BE/Cerrar) — commit `b6d9045`, solo en el stack
+  dev, producción sin tocar.
+- **`dashboard/static/js/growth.js` ahora sincroniza con el backend**:
+  al iniciar, hace `fetch('/api/registros')`; si responde, usa
+  `capital_inicial_plan` y los registros reales en vez de
+  `localStorage`, deshabilita la carga/edición manual (los datos se
+  generan solos desde `daily_pnl`), y persiste en `Store` para que
+  `calendar.js` (que lee `localStorage` directo) también los vea. Si
+  el fetch falla (ej. demo estática en GitHub Pages sin backend), seguía
+  funcionando 100% con `localStorage` como siempre — comportamiento
+  híbrido tal como describe
+  `PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md`. Probado contra el
+  endpoint real (`curl` con auth básica): responde
+  `{"capital_inicial_plan":1000.0,"capital_real":868.34,"registros":[...]}`
+  (valor de `capital_inicial_plan` ya corregido, ver nota arriba).
+- **Workflow nuevo `Kronos Dev 09 - Sync capital_real`**
+  (`n8n-workflows/split-dev/09-sync-capital-real.json`): lee
+  `orders/status.json` cada 5s y actualiza `settings.capital_real` —
+  cierra el hueco de prioridad alta que estaba anotado desde antes de
+  esta sesión (punto 17 de errores persistentes, más abajo). **Subido,
+  activado y verificado en la instancia real de n8n dev**: pasó de
+  `772.22` (desactualizado) a `868.34` (valor real leído de
+  `orders/status.json`), 3 ejecuciones consecutivas sin error.
+- **Hallazgo real en el camino**: los archivos `split-dev/*.json` del
+  repo (02 a 07) referencian una credencial Postgres obsoleta
+  (`zZQ5m2frFb94qTh2`, "Postgres dev") que **ya no existe** en la
+  instancia — la real y activa es `vlp8K6c3mIwlQfkI` ("Postgres
+  account"), confirmado contra el workflow `02` que sí corre en vivo
+  con ese id correcto. Es el mismo patrón ya documentado de
+  "credenciales recreadas por corrupción, nunca resincronizadas al
+  repo". **Sin corregir todavía en los archivos existentes** (02-07)
+  — solo se corrigió en el workflow nuevo (`09`). Cualquier intento de
+  subir 02-07 tal como están hoy al repo fallaría con "Credential...
+  does not exist" hasta arreglar ese id.
+
+**Sigue pendiente:**
+1. Corregir el id de credencial Postgres obsoleto en
+   `split-dev/02-07*.json` antes de subirlos (ver hallazgo arriba).
+2. Eliminar la sección de historial de señales del dashboard actual
+   una vez confirmado que el Calendario de PVG la reemplaza del todo.
+3. Llevar los workflows `08` y `09` (y sus fixes) también a
+   `split-mvp/` y a producción cuando corresponda, siguiendo el flujo
+   normal (`feature/* → develop → main → producción`) — hoy solo
+   existen en la instancia dev real y en `split-dev/` del repo.
+
+## Reporte — primera prueba con tráfico real del grupo, stack dev + MT4 demo (2026-08-28)
+
+Sesión larga (madrugada del 27 al 28/08) probando el ciclo completo con
+**mensajes reales** del grupo de Telegram, redirigidos temporalmente
+del Telethon de producción hacia el stack dev, ejecutando contra la
+cuenta **demo** de MT4 (`911260411`). Detalle completo del
+procedimiento de redirección (nodo Webhook temporal + credencial
+Header Auth, aplicado solo en la instancia de n8n dev, nunca en el
+repo) en el historial de conversación — acá solo el resultado.
+
+### Resultado: el ciclo completo funciona de punta a punta
+
+Grupo real → Telethon → webhook temporal → parser regex → inserción en
+Postgres → auto-confirmación (mecanismo temporal, solo para esta
+prueba, no forma parte del MVP) → ejecución real en MT4 demo → lectura
+de resultado → notificación por Telegram. Verificado con tickets
+reales: `#204144208`, `#204145069`, `#204146047`, `#204150530`,
+`#204153921` (aperturas y cierres reales, incluida una orden `LIMIT`
+por desfasaje de precio, y un cierre manual vía instrucción de
+seguimiento real).
+
+### 5 bugs reales encontrados y corregidos (solo en n8n dev, vía API — nunca se tocó el repo ni producción)
+
+Todos comparten el mismo patrón: una expresión `$('NombreDeNodo')`
+que referencia un nodo que existe en **otro** workflow (típicamente
+`01`), rota porque cada pieza del split (`n8n-workflows/split-mvp/` y
+`split-dev/`) corre como ejecución independiente sin acceso a los
+nodos del workflow que la llamó. El fix siempre es el mismo patrón:
+cambiar la referencia cruzada por `$json` o por
+`$('Recibido de otro workflow').item.json` (el nodo trigger local del
+propio sub-workflow, en modo `passthrough`).
+
+1. **Workflow `02`** (`Notificar Telegram`) — nunca había funcionado
+   la notificación de "nueva señal detectada", ni antes de esta
+   sesión. Referenciaba `$('Parsear señal (regex)')` (nodo de `01`).
+2. **Workflow `04`** (`Obtener señal confirmada`) — sin este fix,
+   **ninguna** ejecución en MT4 funciona, ni con confirmación manual.
+   Referenciaba `$('Parsear callback')` (nodo de `03`).
+3. **Workflow `06`** (`¿Se actualizó cierre ahora?`) — la rama sin
+   match borraba el archivo de cierre del EA sin notificar,
+   perdiéndolo para siempre. No era referencia cruzada, era lógica de
+   reintento faltante: se corrigió para que esa rama no borre el
+   archivo y se reintente en el próximo ciclo del scheduler.
+4. **Workflow `07`, pieza 7a** (`Buscar señal referenciada`) —
+   referenciaba `$('¿Señal válida?')` (nodo de `01`). Sin este fix,
+   **todo** el camino de seguimiento fallaba antes de llegar al
+   regex — ninguna instrucción de seguimiento se procesaba nunca.
+5. **Workflow `07`** (`¿Tiene acción EA?`, `Preparar acción EA (JSON)`,
+   `Escribir acción EA (MT4)`, y los dos nodos `Avisar en chat`) — el
+   más grave: `Insertar modificación (Postgres)` pisa `$json` con
+   `RETURNING id`, así que `ea_action`/`mt4_ticket`/etc. se perdían.
+   **`CLOSE_AT_PRICE`, `CANCEL` y cualquier modificación con acción
+   real en el EA quedaban "registradas" en Postgres pero nunca se
+   ejecutaban de verdad en MT4** — el sistema reportaba "sin acción
+   automática" como si fuera el comportamiento esperado. Ya estaba
+   anotado como riesgo conocido en una nota del propio nodo
+   `¿Tiene acción EA?` (dejada por una sesión anterior), confirmado y
+   corregido en esta.
+
+### Otros hallazgos (documentados, algunos corregidos solo en dev)
+
+- **Modelo de Gemini deprecado**: `gemini-1.5-flash` (404, retirado) →
+  se probó `gemini-2.5-flash` (también retirado, Google recomienda
+  `gemini-3.6-flash` en el mensaje de error) → se fijó en
+  **`gemini-flash-latest`** (alias estable, apunta siempre al flash
+  vigente). Corregido en los 3 nodos HTTP de Gemini del workflow `07`
+  dev. Ver disponibilidad de modelos reales con
+  `GET https://generativelanguage.googleapis.com/v1beta/models?key=...`
+  antes de fijar un nombre de modelo a mano en el futuro.
+- **`settings.capital_real` nunca se escribe** desde ningún workflow
+  de n8n (ni dev ni `split-mvp`) — se sembró a mano en dev
+  (`INSERT INTO settings (capital_real) VALUES (772.22)`) para poder
+  probar. En producción debe estar cargado a mano en algún momento —
+  no hay automatismo real pese a lo que sugiere `CLAUDE.md`. Sin
+  resolver.
+- **Discrepancia lotaje MVP vs código real**: `04-ejecución-en-mt4.json`
+  (dev y `split-mvp`) ya calcula lotaje dinámico
+  (`floor(capital_real/100)*0.01`), no el lotaje fijo `0.01` que
+  describe el alcance documentado del MVP. Sin resolver, requiere
+  decisión del usuario.
+- **Faltaban carpetas en el prefijo Wine demo** (`orders/closed/`,
+  `orders/actions/`) — `DEV_SETUP.md` las menciona pero no se habían
+  creado. Creadas manualmente.
+- **`account_mismatch` del EA** bloqueaba `ProcessPendingOrders()`
+  contra la cuenta demo (el EA esperaba el perfil `PROD_STD`, cuenta
+  `23096429`) — resuelto escribiendo `orders/config.json` con
+  `{"profile": "DEMO_VIP"}` (mecanismo ya existente en el EA, sin
+  recompilar).
+- **Ejecuciones de n8n dev con retención muy agresiva** — el stack
+  dev tiene `EXECUTIONS_DATA_PRUNE`/similar configurado de forma que
+  los schedulers de 1-2s (`05`, `06`) saturan rápido el historial
+  global de ejecuciones, "empujando" ejecuciones raras (como las del
+  workflow `07`) fuera de la retención en segundos. Dificultó el
+  debugging esta noche. Sin resolver, no es bloqueante pero vale la
+  pena revisar la config de retención de `docker-compose.dev.yml`.
+- **Credenciales de n8n corrompidas al guardar desde la UI** — pasó
+  dos veces (la de `Header Auth` para el webhook temporal, y
+  aparentemente algo similar con la de Telegram, aunque en este caso
+  el problema real terminó siendo que el usuario le escribía a un bot
+  distinto al configurado). El fix que funcionó ambas veces fue
+  **recrear la credencial desde cero por API** en vez de editar el
+  valor de la existente.
+
+### Decisiones de producto registradas esta sesión (ver rama
+`feature/docs-fase8-lotaje-capital`, no mezclada acá)
+
+- Fórmula de lotaje para el modo 100% automático (Fase 8, futuro):
+  `floor(capital/500)*0.01`, capital = `AccountBalance()` completo
+  (con crédito), tope fijo de 2 operaciones simultáneas.
+- Invalidación de órdenes `LIMIT` sin llenar a los 4 minutos — solo
+  aplica al modo 100% automático, sin implementar.
+
+### Pendiente / no bloqueante
+
+- Notificación de Telegram: resuelta durante esta sesión (era el bot
+  equivocado, no un bug de configuración).
+- Camino de confirmación manual por botones (workflow `03`) — no se
+  probó esta sesión, se usó un auto-confirmador temporal para saltarlo.
+- Tipos de modificación sin probar: `TP_NO_EXISTE`,
+  `TP_UPDATE_SIN_VALOR`, `SL_CHANGE`, `TP_UPDATE`, `CLOSE_ALL_TO_BE`.
+- Llevar los 5 fixes de bugs a `n8n-workflows/split-mvp/*.json` y a
+  producción, siguiendo el flujo normal (`feature/* → develop → main`)
+  — **no aplicado todavía a ningún archivo del repo, solo a la
+  instancia de n8n dev en caliente.**
+
 ## Excepción registrada: acceso remoto al dashboard (commit directo a `main`)
 
 **2026-08-21** — cambio de infraestructura aplicado directo sobre
@@ -141,21 +478,51 @@ que tome el nuevo servicio `caddy` y el cambio de destino de `ngrok`.
 
 ## ⚠️ El gap operativo más importante ahora mismo
 
-**Fase 4 (Gemini) ya está mergeada a `develop`, pero NO está en
-producción todavía.** El código de interpretación de instrucciones de
-seguimiento ("mover el SL a BE", "cerrar a X -Y PIPS") y el consumidor
-de cierres TP/SL (`feature/cierre-tp-sl`) están en `develop`
-(`3f19e91`, `7e64a4b`), pero el workflow que corre en vivo
-(`QxXebyoPgTGmGH2B`, cuenta real VT Markets) **sigue siendo el viejo**
-— no se subió por API todavía. Además hay un bloqueante real
-confirmado: **`GEMINI_API_KEY` no existe ni en `.env` ni en
-`docker-compose.yml`** — sin eso, cada instrucción de seguimiento real
-fallaría al llamar a Gemini y caería a `PENDING_MANUAL` (no rompe el
-sistema gracias al fix de retry, pero Fase 4 no cumpliría su propósito
-real hasta agregar la key). Plan de subida completo, con riesgos de
-merge de JSON de n8n y comandos exactos, en `MERGE_PLAN.md` (raíz del
-repo, sin commitear — es un documento de trabajo, no un artefacto del
-repo). Mientras tanto, sigue siendo **100% responsabilidad manual del
+**Actualizado 2026-08-28 — el diseño/desarrollo de Fase 4 (Gemini) ya
+se dio por terminado en `develop`**, con más alcance del que reflejaba
+una versión anterior de esta sección (auditoría de código confirmó
+15+ commits de piezas de Fase 4 posteriores a la supuesta pausa por
+falta de aprobación — el usuario siguió iterando el diseño igual).
+El árbol de decisión completo (regex + fallback a Gemini con
+`responseSchema` estructurado) está en
+`n8n-workflows/split-mvp/07-seguimiento-gemini.json` (y su par en
+`split-dev/`), cubriendo `CANCEL`, `CLOSE_ALL_TO_BE`, `CLOSE_AT_PRICE`,
+`TP_UPDATE`, `SL_TO_BE`, `UNCLASSIFIED`. Confirmado: el diseño ya no
+está bloqueado, ya no aplica el punto 9 de "errores persistentes" tal
+como estaba redactado.
+
+**Estado actualizado 2026-08-28 (sesión de fix aplicado al repo):**
+
+1. **RESUELTO en el repo — bug de campos perdidos tras el INSERT en la
+   rama Gemini.** El retry de Gemini en sí (`retryOnFail`,
+   `maxTries: 2`, `onError: continueErrorOutput` → `PENDING_MANUAL`)
+   **ya existía** en el JSON — un comentario obsoleto dentro de
+   `Parsear respuesta Gemini` decía lo contrario, ya corregido. El bug
+   real (anotado en la nota histórica de `¿Tiene acción EA?`) era que
+   `Insertar modificación (Postgres)` con `RETURNING id` pisaba
+   `$json`, perdiendo `ea_action`/`mt4_ticket`/`signal_id`/etc. para
+   los 4 nodos siguientes (tanto en la rama regex como en la rama
+   Gemini). Se agregó un nodo `Recuperar contexto (post-INSERT)` que
+   reconstruye esos campos desde `Expandir targets` o `Parsear
+   respuesta Gemini` usando `pairedItem.item` (mismo patrón ya usado
+   para el bug análogo del workflow `05`), en
+   `n8n-workflows/split-mvp/07-seguimiento-gemini.json` y su par en
+   `split-dev/`. **Corregido solo en el repo — todavía no aplicado a
+   ninguna instancia real de n8n (ni dev ni producción).**
+2. **Paso a producción, aún no hecho.** El workflow que corre en vivo
+   (`QxXebyoPgTGmGH2B`, cuenta real VT Markets) sigue siendo el que no
+   incluye esta rama ni el fix del punto 1. Falta: (a) agregar
+   `GEMINI_API_KEY` a `.env` y a `docker-compose.yml` de producción —
+   hoy solo está en `docker-compose.dev.yml`, confirmado por grep
+   vacío en el compose de prod — y reiniciar el contenedor de n8n;
+   (b) subir el workflow `07` corregido (idealmente probarlo primero
+   en el stack dev con una instrucción de seguimiento real) vía
+   `PUT /api/v1/workflows/{id}`. Plan de subida completo, con riesgos
+   de merge de JSON de n8n y comandos exactos, en `MERGE_PLAN.md`
+   (raíz del repo, sin commitear — documento de trabajo, no artefacto
+   del repo).
+
+Mientras tanto, sigue siendo **100% responsabilidad manual del
 usuario** aplicar SL/BE/cierres vía los botones del dashboard
 (`localhost:8088`).
 
@@ -748,17 +1115,18 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
    registro en Google Sheets sigue sin existir — los cierres viven
    solo en la base de datos, sin respaldo externo ni reporte legible
    fuera del dashboard.
-9. **Gemini / Fase 4 — PENDIENTE DE REDISEÑO CON APROBACIÓN EXPLÍCITA
-   DEL USUARIO. No subir a producción bajo ninguna circunstancia hasta
-   entonces, tiene prioridad sobre cualquier otro trabajo de Fase 4.**
-   El diseño actual (árbol de decisión regex + Gemini, ver
-   `MERGE_PLAN.md` sección 2 para el detalle de los 15 nodos) se
-   construyó sin que el usuario lo aprobara paso a paso como el resto
-   del sistema. Aunque el JSON ya está técnicamente en producción
-   (punto 2, arriba) y sigue bloqueado en la práctica por la falta de
-   `GEMINI_API_KEY` (punto 1), **eso no equivale a aprobación de
-   diseño** — no activarlo (ni conseguir la key, ni destrabarlo) sin
-   pasar antes por ese rediseño conjunto.
+9. **RESUELTO 2026-08-28 — Gemini / Fase 4 dada por terminada en
+   diseño y desarrollo (`develop`).** Esta entrada decía "pendiente de
+   rediseño con aprobación explícita del usuario, no subir a
+   producción bajo ninguna circunstancia" — el usuario confirmó que la
+   Fase 4 ya está terminada. Lo que queda no es de diseño, son dos
+   cosas puntuales de implementación: (a) el bug de retry/campos
+   perdidos en la rama Gemini del workflow `07` (ver "gap operativo"
+   al inicio de este documento), y (b) el paso a producción en sí
+   (agregar `GEMINI_API_KEY` al `.env`/`docker-compose.yml` de
+   producción — hoy solo está en el de dev — y subir el workflow
+   corregido). Ninguno de los dos requiere una nueva ronda de
+   aprobación de diseño, solo terminarlos.
 10. **`error 4109` (trade context busy) — decisión de fix ya tomada,
     falta implementar.** En vez del parche actual de pausa fija entre
     `OrderSend()` consecutivos, el EA debe procesar **una sola orden**
@@ -985,12 +1353,11 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
 
 ## Próximos pasos inmediatos (en orden)
 
-0. **Rediseñar Fase 4 (Gemini) en conjunto con el usuario, paso a
-   paso, antes de tocar código o `.env`.** Ver punto 9 de errores
-   persistentes: el diseño actual no fue aprobado así como el resto
-   del sistema. **No conseguir `GEMINI_API_KEY` ni destrabar el nodo
-   de Gemini hasta cerrar ese rediseño** — corrige el paso 0 anterior
-   de esta lista, que decía lo contrario.
+0. **Fase 4 (Gemini) — diseño terminado, quedan dos tareas concretas
+   (ver punto 9 de errores persistentes, resuelto 2026-08-28):**
+   arreglar el bug de retry/campos perdidos en la rama Gemini del
+   workflow `07`, y luego pasar a producción (`GEMINI_API_KEY` +
+   subir el workflow vía API).
 1. Medir la lentitud percibida antes de tocar timing (punto 11) — solo
    después, implementar el fix real de `error 4109` (una orden por
    ciclo de `OnTimer`, punto 10) y recompilar `KronosBridgeEA.mq4`
@@ -1035,10 +1402,12 @@ SL/BE/cierres mientras hay posiciones reales abiertas.
   `docker-entrypoint-initdb.d`.
 - ✅ Fase 3 — webhook + parser regex (incluye multi-TP), verificado
   end-to-end.
-- 🔶 Fase 4 — interpretación por Gemini. Código mergeado en `develop`
-  (rama `feature/fase4-seguimiento`), **no en producción** — falta
-  `GEMINI_API_KEY` y subir el workflow (ver aviso al inicio y sección
-  de errores persistentes).
+- 🔶 Fase 4 — interpretación por Gemini. **Diseño y desarrollo dados
+  por terminados** en `develop` (rama `feature/fase4-seguimiento`),
+  **no en producción todavía** — falta arreglar el bug de retry/
+  campos perdidos en la rama Gemini del workflow `07`, agregar
+  `GEMINI_API_KEY` a producción, y subir el workflow (ver aviso al
+  inicio y sección de errores persistentes).
 - ✅ Fase 5 — botones de confirmar/rechazar funcionales, idempotentes,
   con mensaje de confirmación visible en el chat.
 - ✅ Fase 6 — EA puente en MT4. Completa y verificada end-to-end con
