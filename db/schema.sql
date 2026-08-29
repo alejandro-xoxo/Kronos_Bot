@@ -252,3 +252,84 @@ CREATE TRIGGER trg_compact_old_signals
     AFTER INSERT ON signals
     FOR EACH STATEMENT
     EXECUTE FUNCTION compact_old_signals();
+
+-- =========================================================
+-- NOTA DE DESPLIEGUE: en la base de producción (ya existente) hay que
+-- aplicar a mano el bloque completo de daily_pnl + update_daily_pnl +
+-- trg_update_daily_pnl que sigue — el docker-entrypoint-initdb.d solo
+-- corre en un volumen nuevo, no reaplica este archivo sobre una base
+-- que ya existe.
+--
+-- Tabla: daily_pnl (v2.0, agregado 2026-08-29)
+-- Recap diario de ganancia/pérdida real, usado por el workflow
+-- "Kronos 08 - Resumen diario" (mensaje de las 11am). Se llena en
+-- tiempo real vía trigger (ver trg_update_daily_pnl más abajo), no
+-- por un job batch — así no se pierde nada aunque
+-- compact_old_signals() borre el detalle de signals más adelante
+-- (el agregado diario ya quedó grabado antes de que eso ocurra).
+--
+-- "operable" = hubo al menos un cierre real ese día (decisión
+-- explícita del usuario: un día operable se define por actividad
+-- real, no por día de la semana — pueden operarse domingos según el
+-- instrumento).
+-- =========================================================
+CREATE TABLE IF NOT EXISTS daily_pnl (
+    date                DATE PRIMARY KEY,
+    profit_loss          REAL NOT NULL DEFAULT 0,
+    wins                  INTEGER NOT NULL DEFAULT 0,
+    losses                INTEGER NOT NULL DEFAULT 0,
+    instruments            TEXT,
+    operable              BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =========================================================
+-- Trigger: update_daily_pnl
+-- Se dispara cuando una señal transiciona a un status de cierre real
+-- (TP_REACHED, SL_REACHED, CLOSED_MANUAL, CLOSED_BY_PRICE_RACE) y
+-- trae close_timestamp. Sólo cuenta el cambio de status hacia un
+-- cierre (OLD.status IS DISTINCT FROM NEW.status), nunca re-suma un
+-- UPDATE posterior sobre una señal que ya estaba cerrada.
+-- =========================================================
+CREATE OR REPLACE FUNCTION update_daily_pnl() RETURNS trigger AS $$
+DECLARE
+    v_close_date DATE;
+    v_is_win INTEGER;
+    v_is_loss INTEGER;
+BEGIN
+    IF NEW.status IN ('TP_REACHED', 'SL_REACHED', 'CLOSED_MANUAL', 'CLOSED_BY_PRICE_RACE')
+       AND OLD.status IS DISTINCT FROM NEW.status
+       AND NEW.close_timestamp IS NOT NULL THEN
+        v_close_date := NEW.close_timestamp::date;
+        -- Ganadora si profit_loss > 0, perdedora en cualquier otro
+        -- caso (incluye 0, empate cuenta como no-win).
+        v_is_win := CASE WHEN COALESCE(NEW.profit_loss, 0) > 0 THEN 1 ELSE 0 END;
+        v_is_loss := CASE WHEN COALESCE(NEW.profit_loss, 0) > 0 THEN 0 ELSE 1 END;
+
+        INSERT INTO daily_pnl (date, profit_loss, wins, losses, instruments, operable, updated_at)
+        VALUES (v_close_date, COALESCE(NEW.profit_loss, 0), v_is_win, v_is_loss, NEW.instrument, TRUE, NOW())
+        ON CONFLICT (date) DO UPDATE SET
+            profit_loss = daily_pnl.profit_loss + COALESCE(EXCLUDED.profit_loss, 0),
+            wins = daily_pnl.wins + EXCLUDED.wins,
+            losses = daily_pnl.losses + EXCLUDED.losses,
+            instruments = (
+                SELECT string_agg(DISTINCT instr, ', ' ORDER BY instr)
+                FROM unnest(
+                    string_to_array(COALESCE(daily_pnl.instruments, ''), ', ')
+                    || string_to_array(COALESCE(EXCLUDED.instruments, ''), ', ')
+                ) AS instr
+                WHERE instr <> ''
+            ),
+            operable = TRUE,
+            updated_at = NOW();
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_update_daily_pnl ON signals;
+CREATE TRIGGER trg_update_daily_pnl
+    AFTER UPDATE ON signals
+    FOR EACH ROW
+    EXECUTE FUNCTION update_daily_pnl();
