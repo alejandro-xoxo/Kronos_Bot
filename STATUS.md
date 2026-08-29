@@ -266,21 +266,41 @@ que tome el nuevo servicio `caddy` y el cambio de destino de `ngrok`.
 
 ## ⚠️ El gap operativo más importante ahora mismo
 
-**Fase 4 (Gemini) ya está mergeada a `develop`, pero NO está en
-producción todavía.** El código de interpretación de instrucciones de
-seguimiento ("mover el SL a BE", "cerrar a X -Y PIPS") y el consumidor
-de cierres TP/SL (`feature/cierre-tp-sl`) están en `develop`
-(`3f19e91`, `7e64a4b`), pero el workflow que corre en vivo
-(`QxXebyoPgTGmGH2B`, cuenta real VT Markets) **sigue siendo el viejo**
-— no se subió por API todavía. Además hay un bloqueante real
-confirmado: **`GEMINI_API_KEY` no existe ni en `.env` ni en
-`docker-compose.yml`** — sin eso, cada instrucción de seguimiento real
-fallaría al llamar a Gemini y caería a `PENDING_MANUAL` (no rompe el
-sistema gracias al fix de retry, pero Fase 4 no cumpliría su propósito
-real hasta agregar la key). Plan de subida completo, con riesgos de
-merge de JSON de n8n y comandos exactos, en `MERGE_PLAN.md` (raíz del
-repo, sin commitear — es un documento de trabajo, no un artefacto del
-repo). Mientras tanto, sigue siendo **100% responsabilidad manual del
+**Actualizado 2026-08-28 — el diseño/desarrollo de Fase 4 (Gemini) ya
+se dio por terminado en `develop`**, con más alcance del que reflejaba
+una versión anterior de esta sección (auditoría de código confirmó
+15+ commits de piezas de Fase 4 posteriores a la supuesta pausa por
+falta de aprobación — el usuario siguió iterando el diseño igual).
+El árbol de decisión completo (regex + fallback a Gemini con
+`responseSchema` estructurado) está en
+`n8n-workflows/split-mvp/07-seguimiento-gemini.json` (y su par en
+`split-dev/`), cubriendo `CANCEL`, `CLOSE_ALL_TO_BE`, `CLOSE_AT_PRICE`,
+`TP_UPDATE`, `SL_TO_BE`, `UNCLASSIFIED`. Confirmado: el diseño ya no
+está bloqueado, ya no aplica el punto 9 de "errores persistentes" tal
+como estaba redactado.
+
+**Lo que falta de verdad, en dos frentes separados:**
+
+1. **Bug de retry/campos perdidos en la rama Gemini** (distinto del
+   fix ya aplicado en la rama regex del workflow `07`, ver sesión
+   27-28/08 más arriba): dentro de `07-seguimiento-gemini.json` hay
+   dos notas propias sin resolver — campos (`ea_action`, `mt4_ticket`,
+   etc.) se pierden tras un nodo Postgres con `RETURNING id` que pisa
+   `$json`, y la rama Gemini no tiene el mismo mecanismo de reintento
+   + caída a `PENDING_MANUAL` que ya tiene la rama regex. Hay que
+   corregir esto **antes** de subir a producción.
+2. **Paso a producción, aún no hecho.** El workflow que corre en vivo
+   (`QxXebyoPgTGmGH2B`, cuenta real VT Markets) sigue siendo el que no
+   incluye esta rama. Falta: (a) agregar `GEMINI_API_KEY` a `.env` y a
+   `docker-compose.yml` de producción — hoy solo está en
+   `docker-compose.dev.yml`, confirmado por grep vacío en el compose
+   de prod — y reiniciar el contenedor de n8n; (b) subir el nodo/rama
+   corregida vía `PUT /api/v1/workflows/{id}`. Plan de subida completo,
+   con riesgos de merge de JSON de n8n y comandos exactos, en
+   `MERGE_PLAN.md` (raíz del repo, sin commitear — documento de
+   trabajo, no artefacto del repo).
+
+Mientras tanto, sigue siendo **100% responsabilidad manual del
 usuario** aplicar SL/BE/cierres vía los botones del dashboard
 (`localhost:8088`).
 
@@ -873,17 +893,18 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
    registro en Google Sheets sigue sin existir — los cierres viven
    solo en la base de datos, sin respaldo externo ni reporte legible
    fuera del dashboard.
-9. **Gemini / Fase 4 — PENDIENTE DE REDISEÑO CON APROBACIÓN EXPLÍCITA
-   DEL USUARIO. No subir a producción bajo ninguna circunstancia hasta
-   entonces, tiene prioridad sobre cualquier otro trabajo de Fase 4.**
-   El diseño actual (árbol de decisión regex + Gemini, ver
-   `MERGE_PLAN.md` sección 2 para el detalle de los 15 nodos) se
-   construyó sin que el usuario lo aprobara paso a paso como el resto
-   del sistema. Aunque el JSON ya está técnicamente en producción
-   (punto 2, arriba) y sigue bloqueado en la práctica por la falta de
-   `GEMINI_API_KEY` (punto 1), **eso no equivale a aprobación de
-   diseño** — no activarlo (ni conseguir la key, ni destrabarlo) sin
-   pasar antes por ese rediseño conjunto.
+9. **RESUELTO 2026-08-28 — Gemini / Fase 4 dada por terminada en
+   diseño y desarrollo (`develop`).** Esta entrada decía "pendiente de
+   rediseño con aprobación explícita del usuario, no subir a
+   producción bajo ninguna circunstancia" — el usuario confirmó que la
+   Fase 4 ya está terminada. Lo que queda no es de diseño, son dos
+   cosas puntuales de implementación: (a) el bug de retry/campos
+   perdidos en la rama Gemini del workflow `07` (ver "gap operativo"
+   al inicio de este documento), y (b) el paso a producción en sí
+   (agregar `GEMINI_API_KEY` al `.env`/`docker-compose.yml` de
+   producción — hoy solo está en el de dev — y subir el workflow
+   corregido). Ninguno de los dos requiere una nueva ronda de
+   aprobación de diseño, solo terminarlos.
 10. **`error 4109` (trade context busy) — decisión de fix ya tomada,
     falta implementar.** En vez del parche actual de pausa fija entre
     `OrderSend()` consecutivos, el EA debe procesar **una sola orden**
@@ -1110,12 +1131,11 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
 
 ## Próximos pasos inmediatos (en orden)
 
-0. **Rediseñar Fase 4 (Gemini) en conjunto con el usuario, paso a
-   paso, antes de tocar código o `.env`.** Ver punto 9 de errores
-   persistentes: el diseño actual no fue aprobado así como el resto
-   del sistema. **No conseguir `GEMINI_API_KEY` ni destrabar el nodo
-   de Gemini hasta cerrar ese rediseño** — corrige el paso 0 anterior
-   de esta lista, que decía lo contrario.
+0. **Fase 4 (Gemini) — diseño terminado, quedan dos tareas concretas
+   (ver punto 9 de errores persistentes, resuelto 2026-08-28):**
+   arreglar el bug de retry/campos perdidos en la rama Gemini del
+   workflow `07`, y luego pasar a producción (`GEMINI_API_KEY` +
+   subir el workflow vía API).
 1. Medir la lentitud percibida antes de tocar timing (punto 11) — solo
    después, implementar el fix real de `error 4109` (una orden por
    ciclo de `OnTimer`, punto 10) y recompilar `KronosBridgeEA.mq4`
@@ -1160,10 +1180,12 @@ SL/BE/cierres mientras hay posiciones reales abiertas.
   `docker-entrypoint-initdb.d`.
 - ✅ Fase 3 — webhook + parser regex (incluye multi-TP), verificado
   end-to-end.
-- 🔶 Fase 4 — interpretación por Gemini. Código mergeado en `develop`
-  (rama `feature/fase4-seguimiento`), **no en producción** — falta
-  `GEMINI_API_KEY` y subir el workflow (ver aviso al inicio y sección
-  de errores persistentes).
+- 🔶 Fase 4 — interpretación por Gemini. **Diseño y desarrollo dados
+  por terminados** en `develop` (rama `feature/fase4-seguimiento`),
+  **no en producción todavía** — falta arreglar el bug de retry/
+  campos perdidos en la rama Gemini del workflow `07`, agregar
+  `GEMINI_API_KEY` a producción, y subir el workflow (ver aviso al
+  inicio y sección de errores persistentes).
 - ✅ Fase 5 — botones de confirmar/rechazar funcionales, idempotentes,
   con mensaje de confirmación visible en el chat.
 - ✅ Fase 6 — EA puente en MT4. Completa y verificada end-to-end con
