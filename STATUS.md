@@ -279,26 +279,36 @@ El árbol de decisión completo (regex + fallback a Gemini con
 está bloqueado, ya no aplica el punto 9 de "errores persistentes" tal
 como estaba redactado.
 
-**Lo que falta de verdad, en dos frentes separados:**
+**Estado actualizado 2026-08-28 (sesión de fix aplicado al repo):**
 
-1. **Bug de retry/campos perdidos en la rama Gemini** (distinto del
-   fix ya aplicado en la rama regex del workflow `07`, ver sesión
-   27-28/08 más arriba): dentro de `07-seguimiento-gemini.json` hay
-   dos notas propias sin resolver — campos (`ea_action`, `mt4_ticket`,
-   etc.) se pierden tras un nodo Postgres con `RETURNING id` que pisa
-   `$json`, y la rama Gemini no tiene el mismo mecanismo de reintento
-   + caída a `PENDING_MANUAL` que ya tiene la rama regex. Hay que
-   corregir esto **antes** de subir a producción.
+1. **RESUELTO en el repo — bug de campos perdidos tras el INSERT en la
+   rama Gemini.** El retry de Gemini en sí (`retryOnFail`,
+   `maxTries: 2`, `onError: continueErrorOutput` → `PENDING_MANUAL`)
+   **ya existía** en el JSON — un comentario obsoleto dentro de
+   `Parsear respuesta Gemini` decía lo contrario, ya corregido. El bug
+   real (anotado en la nota histórica de `¿Tiene acción EA?`) era que
+   `Insertar modificación (Postgres)` con `RETURNING id` pisaba
+   `$json`, perdiendo `ea_action`/`mt4_ticket`/`signal_id`/etc. para
+   los 4 nodos siguientes (tanto en la rama regex como en la rama
+   Gemini). Se agregó un nodo `Recuperar contexto (post-INSERT)` que
+   reconstruye esos campos desde `Expandir targets` o `Parsear
+   respuesta Gemini` usando `pairedItem.item` (mismo patrón ya usado
+   para el bug análogo del workflow `05`), en
+   `n8n-workflows/split-mvp/07-seguimiento-gemini.json` y su par en
+   `split-dev/`. **Corregido solo en el repo — todavía no aplicado a
+   ninguna instancia real de n8n (ni dev ni producción).**
 2. **Paso a producción, aún no hecho.** El workflow que corre en vivo
    (`QxXebyoPgTGmGH2B`, cuenta real VT Markets) sigue siendo el que no
-   incluye esta rama. Falta: (a) agregar `GEMINI_API_KEY` a `.env` y a
-   `docker-compose.yml` de producción — hoy solo está en
-   `docker-compose.dev.yml`, confirmado por grep vacío en el compose
-   de prod — y reiniciar el contenedor de n8n; (b) subir el nodo/rama
-   corregida vía `PUT /api/v1/workflows/{id}`. Plan de subida completo,
-   con riesgos de merge de JSON de n8n y comandos exactos, en
-   `MERGE_PLAN.md` (raíz del repo, sin commitear — documento de
-   trabajo, no artefacto del repo).
+   incluye esta rama ni el fix del punto 1. Falta: (a) agregar
+   `GEMINI_API_KEY` a `.env` y a `docker-compose.yml` de producción —
+   hoy solo está en `docker-compose.dev.yml`, confirmado por grep
+   vacío en el compose de prod — y reiniciar el contenedor de n8n;
+   (b) subir el workflow `07` corregido (idealmente probarlo primero
+   en el stack dev con una instrucción de seguimiento real) vía
+   `PUT /api/v1/workflows/{id}`. Plan de subida completo, con riesgos
+   de merge de JSON de n8n y comandos exactos, en `MERGE_PLAN.md`
+   (raíz del repo, sin commitear — documento de trabajo, no artefacto
+   del repo).
 
 Mientras tanto, sigue siendo **100% responsabilidad manual del
 usuario** aplicar SL/BE/cierres vía los botones del dashboard
