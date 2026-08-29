@@ -305,6 +305,26 @@
     $('reg-operable').checked = Cal.diaSemana(f) < 5;
   }
 
+  /* Sobreescribe el KPI "Capital actual" (y ganancia/% derivados de él)
+     con el balance real en vivo de la cuenta, en vez del último valor
+     reconstruido a partir de señales cerradas — ver nota en
+     syncFromBackend(). No toca la tabla/gráfico/calendario, que siguen
+     mostrando el histórico día a día tal cual está en daily_pnl. */
+  function pintarCapitalReal(actual) {
+    const base = Number(state.inicial) || 0;
+    const m = state.moneda;
+    const ganancia = actual - base;
+    const pct = base !== 0 ? (ganancia / base) * 100 : 0;
+
+    $('k-actual').textContent = Fmt.money(actual, m);
+    const g = $('k-ganancia');
+    g.textContent = Fmt.money(ganancia, m);
+    g.className = Fmt.signClass(ganancia);
+    const p = $('k-pct');
+    p.textContent = Fmt.pct(pct);
+    p.className = Fmt.signClass(pct);
+  }
+
   /* Deshabilita la carga manual de registros/capital inicial: cuando hay
      backend, esos valores los genera Kronos_Bot solo (daily_pnl +
      capital_inicial_plan en settings, ver db/schema.sql), y cualquier
@@ -347,6 +367,13 @@
         Store.set('registros', state.registros);
         disableManualEntry();
         render();
+        // "Capital actual" con el balance real en vivo (capital_real,
+        // sincronizado cada 5s desde el EA — ver
+        // n8n-workflows/split-dev/09-sync-capital-real.json), no con el
+        // histórico reconstruido de daily_pnl: puede ir un paso adelante
+        // si hay operaciones abiertas o cambios de balance que todavía
+        // no se reflejaron como señal cerrada.
+        if (data.capital_real != null) pintarCapitalReal(Number(data.capital_real));
       })
       .catch(function () { /* sin backend disponible — sigue en localStorage */ });
   }

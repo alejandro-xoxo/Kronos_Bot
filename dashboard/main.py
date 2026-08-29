@@ -373,12 +373,13 @@ def api_registros():
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT capital_inicial_plan FROM settings ORDER BY id DESC LIMIT 1")
+            cur.execute("SELECT capital_inicial_plan, capital_real FROM settings ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
             capital_inicial = row["capital_inicial_plan"] if row else None
+            capital_real = row["capital_real"] if row else None
 
             if capital_inicial is None:
-                return jsonify({"registros": [], "capital_inicial_plan": None}), 200
+                return jsonify({"registros": [], "capital_inicial_plan": None, "capital_real": capital_real}), 200
 
             cur.execute(
                 """
@@ -410,7 +411,18 @@ def api_registros():
         for idx, r in enumerate(rows)
     ]
 
-    return jsonify({"registros": registros, "capital_inicial_plan": capital_inicial}), 200
+    # capital_real (aparte de "valor" en cada registro): el balance real
+    # en vivo de la cuenta, sincronizado cada 5s desde orders/status.json
+    # (ver n8n-workflows/split-dev/09-sync-capital-real.json). Los
+    # registros reconstruyen el histórico día a día a partir de señales
+    # ya cerradas; capital_real es la verdad actual de la cuenta, que
+    # puede ir un paso adelante del último registro si hay operaciones
+    # abiertas o cambios de balance no capturados todavía en daily_pnl.
+    return jsonify({
+        "registros": registros,
+        "capital_inicial_plan": capital_inicial,
+        "capital_real": capital_real,
+    }), 200
 
 
 @app.route("/api/signals/<int:signal_id>/retry", methods=["POST"])
