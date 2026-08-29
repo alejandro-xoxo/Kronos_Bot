@@ -10,7 +10,7 @@
 
 ## Experimento de auto-confirmación con límite y lotaje sobre capital total (2026-08-28)
 
-**Decisión explícita del usuario, SOLO stack dev por ahora.** Contradice
+**Decisión explícita del usuario, SOLO stack dev por ahora.** Actualiza
 dos reglas previas del sistema — documentado acá para que quede
 explícito, no accidental:
 
@@ -23,9 +23,12 @@ explícito, no accidental:
    divisor 100 ya documentado en sección 5.2 del protocolo), solo
    cambió qué significa `capital_real`.
 2. **Auto-confirmación de señales nuevas, con límite de 2 operaciones
-   OPEN simultáneas — solo en `n8n-workflows/split-dev/`.** Contradice
-   el principio no negociable #3 del protocolo (confirmación humana
-   obligatoria) — a propósito, y únicamente para el stack dev, para
+   OPEN simultáneas — solo en `n8n-workflows/split-dev/`.** No
+   contradice el principio no negociable #3 del protocolo (confirmación
+   humana obligatoria) — lo evoluciona a propósito: el objetivo
+   explícito de v2/Fase 8 siempre fue justamente que el sistema no
+   necesite supervisión humana. Este experimento es el primer paso
+   real hacia ese objetivo, acotado por ahora al stack dev, para
    poder probar el ciclo completo sin depender de tocar botones cada
    vez. Implementado en
    `split-dev/02-señal-nueva-parseo-confirmado.json`: tras insertar la
