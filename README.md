@@ -53,7 +53,7 @@ Arquitectura, retos técnicos, instalación y configuración están documentados
 
 Cada versión documenta su propia arquitectura, decisiones, retos técnicos, stack, instalación y roadmap — el README no repite ese detalle a propósito, para que quede versionado junto con el código al que corresponde.
 
-Reglas de negocio (fuente única de verdad, no versionadas por release): [`PROTOCOLOS_KRONOS_BOT.md`](PROTOCOLOS_KRONOS_BOT.md). Estado técnico fase por fase: [`STATUS.md`](STATUS.md).
+Reglas de negocio (fuente única de verdad, no versionadas por release): [`PROTOCOLOS_KRONOS_BOT.md`](PROTOCOLOS_KRONOS_BOT.md).
 
 ## 📄 Licencia
 
