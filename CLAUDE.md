@@ -30,7 +30,10 @@ reinterpretarse libremente.
 - **MT4 + EA puente** (Wine, en el EliteBook) — ejecución real en la
   cuenta de VT Markets. EA compilado y corriendo; falta el nodo n8n
   que lee los resultados (ver `STATUS.md`).
-- **Google Sheets** — registro de resultados y de señales rechazadas.
+- **PVG_kronos** (dashboard) — registro legible de resultados
+  (Crecimiento/Calendario vía `daily_pnl`). Reemplaza a Google Sheets,
+  descartado por completo (decisión explícita del usuario, 2026-08-29,
+  ver `STATUS.md`).
 
 Todo corre local en el EliteBook (CachyOS) por ahora — no hay VPS ni
 IA de pago todavía. Eso se evalúa después de validar que el sistema
@@ -266,7 +269,10 @@ visible hasta que la próxima señal real simplemente no llegue.
   interfaz gráfica) y los nodos de n8n que escriben la orden y leen el
   resultado (Etapas 4 y 5 de esta fase, no confundir con las Fases 4/5
   de arriba).
-- 🔲 Fase 7: ciclo de cierre y registro en Google Sheets.
+- ✅ Fase 7: ciclo de cierre y registro legible — resuelto 2026-08-29,
+  redefinido: ya no es Google Sheets (descartado por completo,
+  decisión explícita del usuario), lo cubre PVG_kronos vía
+  `daily_pnl`/`GET /api/registros`.
 - 🔶 Fase 8: ejecución 100% automática — declarada iniciada 2026-08-29
   en `PROTOCOLOS_KRONOS_BOT.md` sección 12.3 (máx. 1 operación `OPEN`
   simultánea + circuit breaker de 6% de ganancia diaria). Promovida a

@@ -694,9 +694,12 @@ todavía sin luz verde explícita del usuario.
 - **Cálculo de lotaje por slots** (80/20, sección 5.3 del protocolo) —
   fórmula definida, no implementada. Todas las señales (incluidas ambas
   sub-señales de una señal multi-TP) usan lotaje fijo `0.01`.
-- **Ciclo de cierre y registro en Google Sheets** (Fase 7) — sin
-  empezar. Los cierres (BE/Cerrar) hoy se hacen manual desde el
-  dashboard, y no se registran en ningún lado fuera de Postgres.
+- ~~**Ciclo de cierre y registro en Google Sheets** (Fase 7)~~ —
+  **RESUELTO 2026-08-29, redefinido: ya no es Google Sheets**
+  (descartado por completo, decisión explícita del usuario). El
+  registro legible de cierres ahora lo cubre `PVG_kronos`
+  (Crecimiento/Calendario del dashboard, vía `daily_pnl` y
+  `GET /api/registros` en `dashboard/main.py`).
 - **Loop de reintento de precio con Gemini** (protocolo sección 8) —
   depende de que exista la ejecución real en MT4.
 - **Ejecución 100% automática sin confirmación** (Fase 8, futuro) — todo
@@ -777,11 +780,16 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
    hay reintento automático si el error igual ocurriera bajo más
    carga (ej. 3+ sub-señales si se saca el tope, ver punto de
    `sin-tope-sub-senales` arriba).
-8. **Sin registro de cierres fuera de Postgres (Fase 7 completa).**
-   El lazo de detección TP/SL (punto 3) ya está cerrado y activo, pero el
-   registro en Google Sheets sigue sin existir — los cierres viven
-   solo en la base de datos, sin respaldo externo ni reporte legible
-   fuera del dashboard.
+8. **RESUELTO 2026-08-29 — Fase 7 redefinida, ya no es Google Sheets.**
+   El lazo de detección TP/SL (punto 3) ya estaba cerrado y activo.
+   El registro legible para humanos que iba a cumplir Sheets ahora lo
+   cubre `PVG_kronos` (Calendario/Crecimiento vía `daily_pnl`/
+   `GET /api/registros`) — decisión explícita del usuario de
+   descartar Sheets por completo, no reconsiderarlo. Sigue sin existir
+   un respaldo *externo* a Postgres (ej. exportar a un servicio fuera
+   de la infraestructura propia), pero eso no era el objetivo real de
+   este punto — el objetivo (reporte legible, no solo el dashboard
+   crudo) ya está cubierto.
 9. **Gemini / Fase 4 — PENDIENTE DE REDISEÑO CON APROBACIÓN EXPLÍCITA
    DEL USUARIO. No subir a producción bajo ninguna circunstancia hasta
    entonces, tiene prioridad sobre cualquier otro trabajo de Fase 4.**
@@ -1034,14 +1042,10 @@ prueba en real, o iteración adicional antes de darlos por cerrados.
    operaciones simultáneas por capital (punto 12) antes de implementar
    nada — no asumir la fórmula de `floor(capital/100)` actual como
    definitiva.
-3. Registro en Google Sheets de los cierres (Fase 7) — el punto 13
-   (pérdida de detalle al archivar en `signals_archive_summary`) ya
-   se resolvió con el usuario el 2026-08-21: no le importa el detalle
-   fila por fila, solo el total acumulado sin que la tabla crezca sin
-   límite (ver esa entrada), así que ya no es un bloqueante para
-   decidir esto — falta solo si vale la pena exportar los cierres a
-   Sheets como respaldo/reporte legible, no una decisión de pérdida de
-   datos.
+3. ~~Registro en Google Sheets de los cierres (Fase 7)~~ — **descartado
+   por completo** (decisión explícita del usuario, 2026-08-29); el
+   registro legible de cierres lo cubre `PVG_kronos` vía `daily_pnl`/
+   `GET /api/registros`, no Sheets.
 4. Recién después: evaluar ejecución 100% automática sin confirmación
    (Fase 8), con el historial de v1 como respaldo de confianza.
 
@@ -1069,22 +1073,25 @@ SL/BE/cierres mientras hay posiciones reales abiertas.
   `docker-entrypoint-initdb.d`.
 - ✅ Fase 3 — webhook + parser regex (incluye multi-TP), verificado
   end-to-end.
-- 🔶 Fase 4 — interpretación por Gemini. Código mergeado en `develop`
-  (rama `feature/fase4-seguimiento`), **no en producción** — falta
-  `GEMINI_API_KEY` y subir el workflow (ver aviso al inicio y sección
-  de errores persistentes).
+- ✅ Fase 4 — interpretación por Gemini. En producción: `GEMINI_API_KEY`
+  cargada en el `.env` real y workflow 07 (seguimiento/Gemini) activo
+  en el n8n real (verificado 2026-08-30).
 - ✅ Fase 5 — botones de confirmar/rechazar funcionales, idempotentes,
   con mensaje de confirmación visible en el chat.
 - ✅ Fase 6 — EA puente en MT4. Completa y verificada end-to-end con
   dinero real: Wine/MT4 con sesión real, EA compilado y ejecutando,
   nodos n8n de escribir orden / leer resultado funcionando, tickets
   reales confirmados en la cuenta `23096429`.
-- 🔶 Fase 7 — cierre y registro en Google Sheets. El consumidor de
-  `orders/closed/*.json` (detección TP/SL) está mergeado, compilado y
-  activo de punta a punta en producción real (verificado 2026-08-21,
-  ver nota más abajo). Falta únicamente el registro en Google Sheets
-  en sí, que no existe todavía.
-- 🔲 Fase 8 — ejecución 100% automática (futuro, meta de v2).
+- ✅ Fase 7 — cierre y registro legible. El consumidor de
+  `orders/closed/*.json` (detección TP/SL) está activo de punta a
+  punta en producción real. **RESUELTO 2026-08-29, redefinido: ya no
+  es Google Sheets** (descartado por completo, decisión explícita del
+  usuario) — el registro legible lo cubre `PVG_kronos` vía
+  `daily_pnl`/`GET /api/registros`.
+- 🔶 Fase 8 — ejecución 100% automática. Declarada iniciada 2026-08-29
+  en `PROTOCOLOS_KRONOS_BOT.md` sección 12.3 (máx. 1 operación `OPEN`
+  + circuit breaker 6% de ganancia diaria); promovida y activa en
+  producción real desde 2026-08-30 (`split-mvp/02`).
 
 ## Nota operativa 2026-08-21 — dashboard, base de datos, `develop`/`main`
 
