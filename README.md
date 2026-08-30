@@ -49,11 +49,11 @@ Arquitectura, retos técnicos, instalación y configuración están documentados
 | Versión | Estado | Qué es |
 |---|---|---|
 | **[v1](docs/versions/v1.md)** | ✅ MVP funcional, ejecución real verificada | Ciclo completo con confirmación humana: captura → parseo por regex → confirmación → ejecución real en MT4 → resultado. Arrancó el 10/08/2026. |
-| v2 | 🚧 En desarrollo — primer hito [`v2.0`](https://github.com/alejandro-xoxo/Kronos_Bot/releases/tag/v2.0) ya en producción | Meta final: automatización completa (sin confirmación manual, con límite de operaciones simultáneas y circuit breaker de ganancia diaria) + interpretación por Gemini de instrucciones de seguimiento en lenguaje libre. `v2.0` en producción es solo el fix de Fase 4/Gemini + recap diario — la auto-confirmación real sigue solo en el stack de pruebas. |
+| **[v2](docs/versions/v2.md)** | ✅ En producción real desde el 30/08/2026 | Auto-confirmación de señales con control de riesgo: tope de 1 operación simultánea + circuit breaker de ganancia diaria (≥7% corta la automatización hasta el día siguiente y cae a confirmación manual). Interpretación por Gemini de instrucciones de seguimiento sigue sin conectar. |
 
 Cada versión documenta su propia arquitectura, decisiones, retos técnicos, stack, instalación y roadmap — el README no repite ese detalle a propósito, para que quede versionado junto con el código al que corresponde.
 
-Reglas de negocio (fuente única de verdad, no versionadas por release): [`PROTOCOLOS_KRONOS_BOT.md`](PROTOCOLOS_KRONOS_BOT.md). Estado técnico fase por fase: [`STATUS.md`](STATUS.md).
+Reglas de negocio (fuente única de verdad, no versionadas por release): [`PROTOCOLOS_KRONOS_BOT.md`](PROTOCOLOS_KRONOS_BOT.md).
 
 ## 📄 Licencia
 
