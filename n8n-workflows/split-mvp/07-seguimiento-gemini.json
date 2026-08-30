@@ -289,7 +289,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "={{ '✅ <b>Modificación aplicada</b>\\n\\nSeñal #' + $json.day_number + '\\n🔧 Tipo: <b>' + $json.modification_type + '</b>\\n⚡ Acción EA: <b>' + $json.ea_action + '</b> → ticket #' + $json.mt4_ticket }}",
+    "text": "={{ '✨ Modificación <b>#' + $json.day_number + '</b>  ' + $json.modification_type }}",
     "additionalFields": {
      "parse_mode": "HTML"
     }
@@ -312,7 +312,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "={{ 'ℹ️ <b>Modificación registrada</b>\\n\\nSeñal #' + $json.day_number + '\\n🔧 Tipo: <b>' + $json.modification_type + '</b>\\n\\n<i>Sin acción automática en MT4 — revisar manualmente.</i>' }}",
+    "text": "={{ '👀 Registrada sin acción EA <b>#' + $json.day_number + '</b>  ' + $json.modification_type }}",
     "additionalFields": {
      "parse_mode": "HTML"
     }
@@ -359,7 +359,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "=🚨 No se pudo interpretar este mensaje, revisar manualmente:\n\n{{ $('Enrutar clasificación').item.json.raw_text }}",
+    "text": "=🚨 No se pudo interpretar, revisar manualmente:\n\n{{ $('Enrutar clasificación').item.json.raw_text }}",
     "additionalFields": {
      "parse_mode": "none"
     }
