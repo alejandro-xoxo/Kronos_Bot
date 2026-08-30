@@ -130,9 +130,24 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- manual (no lo reporta el EA).
 -- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar a mano:
 --   ALTER TABLE settings ADD COLUMN IF NOT EXISTS capital_inicial_plan REAL;
+-- day_start_capital / day_start_date (agregado 2026-08-30, Fase 2 —
+-- auto-confirmación, PROTOCOLOS_KRONOS_BOT.md sección 12.3): capital
+-- registrado al inicio del día en curso, para calcular la ganancia del
+-- día como (capital_real - day_start_capital) / day_start_capital y
+-- aplicar el circuit breaker de 6%. Se resetea automáticamente cuando
+-- day_start_date != CURRENT_DATE (ver
+-- n8n-workflows/split-mvp/02-señal-nueva-parseo-confirmado.json).
+-- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar las
+-- columnas a mano con:
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_capital REAL;
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_date DATE;
+-- (mismo patrón que el resto de columnas nuevas del proyecto — este
+-- CREATE TABLE con IF NOT EXISTS no las agrega a una tabla existente).
 CREATE TABLE IF NOT EXISTS settings (
     id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
+    day_start_capital     REAL,
+    day_start_date        DATE,
     capital_inicial_plan   REAL,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

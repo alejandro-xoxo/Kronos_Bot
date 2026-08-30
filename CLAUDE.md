@@ -267,7 +267,10 @@ visible hasta que la próxima señal real simplemente no llegue.
   resultado (Etapas 4 y 5 de esta fase, no confundir con las Fases 4/5
   de arriba).
 - 🔲 Fase 7: ciclo de cierre y registro en Google Sheets.
-- 🔲 Fase 8: pasar a ejecución 100% automática (futuro).
+- 🔶 Fase 8: ejecución 100% automática — declarada iniciada 2026-08-29
+  en `PROTOCOLOS_KRONOS_BOT.md` sección 12.3 (máx. 1 operación `OPEN`
+  simultánea + circuit breaker de 6% de ganancia diaria). Promovida a
+  producción el 2026-08-30 (`n8n-workflows/split-mvp/02-...json`).
 
 **Estado técnico detallado y próximos pasos inmediatos: ver `STATUS.md`**
 (se actualiza en cada etapa, pensado para poder pegarse a una sesión
