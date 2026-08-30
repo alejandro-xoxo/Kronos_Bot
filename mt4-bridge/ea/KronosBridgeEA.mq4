@@ -382,25 +382,17 @@ void ProcessPendingOrders()
    if(searchHandle == INVALID_HANDLE)
       return; // no hay órdenes pendientes en este ciclo, nada que hacer
 
-   bool isFirstFile = true;
-   do
-   {
-      if(!isFirstFile)
-      {
-         // Pausa corta entre órdenes consecutivas del mismo ciclo. Sin
-         // esto, cuando llegan 2+ archivos juntos (ej. señal multi-TP,
-         // sub-señales A y B) el segundo OrderSend puede rechazarse con
-         // error 4109 (trade not allowed) por mandarse demasiado pegado
-         // al primero — bug real detectado en pruebas en vivo (ticket
-         // exitoso en la primera sub-señal, 4109 en la segunda, mismo
-         // ciclo). No es un problema de permisos del EA/terminal.
-         Sleep(500);
-      }
-      isFirstFile = false;
-      ProcessSingleFile(fileName);
-   }
-   while(FileFindNext(searchHandle, fileName));
-
+   // Fix real de error 4109 (2026-08-30): antes se procesaban TODAS las
+   // órdenes pendientes en el mismo ciclo con un Sleep(500) entre cada
+   // una para separar los OrderSend. Sleep() bloquea el hilo del
+   // terminal completo (afecta a todos los símbolos/EAs, no solo a
+   // este ciclo), y 500ms era un valor arbitrario sin garantía real
+   // contra "trade context busy". Ahora se procesa como máximo UN
+   // archivo por llamada a OnTimer: el resto de los archivos quedan en
+   // pending/ y se recogen en los ciclos siguientes (cada
+   // InpPollIntervalSeconds), separados por el tiempo real entre
+   // ticks del timer en vez de un Sleep bloqueante.
+   ProcessSingleFile(fileName);
    FileFindClose(searchHandle);
 }
 
