@@ -58,6 +58,15 @@ CREATE TABLE IF NOT EXISTS signals (
     close_price            REAL,
     profit_loss             REAL,
 
+    -- Número de señal DEL DÍA (2026-08-30, pedido explícito del
+    -- usuario para los mensajes de Telegram: "#3" debe ser la 3ra
+    -- señal de HOY, no el id total de la tabla desde que arrancó la
+    -- base). Se fija una sola vez al insertar (trigger
+    -- set_signal_day_number más abajo) y no se recalcula después, para
+    -- que una señal abierta hoy y cerrada mañana siga mostrando el
+    -- número del día en que se originó.
+    day_number            INTEGER NOT NULL DEFAULT 0,
+
     created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -66,6 +75,24 @@ CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
 CREATE INDEX IF NOT EXISTS idx_signals_instrument_status ON signals(instrument, status);
 CREATE INDEX IF NOT EXISTS idx_signals_message_id ON signals(message_id);
 CREATE INDEX IF NOT EXISTS idx_signals_mt4_ticket ON signals(mt4_ticket);
+
+-- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar la
+-- columna a mano con:
+--   ALTER TABLE signals ADD COLUMN IF NOT EXISTS day_number INTEGER NOT NULL DEFAULT 0;
+CREATE OR REPLACE FUNCTION set_signal_day_number() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.day_number := (
+        SELECT COUNT(*) + 1 FROM signals
+        WHERE created_at::date = NEW.created_at::date
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_set_signal_day_number ON signals;
+CREATE TRIGGER trg_set_signal_day_number
+    BEFORE INSERT ON signals
+    FOR EACH ROW EXECUTE FUNCTION set_signal_day_number();
 
 -- =========================================================
 -- Tabla: signal_modifications

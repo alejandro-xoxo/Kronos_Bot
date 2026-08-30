@@ -91,7 +91,7 @@
   {
    "parameters": {
     "operation": "executeQuery",
-    "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+    "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status,\n  (SELECT day_number FROM signals WHERE id = $1) AS day_number;",
     "options": {
      "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
     }
@@ -114,7 +114,7 @@
   {
    "parameters": {
     "operation": "executeQuery",
-    "query": "WITH updated AS (\n  UPDATE signals SET status = 'REJECTED_BY_USER', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+    "query": "WITH updated AS (\n  UPDATE signals SET status = 'REJECTED_BY_USER', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status,\n  (SELECT day_number FROM signals WHERE id = $1) AS day_number;",
     "options": {
      "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
     }
@@ -247,7 +247,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "=✅ <b>Señal #{{ $('Parsear callback').item.json.signalId }} confirmada</b>\nProcediendo con la ejecución...",
+    "text": "=✅ <b>Confirmada</b> — señal #{{ $('Actualizar status: CONFIRMED').item.json.day_number }}",
     "additionalFields": {
      "parse_mode": "HTML"
     }
@@ -271,7 +271,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "=❌ <b>Señal #{{ $('Parsear callback').item.json.signalId }} rechazada</b>\nNo se ejecutará.",
+    "text": "=❌ <b>Rechazada</b> — señal #{{ $('Actualizar status: REJECTED_BY_USER').item.json.day_number }}",
     "additionalFields": {
      "parse_mode": "HTML"
     }

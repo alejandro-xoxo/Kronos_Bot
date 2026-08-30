@@ -53,7 +53,7 @@
   {
    "parameters": {
     "operation": "executeQuery",
-    "query": "WITH updated AS (\n  UPDATE signals SET\n    status = CASE WHEN $2::boolean THEN 'OPEN' ELSE 'PENDING_MANUAL' END,\n    mt4_ticket = $3, updated_at = NOW()\n  WHERE id = $1 AND status = 'CONFIRMED'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, (SELECT signal_uid FROM signals WHERE id = $1) AS signal_uid;",
+    "query": "WITH updated AS (\n  UPDATE signals SET\n    status = CASE WHEN $2::boolean THEN 'OPEN' ELSE 'PENDING_MANUAL' END,\n    mt4_ticket = $3, updated_at = NOW()\n  WHERE id = $1 AND status = 'CONFIRMED'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, (SELECT signal_uid FROM signals WHERE id = $1) AS signal_uid, (SELECT day_number FROM signals WHERE id = $1) AS day_number;",
     "options": {
      "queryReplacement": "={{ [$json.signal_id, $json.success, $json.ticket] }}"
     }
@@ -110,7 +110,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "={{ $('Parsear resultado (MT4)').item.json.success ? '✅ <b>Señal #' + $('Parsear resultado (MT4)').item.json.signal_id + ' ejecutada</b>\\n\\n🎫 Ticket: <b>' + $('Parsear resultado (MT4)').item.json.ticket + '</b>\\n💵 Precio: <b>' + $('Parsear resultado (MT4)').item.json.executed_price + '</b>' : '⚠️ <b>Señal #' + $('Parsear resultado (MT4)').item.json.signal_id + ' no se pudo ejecutar</b>\\n\\n' + $('Parsear resultado (MT4)').item.json.error_message }}",
+    "text": "={{ $('Parsear resultado (MT4)').item.json.success ? '✅ <b>Señal #' + $('Actualizar status: OPEN/PENDING_MANUAL').item.json.day_number + ' ejecutada</b>\\n\\n🎫 Ticket: <b>' + $('Parsear resultado (MT4)').item.json.ticket + '</b>\\n💵 Precio: <b>' + $('Parsear resultado (MT4)').item.json.executed_price + '</b>' : '⚠️ <b>Señal #' + $('Actualizar status: OPEN/PENDING_MANUAL').item.json.day_number + ' no se pudo ejecutar</b>\\n\\n' + $('Parsear resultado (MT4)').item.json.error_message }}",
     "additionalFields": {
      "parse_mode": "HTML"
     }
