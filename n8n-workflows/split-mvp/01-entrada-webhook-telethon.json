@@ -130,7 +130,7 @@
     "source": "database",
     "workflowId": {
      "__rl": true,
-     "value": "",
+     "value": "EiozKB436D4FYoI3",
      "mode": "list",
      "cachedResultName": "Kronos 02 - Señal nueva (parseo confirmado)"
     },
@@ -155,7 +155,7 @@
     "source": "database",
     "workflowId": {
      "__rl": true,
-     "value": "",
+     "value": "wabC0aOMrV2se0PE",
      "mode": "list",
      "cachedResultName": "Kronos 07 - Seguimiento (Gemini)"
     },
