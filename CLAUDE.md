@@ -281,3 +281,14 @@ visible hasta que la próxima señal real simplemente no llegue.
 **Estado técnico detallado y próximos pasos inmediatos: ver `STATUS.md`**
 (se actualiza en cada etapa, pensado para poder pegarse a una sesión
 nueva de Claude Code sin depender de memoria de conversación previa).
+
+**Nota (2026-08-30): `STATUS.md` es local, no versionado.** Es una
+bitácora de debugging en vivo (errores propios, detalle de sesiones,
+IDs internos) — no apta para un repo público/portafolio, así que se
+sacó del control de versiones (`.gitignore`) pero el archivo sigue
+existiendo en checkouts existentes y se sigue actualizando igual. Si
+estás en un clone nuevo y no existe: no hay nada que recuperar, se
+reconstruye contexto operativo desde `git log`, `CONTEXT.md` (cómo
+funciona el sistema) y `PROTOCOLOS_KRONOS_BOT.md` (reglas de negocio),
+y se empieza un `STATUS.md` nuevo si hace falta ese mecanismo de
+continuidad entre sesiones.
