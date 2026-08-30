@@ -33,8 +33,8 @@
       "notesInFlow": true,
       "credentials": {
         "postgres": {
-          "id": "zZQ5m2frFb94qTh2",
-          "name": "Postgres dev"
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
         }
       },
       "notes": "Parámetros $1..$14 mapeados 1:1 en el mismo orden que las columnas del INSERT (ver columnas de la tabla signals en db/schema.sql). Credencial: host=postgres, port=5432, database/user/password según .env."
@@ -54,8 +54,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "zZQ5m2frFb94qTh2",
-          "name": "Postgres dev"
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
         }
       },
       "notes": "SOLO STACK DEV — circuit breaker diario (decisión explícita del usuario, 2026-08-28). day_start_capital/day_start_date se resetean automáticamente cuando cambia la fecha (nuevo día = nueva base 0%). Requiere que settings tenga las columnas day_start_capital/day_start_date — ver nota de despliegue en db/schema.sql si la base ya existía antes de este cambio."
@@ -109,8 +109,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "zZQ5m2frFb94qTh2",
-          "name": "Postgres dev"
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
         }
       },
       "notes": "SOLO STACK DEV — experimento de auto-confirmación (decisión explícita del usuario, 2026-08-28, ver STATUS.md). Cuenta cuántas señales están OPEN ahora mismo para decidir si hay lugar para auto-confirmar la nueva."
@@ -167,8 +167,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "zZQ5m2frFb94qTh2",
-          "name": "Postgres dev"
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
         }
       },
       "notes": "Mismo patrón idempotente WHERE status='PENDING_CONFIRMATION' que usa el flujo manual (workflow 03) — no reprocesa si por alguna carrera la señal ya cambió de estado."
@@ -192,7 +192,7 @@
       ],
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       }
@@ -202,7 +202,7 @@
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "",
+          "value": "cIuuUkKc49hSE2Dc",
           "mode": "list",
           "cachedResultName": "Kronos Dev 04 - Ejecución en MT4"
         },
@@ -266,7 +266,7 @@
       "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       },
