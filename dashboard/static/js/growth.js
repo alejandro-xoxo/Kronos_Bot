@@ -25,6 +25,7 @@
   // sync. Si el fetch falla (ej. demo estática en GitHub Pages, sin
   // backend), sigue funcionando 100% en localStorage como siempre.
   let backendConnected = false;
+  let lastCapitalReal = null;
 
   function guardar() {
     Store.set('inicio', state.inicio);
@@ -211,6 +212,14 @@
     pintarKPIs(filas);
     pintarTabla(filas);
     pintarGrafico(filas);
+    // pintarKPIs() recién calculó "Capital actual" reconstruido desde
+    // el histórico (daily_pnl) — si ya tenemos el balance real en vivo
+    // (sync periódico, ver syncFromBackend), lo reaplicamos encima acá
+    // mismo. Sin esto, cada vez que se vuelve a esta sección (o
+    // cualquier acción dispara render()) el KPI se pisaba con el valor
+    // reconstruido y perdía el balance real (bug reportado 2026-08-30:
+    // "al cambiar de página se cambia el capital, no refleja el real").
+    if (lastCapitalReal != null) pintarCapitalReal(lastCapitalReal);
     // Sincroniza el calendario si existe
     if (window.CalTrader) CalTrader.render();
     return filas;
@@ -315,6 +324,7 @@
      syncFromBackend(). No toca la tabla/gráfico/calendario, que siguen
      mostrando el histórico día a día tal cual está en daily_pnl. */
   function pintarCapitalReal(actual) {
+    lastCapitalReal = actual;
     const base = Number(state.inicial) || 0;
     const m = state.moneda;
     const ganancia = actual - base;
