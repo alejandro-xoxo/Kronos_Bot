@@ -492,6 +492,12 @@
 
     render();
     syncFromBackend();
+    // Refresco automático (2026-08-30, pedido explícito del usuario):
+    // sin esto, un cierre real en MT4 no aparecía en Crecimiento/
+    // Calendario hasta recargar la página a mano. syncFromBackend() ya
+    // mergea (no pisa) los registros manuales — ver nota en esa
+    // función — así que repetirlo en un intervalo es seguro.
+    setInterval(syncFromBackend, 30000);
   }
 
   window.Growth = { init: init, render: render };
