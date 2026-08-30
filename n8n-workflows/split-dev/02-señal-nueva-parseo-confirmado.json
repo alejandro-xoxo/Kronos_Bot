@@ -128,7 +128,7 @@
             {
               "id": "cond-auto-confirm-limit",
               "leftValue": "={{ Number($json.open_count) }}",
-              "rightValue": 2,
+              "rightValue": 1,
               "operator": {
                 "type": "number",
                 "operation": "lt"
@@ -140,14 +140,14 @@
         "options": {}
       },
       "id": "d2b3c4e5-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
-      "name": "¿Hay lugar para auto-confirmar? (<2 OPEN)",
+      "name": "¿Hay lugar para auto-confirmar? (<1 OPEN)",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
         -900,
         -320
       ],
-      "notes": "SOLO STACK DEV. Límite fijo de 2 operaciones OPEN simultáneas (decisión explícita del usuario, 2026-08-28) — si ya hay 2 o más, cae a la rama manual de siempre (botones Confirmar/Rechazar)."
+      "notes": "SOLO STACK DEV. Actualizado 2026-08-29: tope de 1 operación OPEN simultánea (regla oficial de Fase 2, PROTOCOLOS_KRONOS_BOT.md sección 12.3 — antes era un experimento con tope de 2, sin regla formal) — si ya hay 1 o más, cae a la rama manual de siempre (botones Confirmar/Rechazar)."
     },
     {
       "parameters": {
@@ -318,14 +318,14 @@
       "main": [
         [
           {
-            "node": "¿Hay lugar para auto-confirmar? (<2 OPEN)",
+            "node": "¿Hay lugar para auto-confirmar? (<1 OPEN)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "¿Hay lugar para auto-confirmar? (<2 OPEN)": {
+    "¿Hay lugar para auto-confirmar? (<1 OPEN)": {
       "main": [
         [
           {

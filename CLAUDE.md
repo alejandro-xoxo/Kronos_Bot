@@ -278,7 +278,11 @@ visible hasta que la próxima señal real simplemente no llegue.
   reales vía `daily_pnl`/`GET /api/registros`). El ciclo de detección
   de cierre (TP/SL) ya estaba activo desde antes; el registro legible
   para humanos ahora lo cubre el dashboard nuevo, no una hoja externa.
-- 🔲 Fase 8: pasar a ejecución 100% automática (futuro).
+- 🔶 Fase 8 (declarada iniciada 2026-08-29, ver
+  `PROTOCOLOS_KRONOS_BOT.md` sección 12.3 "Fase 2" de ese documento):
+  ejecución 100% automática con tope de 1 operación simultánea +
+  circuit breaker de ganancia diaria. Aplicación incremental a
+  producción real, empezando por el stack dev (ver `STATUS.md`).
 
 **Estado técnico detallado y próximos pasos inmediatos: ver `STATUS.md`**
 (se actualiza en cada etapa, pensado para poder pegarse a una sesión

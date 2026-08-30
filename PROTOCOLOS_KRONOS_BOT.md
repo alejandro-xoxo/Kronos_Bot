@@ -146,10 +146,17 @@ Sin techo superior definido.
 
 ### 5.3. División en slots (máximo 3 operaciones simultáneas)
 
-**Estado: DISEÑADO, NO IMPLEMENTADO (rediseño confirmado
-2026-08-21, reemplaza la versión anterior de esta sección que
-usaba un split 80/20 con tope de 2 slots — esa versión queda
-descartada, no es una alternativa).** Esta sección describe una
+**Estado: OBSOLETA (2026-08-29) — Fase 2 (sección 12.3) fija el tope
+en 1 operación simultánea**, usando el lotaje completo disponible sin
+repartir. No hay "competencia por slot" posible con tope de 1; esta
+sección queda como referencia histórica del diseño de 3 slots, no
+como diseño vigente. Si el tope de 1 se revisa más adelante, evaluar
+si esta sección se retoma o se rediseña de nuevo.
+
+**Historial (diseño previo a Fase 2):** **DISEÑADO, NO IMPLEMENTADO
+(rediseño confirmado 2026-08-21, reemplaza la versión anterior de esta
+sección que usaba un split 80/20 con tope de 2 slots — esa versión
+queda descartada, no es una alternativa).** Esta sección describe una
 división posterior de `lote_total` (5.2) entre hasta 3 operaciones
 simultáneas compitiendo por el mismo capital. No está conectada al
 flujo real: hoy cada sub-señal usa el `lote_total` completo de 5.2 sin
@@ -212,7 +219,12 @@ señal nueva se rechaza por falta de lotaje (ver 5.4).
 
 ## 7. Flujo de confirmación (señales nuevas)
 
-### 7.1. Toda señal nueva interpretada (por regex) requiere confirmación manual
+### 7.1. Confirmación de señales nuevas — manual o automática según Fase 2 (sección 12.3)
+
+**Actualizado 2026-08-29**: con Fase 2 declarada, una señal nueva se
+auto-confirma si cumple las condiciones de la sección 12.3 (0
+operaciones `OPEN` y ganancia del día <6%); si no las cumple, cae a
+confirmación manual como en Fase 1.
 
 ```
 Señal nueva parseada
@@ -221,14 +233,19 @@ Validaciones pasadas (antigüedad ≤5min, slot de lotaje disponible)
     ↓
 INSERT en tabla signals (status = PENDING_CONFIRMATION)
     ↓
-Notificación a Telegram (chat privado del usuario) con los datos
-de la señal y opciones: [Confirmar] [Rechazar]
+¿Cumple condiciones de auto-confirmación? (sección 12.3: 0 OPEN
+y ganancia del día <6%)
     ↓
-    ├── Usuario confirma → status = CONFIRMED → se envía orden al EA
+    ├── SÍ → status = CONFIRMED automáticamente → se envía orden al EA
+    │        (se notifica igual por Telegram, sin esperar botón)
     │
-    └── Usuario rechaza → status = REJECTED_BY_USER (queda en DB
-                            para historial, a diferencia de los
-                            rechazos por falta de lotaje)
+    └── NO → Notificación a Telegram con [Confirmar] [Rechazar]
+             ↓
+             ├── Usuario confirma → status = CONFIRMED → orden al EA
+             │
+             └── Usuario rechaza → status = REJECTED_BY_USER (queda
+                                     en DB para historial, a diferencia
+                                     de los rechazos por falta de lotaje)
 ```
 
 ### 7.2. Instrucciones de seguimiento sobre operaciones ya confirmadas/abiertas
@@ -402,7 +419,30 @@ Notifica el resultado al usuario por Telegram
 
 1. **No se inventan datos.** Ningún campo (precio, SL, TP, lote) se completa con suposiciones; si falta información crítica, la señal no se ejecuta hasta tenerla.
 2. **Actualizado 2026-08-28 — el capital real SÍ incluye el crédito del bróker**, por decisión explícita del usuario (ver sección 5.1). Se calcula automáticamente en el EA como `AccountBalance()` completo.
-3. **Toda señal nueva pasa por confirmación humana** en esta fase del proyecto (Fase 1: semi-automático). Solo las modificaciones sobre operaciones ya aprobadas se ejecutan sin intervención.
+3. **Actualizado 2026-08-29, decisión explícita del usuario — Fase 2
+   de este protocolo (100% automático) declarada iniciada.** (Numeración
+   propia de este documento — Fase 1/Fase 2 semi-auto/100%-auto — no
+   confundir con la numeración de fases 0-8 de `CLAUDE.md`, donde este
+   mismo hito es "Fase 8".) El sistema ya no requiere
+   confirmación humana obligatoria para señales nuevas — se considera
+   validado el modo semi-automático (Fase 1), condición que esta
+   misma sección ya anticipaba (ver antes sección 13) para pasar de
+   fase. La confirmación humana se reemplaza por estos controles de
+   riesgo automáticos, no se elimina sin reemplazo:
+   - **Máximo 1 operación (`OPEN`) simultánea** — usa el lotaje
+     completo disponible (`floor(capital_real / 100) × 0.01`, sección
+     5.2), sin repartir entre slots: no hace falta con tope de 1.
+   - **Circuit breaker de ganancia diaria**: si la cuenta ya subió
+     ≥6% respecto al capital de inicio del día, se deja de
+     auto-confirmar hasta el día siguiente (cae a confirmación
+     manual). Las posiciones ya abiertas no se tocan.
+
+   Aplicación **incremental** a producción real, empezando por el
+   stack dev (ver `STATUS.md` e historial de versiones `v2.x`) — la
+   declaración de fase no implica que ya esté activo en la cuenta
+   real, solo que dejó de ser una excepción no autorizada. Las
+   modificaciones sobre operaciones ya aprobadas siguen
+   ejecutándose sin intervención, como en Fase 1.
 4. **Ningún loop de reintento es infinito.** Todo mecanismo de reintento automático tiene un tope máximo definido (2 intentos + 1 post-timeout) y termina en notificación al usuario si falla.
 5. **Las credenciales (.env) nunca se versionan en git** y deben rotarse inmediatamente si se exponen accidentalmente.
 6. **El precio de validación y ejecución siempre proviene de la misma fuente** (el EA en MT4), nunca de una API externa, para evitar discrepancias entre lo que el sistema valida y lo que realmente ejecuta el bróker.
@@ -414,6 +454,5 @@ Notifica el resultado al usuario por Telegram
 
 - División de una señal con más de 2 TP en más de 2 operaciones — el tope es 2 sub-señales (TP1 y TP2), el resto se ignora (ver sección 4.2 regla 6).
 - Cierres parciales de una misma operación en base a múltiples TP — cada sub-señal es una operación completa independiente, no un cierre parcial de otra.
-- Cálculo de lotaje diferenciado por sub-señal (competencia por slot, tope de 3 operaciones simultáneas, sección 5.3, entre sub-señales de la misma señal original) — ambas usan el lotaje fijo `0.01` hasta que el cálculo de slots esté conectado al flujo real.
-- Ejecución 100% automática de señales nuevas sin confirmación — planeado para una Fase 2 futura, una vez validado el sistema en modo semi-automático.
+- Cálculo de lotaje diferenciado por sub-señal (competencia por slot, sección 5.3) — con el tope de 1 operación simultánea de Fase 2 (sección 12.3), no aplica: no hay "competencia" posible con una sola operación a la vez. Esta sección de slots queda obsoleta salvo que el tope de 1 se revise más adelante.
 - Migración a VPS Windows en la nube y modelos de IA de pago — evaluado solo después de validar rentabilidad en el entorno local/gratuito.

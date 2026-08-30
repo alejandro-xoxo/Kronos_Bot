@@ -22,20 +22,28 @@ explícito, no accidental:
    lotaje en sí no cambió: `floor(capital_real / 100) * 0.01` (mismo
    divisor 100 ya documentado en sección 5.2 del protocolo), solo
    cambió qué significa `capital_real`.
-2. **Auto-confirmación de señales nuevas, con límite de 2 operaciones
-   OPEN simultáneas — solo en `n8n-workflows/split-dev/`.** Contradice
-   el principio no negociable #3 del protocolo (confirmación humana
-   obligatoria) — a propósito, y únicamente para el stack dev, para
-   poder probar el ciclo completo sin depender de tocar botones cada
-   vez. Implementado en
-   `split-dev/02-señal-nueva-parseo-confirmado.json`: tras insertar la
-   señal, se cuenta cuántas señales están `OPEN`; si son menos de 2, se
-   auto-confirma (mismo `UPDATE ... WHERE status='PENDING_CONFIRMATION'`
-   idempotente que usa el flujo manual) y se dispara la ejecución en
-   MT4 sin esperar botones; si ya hay 2 o más, cae a la rama manual de
-   siempre (Confirmar/Rechazar). **No aplicado a `split-mvp/` ni a
-   producción — el flujo de producción sigue exigiendo confirmación
-   manual sin excepción.**
+2. **Auto-confirmación de señales nuevas — solo en
+   `n8n-workflows/split-dev/`.** Hasta el 2026-08-29 esto contradecía
+   a propósito el principio no negociable #3 del protocolo
+   (confirmación humana obligatoria). **Ya no**: el usuario declaró
+   formalmente iniciada la Fase 2 del protocolo (100% automático, ver
+   `PROTOCOLOS_KRONOS_BOT.md` sección 12.3) — esto pasó de ser una
+   excepción no autorizada a ser la primera implementación real de esa
+   fase, todavía en validación en dev antes de ir a producción.
+   **Discrepancia pendiente de corregir**: la regla oficial de Fase 2
+   fija el tope en **1** operación simultánea (con el lotaje completo,
+   sin repartir); el código implementado en
+   `split-dev/02-señal-nueva-parseo-confirmado.json` todavía usa el
+   límite viejo de **<2** (hasta 2 operaciones `OPEN`) de cuando esto
+   era solo un experimento sin regla formal — hay que ajustarlo a `<1`
+   para que coincida con el protocolo. Mecanismo (sin cambios): tras
+   insertar la señal, se cuenta cuántas están `OPEN`; si cumple el
+   tope, se auto-confirma (mismo `UPDATE ... WHERE
+   status='PENDING_CONFIRMATION'` idempotente que usa el flujo manual)
+   y se dispara la ejecución en MT4 sin esperar botones; si no, cae a
+   la rama manual de siempre (Confirmar/Rechazar). **No aplicado a
+   `split-mvp/` ni a producción todavía** — aplicación incremental,
+   como el resto de v2.x.
 
 **Pendiente de probar** — mercado cerrado al momento de implementar
 esto, no se pudo probar en real todavía. Falta: (a) subir
