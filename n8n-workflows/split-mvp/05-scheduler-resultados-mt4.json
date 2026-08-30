@@ -110,7 +110,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "={{ $('Parsear resultado (MT4)').item.json.success ? '✅ <b>Señal #' + $('Actualizar status: OPEN/PENDING_MANUAL').item.json.day_number + ' ejecutada</b>\\n\\n🎫 Ticket: <b>' + $('Parsear resultado (MT4)').item.json.ticket + '</b>\\n💵 Precio: <b>' + $('Parsear resultado (MT4)').item.json.executed_price + '</b>' : '⚠️ <b>Señal #' + $('Actualizar status: OPEN/PENDING_MANUAL').item.json.day_number + ' no se pudo ejecutar</b>\\n\\n' + $('Parsear resultado (MT4)').item.json.error_message }}",
+    "text": "={{ $('Parsear resultado (MT4)').item.json.success ? '✅ Señal #' + $('Actualizar status: OPEN/PENDING_MANUAL').item.json.day_number + ' ejecutada — ' + $('Parsear resultado (MT4)').item.json.executed_price : '⚠️ Señal #' + $('Actualizar status: OPEN/PENDING_MANUAL').item.json.day_number + ' no se pudo ejecutar — ' + $('Parsear resultado (MT4)').item.json.error_message }}",
     "additionalFields": {
      "parse_mode": "HTML"
     }
