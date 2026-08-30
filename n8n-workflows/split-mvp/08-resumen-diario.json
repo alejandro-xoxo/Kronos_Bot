@@ -3,26 +3,6 @@
  "nodes": [
   {
    "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "field": "cronExpression",
-       "expression": "0 11 * * *"
-      }
-     ]
-    }
-   },
-   "id": "98f9731b-3579-4fd5-bb32-c42fffe2f450",
-   "name": "Trigger: 11am resumen diario",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "typeVersion": 1.2,
-   "position": [
-    -400,
-    0
-   ]
-  },
-  {
-   "parameters": {
     "operation": "executeQuery",
     "query": "SELECT\n  COALESCE(d.wins, 0) + COALESCE(d.losses, 0) AS total,\n  COALESCE(d.wins, 0) AS wins,\n  COALESCE(d.losses, 0) AS losses,\n  COALESCE(d.profit_loss, 0) AS total_pl,\n  ROUND(CASE WHEN COALESCE(d.wins, 0) + COALESCE(d.losses, 0) > 0\n             THEN 100.0 * COALESCE(d.wins, 0) / (COALESCE(d.wins, 0) + COALESCE(d.losses, 0))\n             ELSE 0 END, 1) AS win_rate,\n  COALESCE(d.instruments, 'ninguno') AS instruments\nFROM (SELECT 1) AS dummy\nLEFT JOIN daily_pnl d ON d.date = CURRENT_DATE;",
     "options": {}
@@ -98,17 +78,6 @@
   }
  ],
  "connections": {
-  "Trigger: 11am resumen diario": {
-   "main": [
-    [
-     {
-      "node": "Resumen del día (Postgres)",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
   "Resumen del día (Postgres)": {
    "main": [
     [
