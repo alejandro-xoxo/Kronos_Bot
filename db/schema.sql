@@ -122,9 +122,18 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- (AccountBalance() - AccountCredit()), no editado a mano en
 -- operación normal.
 -- =========================================================
+-- capital_inicial_plan (v2.3, agregado 2026-08-30): ancla manual, de
+-- una sola vez, del capital con el que arrancó el plan de trading —
+-- usado por GET /api/registros (dashboard/main.py) para reconstruir
+-- el capital de cada día del panel Crecimiento/Calendario de
+-- PVG_kronos. A diferencia de capital_real, este SÍ requiere carga
+-- manual (no lo reporta el EA).
+-- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar a mano:
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS capital_inicial_plan REAL;
 CREATE TABLE IF NOT EXISTS settings (
     id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
+    capital_inicial_plan   REAL,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

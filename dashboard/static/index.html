@@ -1,479 +1,401 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kronos Bot — Dashboard</title>
-<style>
-  :root {
-    --bg: #F4F5F9;
-    --bg-deep: #E9EBF3;
-    --surface: #FFFFFF;
-    --surface-raised: #FFFFFF;
-    --border: rgba(76, 63, 158, 0.14);
-    --border-strong: rgba(76, 63, 158, 0.28);
-
-    --text-primary: #191A2B;
-    --text-secondary: #62637C;
-    --text-faint: #9496AC;
-
-    --accent: #6D4CFA;
-    --accent-soft: #5A3FE0;
-    --accent-dim: rgba(109, 76, 250, 0.10);
-    --blue: #2F6FED;
-
-    --profit: #2F6FED;
-    --profit-bg: rgba(47, 111, 237, 0.10);
-    --loss: #191A2B;
-    --loss-bg: rgba(98, 99, 124, 0.10);
-    --warn: #C77A11;
-    --warn-bg: rgba(199, 122, 17, 0.12);
-    --neutral-bg: rgba(98, 99, 124, 0.10);
-
-    --radius-lg: 18px;
-    --radius-md: 12px;
-    --shadow-card: 0 1px 2px rgba(25, 26, 43, 0.04), 0 8px 24px rgba(25, 26, 43, 0.06);
-
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-data: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #08090F;
-      --bg-deep: #05060A;
-      --surface: #12131E;
-      --surface-raised: #171827;
-      --border: rgba(138, 128, 255, 0.14);
-      --border-strong: rgba(138, 128, 255, 0.26);
-
-      --text-primary: #EDEEF7;
-      --text-secondary: #9497B3;
-      --text-faint: #63647F;
-
-      --accent: #8F7BFF;
-      --accent-soft: #A796FF;
-      --accent-dim: rgba(143, 123, 255, 0.14);
-      --blue: #5B93FF;
-
-      --profit: #5B93FF;
-      --profit-bg: rgba(91, 147, 255, 0.14);
-      --loss: #EDEEF7;
-      --loss-bg: rgba(148, 150, 172, 0.14);
-      --warn: #F0B429;
-      --warn-bg: rgba(240, 180, 41, 0.12);
-      --neutral-bg: rgba(148, 150, 172, 0.14);
-
-      --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.35);
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #08090F;
-    --bg-deep: #05060A;
-    --surface: #12131E;
-    --surface-raised: #171827;
-    --border: rgba(138, 128, 255, 0.14);
-    --border-strong: rgba(138, 128, 255, 0.26);
-
-    --text-primary: #EDEEF7;
-    --text-secondary: #9497B3;
-    --text-faint: #63647F;
-
-    --accent: #8F7BFF;
-    --accent-soft: #A796FF;
-    --accent-dim: rgba(143, 123, 255, 0.14);
-    --blue: #5B93FF;
-
-    --profit: #5B93FF;
-    --profit-bg: rgba(91, 147, 255, 0.14);
-    --loss: #EDEEF7;
-    --loss-bg: rgba(148, 150, 172, 0.14);
-    --warn: #F0B429;
-    --warn-bg: rgba(240, 180, 41, 0.12);
-    --neutral-bg: rgba(148, 150, 172, 0.14);
-
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.35);
-  }
-
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    background-image: radial-gradient(circle at 12% -10%, var(--accent-dim), transparent 55%);
-    background-attachment: fixed;
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    -webkit-font-smoothing: antialiased;
-    line-height: 1.5;
-  }
-  .page { max-width: 720px; margin: 0 auto; padding: 28px 18px 80px; }
-
-  /* ---------- Header ---------- */
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 28px;
-  }
-  .brand { display: flex; align-items: center; gap: 10px; }
-  .brand-mark {
-    width: 34px; height: 34px; border-radius: 10px;
-    background: linear-gradient(135deg, var(--accent), var(--blue));
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-data);
-    font-weight: 700; font-size: 0.95rem; color: #fff;
-    box-shadow: 0 4px 14px rgba(109, 76, 250, 0.35);
-    flex-shrink: 0;
-  }
-  h1 {
-    font-size: 1.28rem;
-    font-weight: 750;
-    letter-spacing: -0.015em;
-    margin: 0;
-    text-wrap: balance;
-  }
-  .brand-sub { font-size: 0.7rem; color: var(--text-faint); font-family: var(--font-data); letter-spacing: 0.02em; }
-  .live-pill {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.05em;
-    color: var(--profit);
-    padding: 6px 10px 6px 8px;
-    border: 1px solid var(--border);
-    border-radius: 100px;
-    background: var(--profit-bg);
-    text-transform: uppercase;
-    flex-shrink: 0;
-  }
-  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--profit); box-shadow: 0 0 0 3px var(--profit-bg); }
-  .live-dot.off { background: var(--text-faint); box-shadow: none; }
-
-  /* ---------- Section headings ---------- */
-  .section-head {
-    display: flex; align-items: baseline; justify-content: space-between;
-    margin: 34px 0 14px;
-  }
-  .section-head:first-of-type { margin-top: 0; }
-  h2 {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--text-faint);
-    margin: 0;
-  }
-  .section-count { font-family: var(--font-data); font-size: 0.72rem; color: var(--text-secondary); }
-
-  a { color: var(--accent-soft); }
-  .subtitle { color: var(--text-faint); font-size: 0.78rem; margin: -18px 0 24px; }
-
-  /* ---------- Config card ---------- */
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-card);
-    padding: 18px 18px 20px;
-  }
-  .config-label { font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 12px; }
-  .segmented {
-    display: flex;
-    background: var(--bg-deep);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 4px;
-    gap: 4px;
-  }
-  .segmented button {
-    flex: 1;
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: 0.84rem;
-    font-weight: 600;
-    padding: 12px 12px;
-    min-height: 44px;
-    border-radius: 9px;
-    cursor: pointer;
-    font-family: var(--font-body);
-    transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
-  }
-  .segmented button:active { transform: scale(0.97); }
-  .segmented button.active {
-    background: var(--surface-raised);
-    color: var(--accent-soft);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-  }
-  .config-status { margin-top: 10px; font-size: 0.76rem; color: var(--text-faint); }
-  .status-msg.ok { color: var(--profit); }
-  .status-msg.error { color: var(--loss); }
-  .profit-pos { color: var(--profit); }
-  .profit-neg { color: var(--loss); }
-
-  /* ---------- Position cards ---------- */
-  .positions { display: flex; flex-direction: column; gap: 12px; }
-  .pos-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-card);
-    padding: 16px 16px 14px;
-  }
-  .pos-card.is-profit { border-left-color: var(--profit); }
-  .pos-card.is-loss { border-left-color: var(--loss); }
-
-  .pos-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 4px;
-  }
-  .pos-instrument { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .pos-symbol { font-size: 1.12rem; font-weight: 750; letter-spacing: -0.01em; }
-  .dir-pill {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.03em;
-    padding: 3px 8px; border-radius: 6px; text-transform: uppercase;
-    font-family: var(--font-data);
-  }
-  .dir-buy { background: var(--profit-bg); color: var(--profit); }
-  .dir-sell { background: var(--loss-bg); color: var(--loss); }
-  .badge-auto, .badge-manual {
-    font-size: 0.64rem; font-weight: 700; letter-spacing: 0.03em;
-    padding: 3px 8px; border-radius: 6px; text-transform: uppercase;
-  }
-  .badge-auto { background: var(--accent-dim); color: var(--accent-soft); }
-  .badge-manual { background: var(--warn-bg); color: var(--warn); }
-
-  .pos-profit-block { text-align: right; flex-shrink: 0; }
-  .pos-profit {
-    font-family: var(--font-data);
-    font-size: 1.3rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-  }
-  .pos-profit.pos { color: var(--profit); }
-  .pos-profit.neg { color: var(--loss); }
-  .pos-ticket { font-size: 0.66rem; color: var(--text-faint); font-family: var(--font-data); margin-top: 2px; }
-
-  .pos-seq {
-    font-size: 0.76rem;
-    color: var(--text-secondary);
-    font-weight: 600;
-    margin-bottom: 12px;
-  }
-  .pos-seq .pos-ticket { display: inline; margin: 0 0 0 6px; }
-
-  .pos-meta {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    padding: 12px 0;
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 14px;
-  }
-  .meta-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .meta-label { font-size: 0.62rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
-  .meta-value { font-family: var(--font-data); font-size: 0.88rem; font-variant-numeric: tabular-nums; overflow-wrap: break-word; }
-  .meta-value.sl { color: var(--loss); }
-  .meta-value.tp { color: var(--profit); }
-
-  .pos-actions { display: flex; gap: 8px; }
-  .act-btn {
-    flex: 1;
-    display: flex; align-items: center; justify-content: center; gap: 6px;
-    border: 1px solid var(--border-strong);
-    background: var(--surface-raised);
-    color: var(--text-primary);
-    font-size: 0.82rem;
-    font-weight: 650;
-    font-family: var(--font-body);
-    padding: 12px 8px;
-    border-radius: 11px;
-    cursor: pointer;
-    min-height: 46px;
-    transition: transform 0.08s ease, border-color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
-  }
-  .act-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
-  .act-btn:active, .act-btn.is-pressed { transform: scale(0.95); opacity: 0.75; }
-  .act-btn.be:hover { border-color: var(--profit); color: var(--profit); }
-  .act-btn.betp:hover { border-color: var(--blue); color: var(--blue); }
-  .act-btn.close { background: transparent; }
-  .act-btn.close:hover { border-color: var(--loss); color: var(--loss); background: var(--loss-bg); }
-  .act-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
-
-  .pos-manual-note {
-    font-size: 0.78rem; color: var(--text-faint);
-    padding: 0;
-    display: flex; align-items: center; gap: 6px;
-  }
-  .pos-manual-note svg { flex-shrink: 0; width: 14px; height: 14px; }
-
-  .pos-action-status {
-    margin-top: 10px;
-    font-size: 0.74rem;
-    color: var(--text-faint);
-    min-height: 1em;
-  }
-
-  .warning {
-    background: var(--warn-bg);
-    border: 1px solid rgba(240, 180, 41, 0.3);
-    color: var(--warn);
-    padding: 12px 14px;
-    border-radius: var(--radius-md);
-    margin-bottom: 12px;
-    font-size: 0.86rem;
-  }
-  .empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: var(--text-faint);
-    font-size: 0.86rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-  }
-
-  /* ---------- Signals list ---------- */
-  .signal-filter { display: flex; gap: 6px; margin-bottom: 14px; overflow-x: auto; padding-bottom: 2px; }
-  .signal-filter button {
-    flex-shrink: 0;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-secondary);
-    font-size: 0.78rem;
-    font-weight: 600;
-    padding: 9px 14px;
-    min-height: 40px;
-    border-radius: 100px;
-    cursor: pointer;
-  }
-  .signal-filter button.active {
-    background: var(--accent-dim);
-    border-color: var(--accent);
-    color: var(--accent-soft);
-  }
-
-  .summary-note {
-    font-size: 0.78rem; color: var(--text-faint); margin: 0 0 14px;
-    line-height: 1.5;
-  }
-
-  .signal-list { display: flex; flex-direction: column; gap: 8px; }
-  .signal-row {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 12px 14px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .signal-dir-mark { width: 3px; align-self: stretch; border-radius: 2px; flex-shrink: 0; }
-  .signal-dir-mark.buy { background: var(--profit); }
-  .signal-dir-mark.sell { background: var(--loss); }
-  .signal-main { flex: 1; min-width: 0; }
-  .signal-line1 { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 650; flex-wrap: wrap; }
-  .signal-line1 .dim { color: var(--text-faint); font-weight: 500; }
-  .signal-line2 {
-    font-size: 0.72rem; color: var(--text-faint); font-family: var(--font-data);
-    margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap;
-  }
-  .status-chip {
-    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.03em;
-    padding: 4px 8px; border-radius: 6px; text-transform: uppercase;
-    flex-shrink: 0;
-  }
-  .status-confirmed, .status-executed { background: var(--profit-bg); color: var(--profit); }
-  .status-pending_confirmation, .status-pending_manual { background: var(--warn-bg); color: var(--warn); }
-  .status-expired, .status-rejected, .status-cancelled { background: var(--neutral-bg); color: var(--text-faint); }
-  .status-failed { background: var(--loss-bg); color: var(--loss); }
-  .retry-col { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
-  .retry-link {
-    font-size: 0.74rem; font-weight: 650; color: var(--accent-soft);
-    background: none; border: 1px solid var(--border-strong); cursor: pointer;
-    padding: 6px 10px; border-radius: 8px; min-height: 32px;
-  }
-  .retry-link:disabled { opacity: 0.5; cursor: default; }
-  .retry-status { font-size: 0.66rem; color: var(--text-faint); text-align: right; }
-  .retry-status.ok { color: var(--profit); }
-  .retry-status.error { color: var(--loss); }
-
-  /* ---------- Archived summary ---------- */
-  .summary-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
-  .summary-row {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 12px 14px;
-  }
-  .summary-row-top { display: flex; justify-content: space-between; gap: 10px; font-size: 0.82rem; font-weight: 650; }
-  .summary-row-period { font-size: 0.72rem; color: var(--text-faint); font-family: var(--font-data); margin-top: 3px; }
-  .summary-row-meta { font-size: 0.74rem; color: var(--text-secondary); margin-top: 6px; }
-</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kronos · Panel de Capital</title>
+<meta name="description" content="Panel personal de crecimiento de capital de trading: seguimiento por días operables, interés compuesto y conversor a EUR.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='9' fill='none' stroke='%23c9a86a' stroke-width='2'/><ellipse cx='16' cy='16' rx='14' ry='4.5' fill='none' stroke='%23b6becd' stroke-width='1.6' transform='rotate(-20 16 16)'/></svg>">
 </head>
 <body>
-<div class="page">
 
-  <div class="topbar">
-    <div class="brand">
-      <div class="brand-mark">K</div>
-      <div>
-        <h1>Kronos</h1>
-        <div class="brand-sub">VT MARKETS · MT4 BRIDGE</div>
+<!-- Fondo: imagen de galaxia (configurable en styles.css) + velo + partículas -->
+<div class="bg-imagen" aria-hidden="true"></div>
+<div class="bg-velo" aria-hidden="true"></div>
+<canvas id="starfield" aria-hidden="true"></canvas>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand__mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <circle cx="12" cy="12" r="6.5"/>
+        <ellipse cx="12" cy="12" rx="11" ry="3.6" transform="rotate(-22 12 12)" opacity=".65"/>
+      </svg>
+    </span>
+    <div>
+      <h1>Kronos</h1>
+      <p>Panel de crecimiento de capital</p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab is-active" role="tab" data-tab="crecimiento" aria-selected="true">Crecimiento</button>
+    <button class="tab" role="tab" data-tab="compuesto" aria-selected="false">Interés compuesto</button>
+    <button class="tab" role="tab" data-tab="calendario" aria-selected="false">Calendario</button>
+    <button class="tab" role="tab" data-tab="control" aria-selected="false">Panel de control</button>
+    <button class="tab" role="tab" data-tab="conversor" aria-selected="false">Conversor</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ===================== CRECIMIENTO ===================== -->
+<section class="panel-group" id="tab-crecimiento" role="tabpanel">
+
+  <!-- Contador de días del plan -->
+  <div class="dayband">
+    <div class="dayband__main">
+      <span class="dayband__label">En qué día del plan estamos</span>
+      <strong id="d-dia">Día 1 desde el inicio</strong>
+      <span class="dayband__sub" id="d-desde">—</span>
+    </div>
+    <div class="dayband__stats">
+      <div><span>Días calendario</span><strong id="d-calendario">0</strong></div>
+      <div><span>Días operables</span><strong id="d-operables" class="pos">0</strong></div>
+      <div><span>Días no operables</span><strong id="d-no-operables">0</strong></div>
+      <div><span>Días sin registrar</span><strong id="d-sin-registro">0</strong></div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span class="kpi__label">Capital inicial</span><strong id="k-inicial">—</strong></div>
+    <div class="kpi"><span class="kpi__label">Capital actual</span><strong id="k-actual">—</strong></div>
+    <div class="kpi"><span class="kpi__label">Ganancia total</span><strong id="k-ganancia">—</strong></div>
+    <div class="kpi"><span class="kpi__label">Crecimiento acumulado</span><strong id="k-pct">—</strong></div>
+    <div class="kpi"><span class="kpi__label">Media / día calendario</span><strong id="k-media-cal">—</strong></div>
+    <div class="kpi"><span class="kpi__label">Media / día operable</span><strong id="k-media-op">—</strong></div>
+  </div>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h2>Configuración del plan</h2>
+      <div class="field-row">
+        <label class="field">
+          <span>Fecha de inicio</span>
+          <input type="date" id="fecha-inicio">
+        </label>
+        <label class="field">
+          <span>Capital inicial</span>
+          <input type="number" id="capital-inicial" step="any" min="0" placeholder="1000">
+        </label>
+      </div>
+      <label class="field">
+        <span>Moneda de visualización</span>
+        <select id="moneda-display">
+          <option value="EUR">EUR €</option>
+          <option value="USD">USD $</option>
+          <option value="COP">COP $</option>
+        </select>
+      </label>
+
+      <h2 class="mt">Nuevo registro</h2>
+      <div class="field-row">
+        <label class="field">
+          <span>Fecha</span>
+          <input type="date" id="reg-fecha">
+        </label>
+        <label class="field">
+          <span>Tipo</span>
+          <select id="reg-tipo">
+            <option value="capital">Capital del día</option>
+            <option value="pct">% ganancia/pérdida</option>
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span id="reg-valor-label">Capital del día</span>
+        <input type="number" id="reg-valor" step="any" placeholder="1010">
+      </label>
+      <label class="check">
+        <input type="checkbox" id="reg-operable" checked>
+        <span>Día <b>operable</b> (se operó). Desmárcalo para fin de semana, feriado o día sin operar.</span>
+      </label>
+      <label class="field">
+        <span>Nota (opcional)</span>
+        <input type="text" id="reg-nota" maxlength="80" placeholder="EURUSD, sesión londres…">
+      </label>
+      <div class="btn-row">
+        <button class="btn btn--primary" id="btn-add">Agregar registro</button>
+        <button class="btn" id="btn-export">Exportar CSV</button>
+        <button class="btn" id="btn-backup-export" title="Guardar copia JSON para pasar a otro dispositivo">Exportar Copia (JSON)</button>
+        <button class="btn" id="btn-backup-import" title="Cargar copia JSON desde otro dispositivo">Importar Copia</button>
+        <input type="file" id="input-backup-file" accept=".json" style="display:none">
+        <button class="btn btn--danger" id="btn-reset">Resetear datos</button>
+      </div>
+      <p class="hint" id="msg-crecimiento" role="status"></p>
+    </div>
+
+    <div class="card">
+      <h2>Evolución del capital</h2>
+      <div class="chart-wrap"><canvas id="chart-crecimiento"></canvas></div>
+      <p class="hint">
+        <span class="lg lg--op"></span> día operado ·
+        <span class="lg lg--noop"></span> día no operable (capital plano).
+        Pasa el cursor por el gráfico para ver el detalle de cada día.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Historial</h2>
+    <div class="table-wrap">
+      <table id="tabla-crecimiento">
+        <thead>
+          <tr>
+            <th>Fecha</th><th>Día</th><th>Operable</th><th>Capital</th><th>Δ período</th>
+            <th>% período</th><th>% acumulado</th><th>Nota</th><th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="empty" id="empty-crecimiento">Aún no hay registros. Agrega el primero arriba.</p>
+  </div>
+</section>
+
+<!-- ===================== COMPUESTO ===================== -->
+<section class="panel-group hidden" id="tab-compuesto" role="tabpanel">
+  <div class="grid grid--2">
+    <div class="card">
+      <h2>Parámetros de la simulación</h2>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Capital inicial</span>
+          <input type="number" id="ci-capital" step="any" min="0" value="1000">
+        </label>
+        <label class="field">
+          <span>Fecha de inicio</span>
+          <input type="date" id="ci-fecha">
+        </label>
+      </div>
+
+      <label class="field">
+        <span>% de ganancia por <b>día operable</b>: <b id="ci-pct-out">4,00%</b></span>
+        <input type="range" id="ci-pct-range" min="-5" max="10" step="0.05" value="4">
+      </label>
+      <input type="number" id="ci-pct" step="any" value="4" aria-label="Porcentaje por día operable">
+
+      <label class="field mt">
+        <span>Días de calendario a proyectar</span>
+        <input type="number" id="ci-dias" min="1" max="1825" step="1" value="30">
+      </label>
+
+      <div class="field">
+        <span>Días operables de la semana</span>
+        <div class="dow" id="ci-dow"></div>
+      </div>
+
+      <label class="field">
+        <span>Fechas no operables (feriados o días sin operar)</span>
+        <textarea id="ci-feriados" rows="3"
+          placeholder="Una fecha por línea o separadas por coma:&#10;2026-09-15&#10;2026-10-12"></textarea>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="ci-reinvertir" checked>
+        <span>Reinvertir ganancias (interés compuesto)</span>
+      </label>
+
+      <div class="btn-row">
+        <button class="btn btn--primary" id="ci-simular">Simular</button>
+        <button class="btn" id="ci-export">Exportar CSV</button>
       </div>
     </div>
-    <span class="live-pill" id="live-pill"><span class="live-dot" id="live-dot"></span>En vivo</span>
-  </div>
-  <p class="subtitle">
-    <a href="http://localhost:5678" target="_blank" rel="noopener"
-       title="Solo funciona si abrís esta página desde la misma máquina donde corre n8n">
-      Abrir n8n (localhost)
-    </a>
-  </p>
 
-  <div class="section-head" style="margin-top:0;">
-    <h2>Perfil de cuenta activo</h2>
-  </div>
-  <div class="panel">
-    <p class="config-label">Selecciona la cuenta activa para el EA.</p>
-    <div class="segmented">
-      <button id="btn-vip" data-profile="DEMO_VIP">Demo · DEMO_VIP</button>
-      <button id="btn-std" data-profile="PROD_STD">Real · PROD_STD</button>
+    <div class="card">
+      <h2>Proyección</h2>
+      <div class="chart-wrap"><canvas id="chart-compuesto"></canvas></div>
+      <p class="hint">
+        <span class="lg lg--compound"></span> compuesto ·
+        <span class="lg lg--simple"></span> simple (sin reinvertir) ·
+        <span class="lg lg--noop"></span> días no operables (tramo plano).
+      </p>
+
+      <div class="kpis kpis--inline mt">
+        <div class="kpi"><span class="kpi__label">Capital proyectado</span><strong id="ci-final">—</strong></div>
+        <div class="kpi"><span class="kpi__label">Ganancia total</span><strong id="ci-ganancia">—</strong></div>
+        <div class="kpi"><span class="kpi__label">Crecimiento total</span><strong id="ci-crecimiento">—</strong></div>
+        <div class="kpi"><span class="kpi__label">Días operables / calendario</span><strong id="ci-dias-op">—</strong></div>
+      </div>
+      <p class="hint" id="ci-resumen"></p>
     </div>
-    <div class="config-status" id="config-status"></div>
   </div>
 
-  <div class="section-head">
-    <h2>Posiciones abiertas</h2>
-    <span class="section-count" id="positions-count"></span>
+  <div class="card">
+    <h2>Detalle día por día</h2>
+    <div class="table-wrap table-wrap--tall">
+      <table id="tabla-compuesto">
+        <thead><tr><th>#</th><th>Fecha</th><th>Día</th><th>Operable</th><th>Capital</th><th>Ganancia</th><th>% acum.</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </div>
-  <div id="positions-warning"></div>
-  <div class="positions" id="positions-body"></div>
+</section>
 
-  <div class="section-head">
-    <h2>Historial de señales</h2>
+<!-- ===================== CONVERSOR ===================== -->
+<section class="panel-group hidden" id="tab-conversor" role="tabpanel">
+  <div class="grid grid--2">
+    <div class="card">
+      <h2>Convertir a EUR</h2>
+      <div class="field-row">
+        <label class="field">
+          <span>Cantidad</span>
+          <input type="number" id="fx-cantidad" step="any" value="100000">
+        </label>
+        <label class="field">
+          <span>Moneda de origen</span>
+          <select id="fx-moneda"></select>
+        </label>
+      </div>
+
+      <div class="result">
+        <span class="result__label">Resultado</span>
+        <strong id="fx-resultado">—</strong>
+        <span class="result__sub" id="fx-detalle">—</span>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn--primary" id="fx-actualizar">Actualizar tasas</button>
+        <button class="btn" id="fx-invertir">Invertir (EUR → moneda)</button>
+      </div>
+      <p class="hint" id="fx-estado" role="status">Cargando tasas…</p>
+    </div>
+
+    <div class="card">
+      <h2>Configuración de tasas</h2>
+      <label class="field">
+        <span>Endpoint de la API (base EUR)</span>
+        <input type="text" id="fx-endpoint" value="https://open.er-api.com/v6/latest/EUR">
+      </label>
+      <label class="field">
+        <span>API key (opcional, se inserta como <code>{key}</code> en la URL)</span>
+        <input type="text" id="fx-key" placeholder="vacío = API sin key">
+      </label>
+
+      <h2 class="mt">Tasa manual (respaldo sin internet)</h2>
+      <div class="field-row">
+        <label class="field">
+          <span>Moneda</span>
+          <input type="text" id="fx-man-cod" maxlength="6" placeholder="COP" style="text-transform:uppercase">
+        </label>
+        <label class="field">
+          <span>Unidades por 1 EUR</span>
+          <input type="number" id="fx-man-val" step="any" placeholder="4300">
+        </label>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn--primary" id="fx-man-guardar">Guardar / agregar moneda</button>
+        <button class="btn btn--danger" id="fx-man-borrar">Borrar tasas manuales</button>
+      </div>
+
+      <div class="table-wrap mt">
+        <table id="tabla-fx">
+          <thead><tr><th>Moneda</th><th>Por 1 EUR</th><th>Origen</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
   </div>
-  <p class="summary-note">
-    Las señales más viejas se eliminan automáticamente al superar 200 filas (se conservan las 100 más recientes), sin guardar detalle de lo purgado.
-  </p>
+</section>
 
-  <div class="signal-filter" id="signals-filter">
-    <button data-range="today" class="active">Hoy</button>
-    <button data-range="week">Esta semana</button>
-    <button data-range="month">Este mes</button>
-    <button data-range="all">Todas</button>
+<!-- ===================== PANEL DE CONTROL ===================== -->
+<section class="panel-group hidden" id="tab-control" role="tabpanel">
+
+  <div class="section-title-row">
+    <h2 class="section-title">Perfil de cuenta activo</h2>
   </div>
-  <div class="signal-list" id="signals-body"></div>
+  <div class="card">
+    <p class="hint" style="margin-top:0">Selecciona la cuenta activa para el EA.</p>
+    <div class="segmented" id="control-segmented">
+      <button class="segmented__btn" data-profile="DEMO_VIP">Demo · DEMO_VIP</button>
+      <button class="segmented__btn" data-profile="PROD_STD">Real · PROD_STD</button>
+    </div>
+  </div>
 
-</div>
+  <div class="section-title-row">
+    <h2 class="section-title">Posiciones abiertas</h2>
+    <span class="section-count" id="control-count">—</span>
+  </div>
+  <div class="positions" id="control-positions"></div>
+  <p class="empty" id="control-empty" style="display:none">No hay posiciones abiertas en este momento.</p>
 
-  <script src="app.js"></script>
+  <div class="section-title-row">
+    <h2 class="section-title">Capital de la cuenta</h2>
+  </div>
+  <div class="kpis kpis--inline">
+    <div class="kpi"><span class="kpi__label">Balance</span><strong id="control-balance">—</strong></div>
+    <div class="kpi"><span class="kpi__label">Equity</span><strong id="control-equity">—</strong></div>
+    <div class="kpi"><span class="kpi__label">P&amp;L flotante</span><strong id="control-floating">—</strong></div>
+  </div>
+
+</section>
+
+<!-- ===================== CALENDARIO ===================== -->
+<section class="panel-group hidden" id="tab-calendario" role="tabpanel">
+
+  <!-- Cabecera: navegación de mes + KPIs arriba a la derecha -->
+  <div class="cal-header">
+    <div class="cal-nav">
+      <button class="cal-nav__btn" id="cal-prev" aria-label="Mes anterior">&#8249;</button>
+      <span class="cal-nav__titulo" id="cal-titulo">—</span>
+      <button class="cal-nav__btn" id="cal-next" aria-label="Mes siguiente">&#8250;</button>
+      <button class="cal-nav__hoy" id="cal-hoy">Hoy</button>
+    </div>
+
+    <div class="cal-kpis">
+      <div class="cal-kpi">
+        <span class="cal-kpi__label">Días operados</span>
+        <span class="cal-kpi__val" id="cal-dias-op">—</span>
+      </div>
+      <div class="cal-kpi">
+        <span class="cal-kpi__label">Mejor día</span>
+        <span class="cal-kpi__val pos" id="cal-mejor">—</span>
+      </div>
+      <div class="cal-kpi">
+        <span class="cal-kpi__label">Peor día</span>
+        <span class="cal-kpi__val neg" id="cal-peor">—</span>
+      </div>
+      <div class="cal-kpi cal-kpi--total">
+        <span class="cal-kpi__label">Total del mes</span>
+        <span class="cal-kpi__val" id="cal-total">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cabecera de días de la semana -->
+  <div class="cal-weekdays" aria-hidden="true">
+    <div class="cal-weekday">Lun</div>
+    <div class="cal-weekday">Mar</div>
+    <div class="cal-weekday">Mié</div>
+    <div class="cal-weekday">Jue</div>
+    <div class="cal-weekday">Vie</div>
+    <div class="cal-weekday">Sáb</div>
+    <div class="cal-weekday">Dom</div>
+  </div>
+
+  <!-- Cuadrícula del mes (llenada por calendar.js) -->
+  <div class="cal-grid" id="cal-grid" role="grid" aria-label="Calendario de trading"></div>
+
+</section>
+
+</main>
+
+<footer class="footer">
+  <p>Datos guardados localmente en tu navegador (localStorage). Nada se envía a ningún servidor salvo la consulta de tasas de cambio.</p>
+</footer>
+
+<script src="js/starfield.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/growth.js"></script>
+<script src="js/compound.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/calendar.js"></script>
+<script src="js/control.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
