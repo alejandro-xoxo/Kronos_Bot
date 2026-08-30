@@ -1090,7 +1090,7 @@ SL/BE/cierres mientras hay posiciones reales abiertas.
   `daily_pnl`/`GET /api/registros`.
 - 🔶 Fase 8 — ejecución 100% automática. Declarada iniciada 2026-08-29
   en `PROTOCOLOS_KRONOS_BOT.md` sección 12.3 (máx. 1 operación `OPEN`
-  + circuit breaker 6% de ganancia diaria); promovida y activa en
+  + circuit breaker 8% de ganancia diaria (subido de 6%, 2026-08-30); promovida y activa en
   producción real desde 2026-08-30 (`split-mvp/02`).
 
 ## Nota operativa 2026-08-21 — dashboard, base de datos, `develop`/`main`

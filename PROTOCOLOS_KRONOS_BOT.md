@@ -223,7 +223,7 @@ señal nueva se rechaza por falta de lotaje (ver 5.4).
 
 **Actualizado 2026-08-30**: con Fase 2 declarada, una señal nueva se
 auto-confirma si cumple las condiciones de la sección 12.3 (0
-operaciones `OPEN` y ganancia del día <6%); si no las cumple, cae a
+operaciones `OPEN` y ganancia del día <8%); si no las cumple, cae a
 confirmación manual como en Fase 1.
 
 ```
@@ -234,7 +234,7 @@ Validaciones pasadas (antigüedad ≤5min, slot de lotaje disponible)
 INSERT en tabla signals (status = PENDING_CONFIRMATION)
     ↓
 ¿Cumple condiciones de auto-confirmación? (sección 12.3: 0 OPEN
-y ganancia del día <6%)
+y ganancia del día <8%)
     ↓
     ├── SÍ → status = CONFIRMED automáticamente → se envía orden al EA
     │        (se notifica igual por Telegram, sin esperar botón)
@@ -436,7 +436,7 @@ Notifica el resultado al usuario por Telegram
      completo disponible (`floor(capital_real / 100) × 0.01`, sección
      5.2), sin repartir entre slots: no hace falta con tope de 1.
    - **Circuit breaker de ganancia diaria**: si la cuenta ya subió
-     ≥6% respecto al capital de inicio del día, se deja de
+     ≥8% respecto al capital de inicio del día, se deja de
      auto-confirmar hasta el día siguiente (cae a confirmación
      manual). Las posiciones ya abiertas no se tocan.
 
