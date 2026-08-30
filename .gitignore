@@ -11,3 +11,4 @@ mt4-bridge/orders/results/*
 __pycache__/
 kronos_group_export.md
 STATUS.md
+.claude/
