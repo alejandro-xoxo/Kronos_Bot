@@ -42,7 +42,7 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-        "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Parsear señal (regex)').item.json.instrument }}\nDirección: {{ $('Parsear señal (regex)').item.json.direction }}\nTipo: {{ $('Parsear señal (regex)').item.json.execution_type }}\nEntrada: {{ $('Parsear señal (regex)').item.json.entry_price }}\nTP: {{ $('Parsear señal (regex)').item.json.tp }}\nSL: {{ $('Parsear señal (regex)').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
+        "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Recibido de otro workflow').item.json.instrument }}\nDirección: {{ $('Recibido de otro workflow').item.json.direction }}\nTipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\nEntrada: {{ $('Recibido de otro workflow').item.json.entry_price }}\nTP: {{ $('Recibido de otro workflow').item.json.tp }}\nSL: {{ $('Recibido de otro workflow').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
         "replyMarkup": "inlineKeyboard",
         "inlineKeyboard": {
           "rows": [
