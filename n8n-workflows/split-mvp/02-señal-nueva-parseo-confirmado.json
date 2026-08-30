@@ -42,7 +42,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Recibido de otro workflow').item.json.instrument }}\nDirección: {{ $('Recibido de otro workflow').item.json.direction }}\nTipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\nEntrada: {{ $('Recibido de otro workflow').item.json.entry_price }}\nTP: {{ $('Recibido de otro workflow').item.json.tp }}\nSL: {{ $('Recibido de otro workflow').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
+    "text": "=🆕 <b>Nueva señal detectada</b>\n\n📌 Instrumento: <b>{{ $('Recibido de otro workflow').item.json.instrument }}</b>\n📈 Dirección: <b>{{ $('Recibido de otro workflow').item.json.direction }}</b>\n⚙️ Tipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\n🎯 Entrada: <b>{{ $('Recibido de otro workflow').item.json.entry_price }}</b>\n✅ TP: <b>{{ $('Recibido de otro workflow').item.json.tp }}</b>\n🛑 SL: <b>{{ $('Recibido de otro workflow').item.json.sl }}</b>\n\n⏳ Estado: <i>pendiente de confirmación</i>\n🔍 Interpretado por: regex",
     "replyMarkup": "inlineKeyboard",
     "inlineKeyboard": {
      "rows": [
@@ -68,7 +68,7 @@
     },
     "additionalFields": {
      "appendAttribution": false,
-     "parse_mode": "none"
+     "parse_mode": "HTML"
     }
    },
    "id": "d6926da1-b0d0-4ba8-93ce-e268cbdb0e6f",
@@ -226,10 +226,10 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "=🤖 Señal auto-confirmada ({{ $('Contar operaciones abiertas (Postgres)').item.json.open_count }}/1 operaciones abiertas)\n\nInstrumento: {{ $('Recibido de otro workflow').item.json.instrument }}\nDirección: {{ $('Recibido de otro workflow').item.json.direction }}\nTipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\nEntrada: {{ $('Recibido de otro workflow').item.json.entry_price }}\nTP: {{ $('Recibido de otro workflow').item.json.tp }}\nSL: {{ $('Recibido de otro workflow').item.json.sl }}\n\nSe procederá con la ejecución sin esperar confirmación manual.",
+    "text": "=🤖 <b>Señal auto-confirmada</b> ({{ $('Contar operaciones abiertas (Postgres)').item.json.open_count }}/1 operaciones abiertas)\n\n📌 Instrumento: <b>{{ $('Recibido de otro workflow').item.json.instrument }}</b>\n📈 Dirección: <b>{{ $('Recibido de otro workflow').item.json.direction }}</b>\n⚙️ Tipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\n🎯 Entrada: <b>{{ $('Recibido de otro workflow').item.json.entry_price }}</b>\n✅ TP: <b>{{ $('Recibido de otro workflow').item.json.tp }}</b>\n🛑 SL: <b>{{ $('Recibido de otro workflow').item.json.sl }}</b>\n\n⚡ <i>Se ejecuta sin esperar confirmación manual.</i>",
     "additionalFields": {
      "appendAttribution": false,
-     "parse_mode": "none"
+     "parse_mode": "HTML"
     }
    },
    "id": "f4d5e6a7-8b9c-4d0e-1f2a-3b4c5d6e7f8a",
