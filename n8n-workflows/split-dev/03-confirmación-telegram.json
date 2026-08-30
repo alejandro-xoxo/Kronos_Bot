@@ -94,8 +94,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "zZQ5m2frFb94qTh2",
-          "name": "Postgres dev"
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
         }
       }
     },
@@ -117,8 +117,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "zZQ5m2frFb94qTh2",
-          "name": "Postgres dev"
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
         }
       }
     },
@@ -205,7 +205,7 @@
       "webhookId": "698f7aab-769d-4a4f-acda-6907949c6972",
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       }
@@ -227,7 +227,7 @@
       "webhookId": "b86332d9-8802-453b-8361-6a14ae4d10e4",
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       }
@@ -251,7 +251,7 @@
       "webhookId": "5148d035-4bfe-4d10-b578-e57468c74e69",
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       }
@@ -275,7 +275,7 @@
       "webhookId": "44603ea8-6600-4b56-9ebc-f99a04ddf707",
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       }
@@ -297,7 +297,7 @@
       "webhookId": "a98bf3de-61c1-4345-95fb-473ddfaf17cd",
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       }
@@ -319,7 +319,7 @@
       "webhookId": "41c7fbac-b070-4359-8b16-efe262ac1b73",
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       }

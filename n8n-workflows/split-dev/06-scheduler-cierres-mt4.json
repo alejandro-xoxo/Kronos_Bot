@@ -84,8 +84,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "zZQ5m2frFb94qTh2",
-          "name": "Postgres dev"
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
         }
       },
       "notes": "UPDATE idempotente (mismo patron que 'Actualizar status: OPEN/PENDING_MANUAL'): solo actualiza si status='OPEN', correlaciona por signal_uid (closed/*.json no trae el id numerico de Postgres, solo signal_uid). Si el mismo archivo se reprocesa, el segundo UPDATE no encuentra fila en status='OPEN' y no hace nada."
@@ -141,7 +141,7 @@
       ],
       "credentials": {
         "telegramApi": {
-          "id": "pOHN6mlpJzD7txtm",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       },
