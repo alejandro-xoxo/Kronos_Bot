@@ -69,7 +69,7 @@
   {
    "parameters": {
     "operation": "executeQuery",
-    "query": "WITH updated AS (\n  UPDATE signals SET\n    status = $2,\n    close_price = $3,\n    profit_loss = $4,\n    close_timestamp = $5::timestamp,\n    mt4_ticket = COALESCE(mt4_ticket, $6),\n    updated_at = NOW()\n  WHERE signal_uid = $1 AND status = 'OPEN'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, $1::text AS signal_uid;",
+    "query": "WITH updated AS (\n  UPDATE signals SET\n    status = $2,\n    close_price = $3,\n    profit_loss = $4,\n    close_timestamp = $5::timestamp,\n    mt4_ticket = COALESCE(mt4_ticket, $6),\n    updated_at = NOW()\n  WHERE signal_uid = $1 AND status = 'OPEN'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, $1::text AS signal_uid, (SELECT day_number FROM signals WHERE signal_uid = $1) AS day_number;",
     "options": {
      "queryReplacement": "={{ [$json.signal_uid, $json.reason, $json.close_price, $json.profit, $json.close_time, $json.ticket] }}"
     }
@@ -126,7 +126,7 @@
   {
    "parameters": {
     "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "={{ ($('Parsear cierre (MT4)').item.json.reason === 'TP_REACHED' ? '🎯 <b>TP alcanzado</b> — señal ' : ($('Parsear cierre (MT4)').item.json.reason === 'SL_REACHED' ? '🛑 <b>SL alcanzado</b> — señal ' : '✋ <b>Cierre manual</b> — señal ')) + $('Parsear cierre (MT4)').item.json.signal_uid + '\\n\\n🎫 Ticket: <b>' + $('Parsear cierre (MT4)').item.json.ticket + '</b>\\n💵 Precio de cierre: <b>' + $('Parsear cierre (MT4)').item.json.close_price + '</b>\\n📊 Resultado: <b>' + $('Parsear cierre (MT4)').item.json.profit + '</b>' }}",
+    "text": "={{ ($('Parsear cierre (MT4)').item.json.reason === 'TP_REACHED' ? '🎯 <b>TP alcanzado</b> — señal #' : ($('Parsear cierre (MT4)').item.json.reason === 'SL_REACHED' ? '🛑 <b>SL alcanzado</b> — señal #' : '✋ <b>Cierre manual</b> — señal #')) + $('Actualizar status: cierre TP/SL').item.json.day_number + '\\n\\n🎫 Ticket: <b>' + $('Parsear cierre (MT4)').item.json.ticket + '</b>\\n💵 Precio de cierre: <b>' + $('Parsear cierre (MT4)').item.json.close_price + '</b>\\n📊 Resultado: <b>' + $('Parsear cierre (MT4)').item.json.profit + '</b>' }}",
     "additionalFields": {
      "parse_mode": "HTML"
     }
