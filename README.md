@@ -53,6 +53,8 @@ Arquitectura, retos técnicos, instalación y configuración están documentados
 
 Cada versión documenta su propia arquitectura, decisiones, retos técnicos, stack, instalación y roadmap — el README no repite ese detalle a propósito, para que quede versionado junto con el código al que corresponde.
 
+El dashboard (Crecimiento, Interés compuesto, Calendario, Panel de control, Conversor) es la integración de [PVG_kronos](https://github.com/alejandro-xoxo/PGV_kronos.git), un proyecto externo propio — ver capturas y detalle en [`docs/versions/v2.md`](docs/versions/v2.md#-evidencia-real).
+
 ## 📄 Licencia
 
 Uso personal / portafolio. El código es público para que se vea el proceso, pero no está pensado como librería reusable ni producto de terceros. Si algo de acá te sirve como referencia, adelante — mencioná la fuente.
