@@ -275,7 +275,7 @@ visible hasta que la próxima señal real simplemente no llegue.
   `daily_pnl`/`GET /api/registros`.
 - 🔶 Fase 8: ejecución 100% automática — declarada iniciada 2026-08-29
   en `PROTOCOLOS_KRONOS_BOT.md` sección 12.3 (máx. 1 operación `OPEN`
-  simultánea + circuit breaker de 8% de ganancia diaria (subido de 6% a 8%, decisión explícita del usuario, 2026-08-30). Promovida a
+  simultánea + circuit breaker de 7% de ganancia diaria (subido de 6% a 7%, decisión explícita del usuario, 2026-08-30). Promovida a
   producción el 2026-08-30 (`n8n-workflows/split-mvp/02-...json`).
 
 **Estado técnico detallado y próximos pasos inmediatos: ver `STATUS.md`**
