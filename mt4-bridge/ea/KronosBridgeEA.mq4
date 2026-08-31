@@ -878,8 +878,12 @@ void WritePositionsStatus()
    json += "    \"equity\": " + DoubleToString(AccountEquity(), 2) + ",\n";
    // capital_real (decisión explícita del usuario, 2026-08-28, reemplaza la regla
    // anterior de PROTOCOLOS_KRONOS_BOT.md sección 5.2): el lotaje se calcula sobre
-   // AccountBalance() completo, incluyendo crédito del bróker.
-   json += "    \"capital_real\": " + DoubleToString(AccountBalance(), 2) + "\n";
+   // el capital completo, incluyendo crédito del bróker. AccountBalance() por si
+   // solo NO incluye el crédito en MT4 (solo AccountEquity() lo hace) — hay que
+   // sumar AccountCredit() explícitamente para que capital_real sea de verdad el
+   // total (corregido 2026-08-31, la versión anterior solo usaba AccountBalance()
+   // y por eso el crédito nunca llegaba al cálculo de lotaje).
+   json += "    \"capital_real\": " + DoubleToString(AccountBalance() + AccountCredit(), 2) + "\n";
    json += "  },\n";
    json += "  \"active_profile\": \"" + GetProfileInfo(g_ActiveProfile).label + "\",\n";
    if(g_ProfileUpdatedAt > 0)
