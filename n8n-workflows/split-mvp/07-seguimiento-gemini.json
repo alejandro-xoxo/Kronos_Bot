@@ -151,7 +151,7 @@
   {
    "parameters": {
     "method": "POST",
-    "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+    "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={{ $env.GEMINI_API_KEY }}",
     "sendBody": true,
     "specifyBody": "json",
     "jsonBody": "={{ JSON.stringify({\n  contents: [{ parts: [{ text:\n    'Instrucción de seguimiento sobre una señal de trading ya confirmada. ' +\n    'Señal original: instrumento ' + $json.instrument + ', dirección ' + $json.direction +\n    ', entrada ' + $json.entry_price + ', SL ' + $json.sl + ', TP ' + $json.tp + '. ' +\n    'Mensaje de seguimiento (reply a esa señal): \\'' + $json.raw_text + '\\'. ' +\n    'Clasificá modification_type entre ENTRY_CHANGE, SL_CHANGE, CANCEL, TP_UPDATE, CLOSE_AT_PRICE. ' +\n    'target_price solo si el mensaje trae un precio explícito, si no null. No inventes valores.'\n  }] }],\n  generationConfig: {\n    responseMimeType: 'application/json',\n    responseSchema: {\n      type: 'OBJECT',\n      properties: {\n        modification_type: { type: 'STRING', enum: ['ENTRY_CHANGE','SL_CHANGE','CANCEL','TP_UPDATE','CLOSE_AT_PRICE'] },\n        target_price: { type: 'NUMBER', nullable: true }\n      },\n      required: ['modification_type']\n    }\n  }\n}) }}",
