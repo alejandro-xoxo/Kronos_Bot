@@ -545,5 +545,58 @@ def api_config_post():
     return jsonify({"profile": profile}), 200
 
 
+@app.route("/api/circuit-breaker", methods=["GET"])
+def api_circuit_breaker_get():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(circuit_breaker_pct, 0.06) FROM settings ORDER BY id DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    pct = row[0] if row else 0.06
+    return jsonify({"circuit_breaker_pct": pct}), 200
+
+
+@app.route("/api/circuit-breaker", methods=["POST"])
+def api_circuit_breaker_post():
+    body = request.get_json(silent=True) or {}
+    pct = body.get("circuit_breaker_pct")
+
+    try:
+        pct = float(pct)
+    except (TypeError, ValueError):
+        return jsonify({"error": "circuit_breaker_pct debe ser un número"}), 400
+
+    # Rango razonable: entre 0.5% y 50%. Fuera de eso, probablemente es
+    # un error de tipeo (ej. escribir "6" en vez de "0.06").
+    if not (0.005 <= pct <= 0.5):
+        return (
+            jsonify(
+                {
+                    "error": "circuit_breaker_pct fuera de rango (debe ser entre 0.005 y 0.5, ej. 0.06 = 6%)"
+                }
+            ),
+            400,
+        )
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE settings SET circuit_breaker_pct = %s "
+                "WHERE id = (SELECT id FROM settings ORDER BY id DESC LIMIT 1)",
+                (pct,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"circuit_breaker_pct": pct}), 200
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

@@ -1,0 +1,160 @@
+{
+  "name": "Kronos 11 - Watchdog Alert (Webhook)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 11. Watchdog Alert (Webhook)\nRecibe avisos de scripts/watchdog.sh (corre por cron en el host, fuera de Docker) cuando un contenedor del stack se cae o un chequeo de scripts/healthcheck.sh falla. Reenvía el aviso por Telegram usando la credencial que n8n ya tiene — el watchdog en bash no tiene ni necesita el token del bot, evita duplicarlo/exponerlo fuera de n8n. Limitación: si n8n mismo está caído, este canal no funciona — pero en ese caso los mensajes del grupo dejan de procesarse, así que el problema deja de ser silencioso de todas formas.",
+        "height": 220,
+        "width": 750,
+        "color": 4
+      },
+      "id": "a1b2c3d4-0011-4a1a-9a1a-000000001101",
+      "name": "Nota: 11. Watchdog Alert",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1600,
+        3800
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kronos-watchdog-alert",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0011-4a1a-9a1a-000000001102",
+      "name": "Webhook watchdog",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        3950
+      ],
+      "webhookId": "f1e2d3c4-b5a6-4978-8899-000000001102",
+      "notes": "Autenticación por WATCHDOG_SECRET (query param 'secret') validada en el nodo IF siguiente, no por credencial de n8n — el watchdog en bash no tiene sesión de n8n, solo curl."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-secret-ok",
+              "leftValue": "={{ $json.query.secret }}",
+              "rightValue": "={{ $env.WATCHDOG_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0011-4a1a-9a1a-000000001103",
+      "name": "¿Secret válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1350,
+        3950
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🚨 <b>Watchdog Kronos Bot</b>\n\n{{ $json.body.text }}",
+        "replyMarkup": "none",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "a1b2c3d4-0011-4a1a-9a1a-000000001104",
+      "name": "Avisar en chat: Watchdog",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1100,
+        3900
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "mbd7KXzuERWzRPII",
+          "name": "Telegram account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query.secret === $env.WATCHDOG_SECRET ? \"ok\" : \"forbidden\" }}",
+        "options": {
+          "responseCode": "={{ $json.query.secret === $env.WATCHDOG_SECRET ? 200 : 403 }}"
+        }
+      },
+      "id": "a1b2c3d4-0011-4a1a-9a1a-000000001105",
+      "name": "Responder al watchdog",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -1100,
+        4050
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook watchdog": {
+      "main": [
+        [
+          {
+            "node": "¿Secret válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Secret válido?": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Watchdog",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Responder al watchdog",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder al watchdog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true,
+  "pinData": null
+}

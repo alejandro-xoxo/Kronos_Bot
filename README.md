@@ -50,7 +50,7 @@ Arquitectura, retos técnicos, instalación y configuración están documentados
 | Versión | Estado | Qué es |
 |---|---|---|
 | **[v1](docs/versions/v1.md)** | ✅ MVP funcional, ejecución real verificada | Ciclo completo con confirmación humana: captura → parseo por regex → confirmación → ejecución real en MT4 → resultado. Arrancó el 10/08/2026. |
-| **[v2](docs/versions/v2.md)** | ✅ En producción real desde el 30/08/2026 | Auto-confirmación de señales con control de riesgo: tope de 1 operación simultánea + circuit breaker de ganancia diaria (≥7% corta la automatización hasta el día siguiente y cae a confirmación manual). Interpretación por Gemini de instrucciones de seguimiento conectada desde el 31/08/2026. |
+| **[v2](docs/versions/v2.md)** | ✅ En producción real desde el 30/08/2026 | Auto-confirmación de señales con control de riesgo: tope de 1 operación simultánea + circuit breaker de ganancia diaria (≥6% corta la automatización hasta el día siguiente y cae a confirmación manual). Interpretación por Gemini de instrucciones de seguimiento conectada desde el 31/08/2026. |
 
 Cada versión documenta su propia arquitectura, decisiones, retos técnicos, stack, instalación y roadmap — el README no repite ese detalle a propósito, para que quede versionado junto con el código al que corresponde.
 
