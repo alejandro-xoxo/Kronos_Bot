@@ -84,11 +84,35 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7BHAPu1rIT8bxv9u",
+          "id": "7LVMx0eYAvNwAFfQ",
           "name": "Postgres account"
         }
       },
       "notes": "Solo UPDATE — asume que ya existe al menos 1 fila en settings (mismo supuesto que 'Obtener capital real (settings)' en el workflow 04). No dispara ninguna notificación: es sync silencioso, cada 5s, sin costo real (UPDATE sobre 1 fila)."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO daily_pnl (date, capital_end_of_day)\nVALUES ((NOW() AT TIME ZONE 'America/Bogota')::date, $1)\nON CONFLICT (date) DO UPDATE SET capital_end_of_day = EXCLUDED.capital_end_of_day, updated_at = NOW();",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear capital_real').item.json.capital_real] }}"
+        }
+      },
+      "id": "a1b2c3d4-0009-4a1a-9a1a-000000000906",
+      "name": "Actualizar capital_end_of_day (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -600,
+        3150
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7LVMx0eYAvNwAFfQ",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Agregado 2026-08-31: snapshot diario del capital real total (bot + manual + credito) para que /api/registros reconstruya el grafico de Crecimiento sin depender solo de daily_pnl.profit_loss (que solo cuenta cierres via signals). UPSERT idempotente, corre cada 5s junto con el sync de settings.capital_real."
     }
   ],
   "connections": {
@@ -124,11 +148,22 @@
           }
         ]
       ]
+    },
+    "Actualizar capital_real (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "Actualizar capital_end_of_day (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1"
   },
-  "active": false,
-  "pinData": {}
+  "active": true,
+  "pinData": null
 }
