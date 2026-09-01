@@ -105,7 +105,9 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "89d91CRDt3j4Xxy1"
+  },
   "active": true,
   "pinData": {}
 }
