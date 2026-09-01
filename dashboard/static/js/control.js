@@ -201,6 +201,56 @@ var ControlPanel = (function () {
     } catch (err) { /* silencioso */ }
   }
 
+  async function loadCircuitBreaker() {
+    var input = document.getElementById('control-cb-input');
+    if (!input) return;
+    try {
+      var res = await fetch('api/circuit-breaker');
+      var data = await res.json();
+      input.value = (Number(data.circuit_breaker_pct) * 100).toFixed(1);
+    } catch (err) { /* silencioso, mismo criterio que loadConfig */ }
+  }
+
+  async function saveCircuitBreaker() {
+    var input = document.getElementById('control-cb-input');
+    var status = document.getElementById('control-cb-status');
+    var btn = document.getElementById('control-cb-save');
+    if (!input) return;
+
+    var pct = parseFloat(input.value);
+    if (isNaN(pct)) {
+      status.textContent = 'Ingresá un número válido.';
+      return;
+    }
+
+    btn.disabled = true;
+    status.textContent = 'Guardando...';
+    try {
+      var res = await fetch('api/circuit-breaker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ circuit_breaker_pct: pct / 100 }),
+      });
+      var data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error || 'Error.';
+      } else {
+        input.value = (Number(data.circuit_breaker_pct) * 100).toFixed(1);
+        status.textContent = 'Guardado.';
+      }
+    } catch (err) {
+      status.textContent = 'Error de red.';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function initCircuitBreaker() {
+    var btn = document.getElementById('control-cb-save');
+    if (!btn) return;
+    btn.addEventListener('click', saveCircuitBreaker);
+  }
+
   function initSegmented() {
     var wrap = document.getElementById('control-segmented');
     if (!wrap) return;
@@ -221,7 +271,9 @@ var ControlPanel = (function () {
 
   function init() {
     initSegmented();
+    initCircuitBreaker();
     loadConfig();
+    loadCircuitBreaker();
     loadPositions();
     startPolling();
   }

@@ -438,6 +438,19 @@ input[type=range]:focus{ box-shadow: none }
 .hint{ margin: 13px 0 0; font-size: 12px; color: var(--txt-mute); line-height: 1.6 }
 .empty{ margin: 0; padding: 26px 0; font-size: 13px; color: var(--txt-mute); text-align: center }
 
+.cb-row{ display: flex; align-items: center; gap: 8px; margin-top: 12px }
+.cb-row input[type="number"]{
+  width: 80px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--txt);
+  font-size: 14px;
+}
+.cb-row input[type="number"]:focus{ outline: none; border-color: var(--azul) }
+.cb-suffix{ color: var(--txt-mute); font-size: 13px }
+
 /* --------------------------------------------------------------------------
    Tablas
    -------------------------------------------------------------------------- */

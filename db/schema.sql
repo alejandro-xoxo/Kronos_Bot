@@ -168,12 +168,29 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- "Capital actual"/porcentaje de ganancia de PVG_kronos queda
 -- comparando unidades distintas (ancla sin crédito vs. capital en
 -- vivo con crédito) hasta que se corrija a mano.
+--
+-- circuit_breaker_pct (agregado 2026-09-01): umbral de ganancia
+-- diaria (fracción, ej. 0.06 = 6%) del circuit breaker de Fase 2
+-- (PROTOCOLOS_KRONOS_BOT.md sección 12.3) — antes hardcodeado como
+-- 0.06 en el nodo "¿Ganancia del día <6%?" de
+-- n8n-workflows/split-mvp|split-dev/02-señal-nueva-parseo-confirmado.json.
+-- Editable desde el panel de control del dashboard
+-- (GET/POST /api/circuit-breaker en dashboard/main.py). El nodo lee
+-- este valor con COALESCE(circuit_breaker_pct, 0.06) para que una
+-- base ya existente sin el UPDATE inicial siga operando con el 6%
+-- de siempre.
+-- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar la
+-- columna a mano con:
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS circuit_breaker_pct REAL;
+--   UPDATE settings SET circuit_breaker_pct = 0.06
+--   WHERE id = (SELECT id FROM settings ORDER BY id DESC LIMIT 1);
 CREATE TABLE IF NOT EXISTS settings (
     id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
     day_start_capital     REAL,
     day_start_date        DATE,
     capital_inicial_plan   REAL,
+    circuit_breaker_pct    REAL,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
