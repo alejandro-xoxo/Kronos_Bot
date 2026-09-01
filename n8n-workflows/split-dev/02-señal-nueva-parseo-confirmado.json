@@ -196,7 +196,10 @@
           "name": "Telegram account"
         }
       },
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -271,7 +274,10 @@
           "name": "Telegram account"
         }
       },
-      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo). callback_data ahora referencia $('Insertar señal (Postgres)').item.json.id en vez de $json.id, porque este nodo ya no recibe directo la salida del INSERT (se intercaló el chequeo de ganancia diaria y el conteo de operaciones abiertas para la rama de auto-confirmación). Recibe items desde DOS ramas manuales distintas: ganancia del día ≥6% (circuit breaker) o ya hay 2 operaciones OPEN — en ambos casos cae a confirmación manual normal."
+      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo). callback_data ahora referencia $('Insertar señal (Postgres)').item.json.id en vez de $json.id, porque este nodo ya no recibe directo la salida del INSERT (se intercaló el chequeo de ganancia diaria y el conteo de operaciones abiertas para la rama de auto-confirmación). Recibe items desde DOS ramas manuales distintas: ganancia del día ≥6% (circuit breaker) o ya hay 2 operaciones OPEN — en ambos casos cae a confirmación manual normal.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     }
   ],
   "connections": {

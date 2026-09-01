@@ -307,7 +307,10 @@
           "id": "W4XHaBNANAtKf4Ih",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -330,7 +333,10 @@
           "id": "W4XHaBNANAtKf4Ih",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -376,7 +382,10 @@
           "name": "Telegram account"
         }
       },
-      "notes": "Texto exacto de PROTOCOLOS_KRONOS_BOT.md sección 4.4 para el caso de fallo de Gemini tras el reintento."
+      "notes": "Texto exacto de PROTOCOLOS_KRONOS_BOT.md sección 4.4 para el caso de fallo de Gemini tras el reintento.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     }
   ],
   "connections": {

@@ -208,7 +208,10 @@
           "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -230,7 +233,10 @@
           "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -254,7 +260,10 @@
           "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -278,7 +287,10 @@
           "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -300,7 +312,10 @@
           "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -322,7 +337,10 @@
           "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {

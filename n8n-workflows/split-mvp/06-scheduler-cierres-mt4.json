@@ -145,7 +145,10 @@
           "name": "Telegram account"
         }
       },
-      "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
+      "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -160,6 +163,124 @@
         3700
       ],
       "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml (ya habilitado para 'Borrar archivo de resultado')."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-fue-tp",
+              "leftValue": "={{ $('Parsear cierre (MT4)').item.json.reason }}",
+              "rightValue": "TP_REACHED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9f8e7d6c-0006-4b2b-8b2b-00000000cc01",
+      "name": "¿Fue TP alcanzado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1350,
+        3700
+      ],
+      "notes": "Solo TP_REACHED cancela sub-señales hermanas (decisión explícita del usuario, 2026-09-01): si el TP de una sub-señal ya se cumplió, no tiene sentido dejar hermanas pendientes de confirmación esperando el mismo instrumento/entrada/SL. SL_REACHED y CLOSED_MANUAL NO cancelan hermanas — el protocolo (sección 4.2 regla 6) sigue tratándolas como independientes en esos casos."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH target AS (\n  SELECT message_id FROM signals WHERE signal_uid = $1\n),\ncancelled AS (\n  UPDATE signals s SET status = 'CANCELLED_SIBLING_TP', updated_at = NOW()\n  FROM target t\n  WHERE s.message_id = t.message_id\n    AND s.signal_uid != $1\n    AND s.status IN ('PENDING_CONFIRMATION', 'CONFIRMED')\n  RETURNING s.signal_uid\n)\nSELECT COALESCE(json_agg(signal_uid), '[]') AS cancelled_uids, COUNT(*) AS cancelled_count FROM cancelled;",
+        "options": {
+          "queryReplacement": "={{ [$('Parsear cierre (MT4)').item.json.signal_uid] }}"
+        }
+      },
+      "id": "9f8e7d6c-0006-4b2b-8b2b-00000000cc02",
+      "name": "Cancelar sub-señales hermanas (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1100,
+        3700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Cancela solo hermanas que TODAVÍA no llegaron a OPEN (PENDING_CONFIRMATION o CONFIRMED sin ejecutar) — una hermana ya OPEN sigue su propio ciclo de vida normal, no se toca. Nuevo status CANCELLED_SIBLING_TP (db/schema.sql) para distinguirlo de REJECTED_BY_USER (rechazo manual)."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-hubo-canceladas",
+              "leftValue": "={{ Number($json.cancelled_count) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9f8e7d6c-0006-4b2b-8b2b-00000000cc03",
+      "name": "¿Se canceló alguna hermana?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -850,
+        3700
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🔗 TP alcanzado en <b>{{ $('Parsear cierre (MT4)').item.json.signal_uid }}</b> — se cancelaron automáticamente las sub-señales hermanas que todavía no se habían ejecutado: <b>{{ $json.cancelled_uids.join(', ') }}</b>",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "9f8e7d6c-0006-4b2b-8b2b-00000000cc04",
+      "name": "Avisar en chat: Hermanas canceladas",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        3700
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     }
   ],
   "connections": {
@@ -214,6 +335,11 @@
             "node": "Avisar en chat: Cierre TP/SL",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "¿Fue TP alcanzado?",
+            "type": "main",
+            "index": 0
           }
         ],
         [
@@ -230,6 +356,39 @@
         [
           {
             "node": "Borrar archivo de cierre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Fue TP alcanzado?": {
+      "main": [
+        [
+          {
+            "node": "Cancelar sub-señales hermanas (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelar sub-señales hermanas (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "¿Se canceló alguna hermana?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se canceló alguna hermana?": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Hermanas canceladas",
             "type": "main",
             "index": 0
           }

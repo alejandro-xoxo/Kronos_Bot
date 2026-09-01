@@ -308,7 +308,10 @@
           "name": "Telegram account"
         }
       },
-      "webhookId": "396e420a-d14e-40d7-baaa-59ab2429a54b"
+      "webhookId": "396e420a-d14e-40d7-baaa-59ab2429a54b",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -332,7 +335,10 @@
           "name": "Telegram account"
         }
       },
-      "webhookId": "e12ba3ab-52b9-43be-924d-5f82931d3fa1"
+      "webhookId": "e12ba3ab-52b9-43be-924d-5f82931d3fa1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -379,7 +385,10 @@
         }
       },
       "notes": "Texto exacto de PROTOCOLOS_KRONOS_BOT.md sección 4.4 para el caso de fallo de Gemini tras el reintento.",
-      "webhookId": "051fea50-6e70-4e44-912c-b3fcac82794c"
+      "webhookId": "051fea50-6e70-4e44-912c-b3fcac82794c",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     }
   ],
   "connections": {

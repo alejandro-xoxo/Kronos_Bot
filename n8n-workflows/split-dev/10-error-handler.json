@@ -1,0 +1,78 @@
+{
+  "name": "Kronos 10 - Error Handler (dev)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 10. Error Handler\nWorkflow de error global (n8n Settings > Workflow Settings > Error Workflow, en cada uno de los 9 workflows de Kronos) — se dispara automáticamente cuando cualquiera de ellos falla en producción, sin importar el nodo. Antes de esto, un bug como el de '¿Señal válida?' (nodo inexistente en el workflow 07) podía estar rompiendo cada ejecución durante horas sin que nadie se enterara — la única señal era el usuario notando que nada se ejecutaba.",
+        "height": 220,
+        "width": 700,
+        "color": 3
+      },
+      "id": "a1b2c3d4-0010-4a1a-9a1a-000000001001",
+      "name": "Nota: 10. Error Handler",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1600,
+        3400
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-0010-4a1a-9a1a-000000001002",
+      "name": "Trigger: workflow falló",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1600,
+        3550
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🚨 <b>Falló un workflow de Kronos</b>\n\n📋 Workflow: <b>{{ $json.workflow.name }}</b>\n🧩 Nodo: <b>{{ $json.execution.error.node ? $json.execution.error.node.name : 'desconocido' }}</b>\n💬 Error: {{ $json.execution.error.message || $json.execution.error.description || 'sin mensaje' }}\n🆔 Ejecución: {{ $json.execution.id }}",
+        "replyMarkup": "none",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "a1b2c3d4-0010-4a1a-9a1a-000000001003",
+      "name": "Avisar en chat: Workflow falló (dev)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1350,
+        3550
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "Ic6A007NlBaY2ucv",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Deliberadamente SIN onError/retryOnFail: si el aviso de error falla, no hay a dónde escalar más — el mensaje simplemente no llega, igual que antes de este workflow existir."
+    }
+  ],
+  "connections": {
+    "Trigger: workflow falló": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Workflow falló (dev)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true,
+  "pinData": null
+}
