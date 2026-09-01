@@ -52,7 +52,15 @@ echo
 
 # --- 1. Contenedores levantados -------------------------------------------
 echo "-- Contenedores --"
-EXPECTED_SERVICES=(n8n postgres telethon dashboard caddy)
+# Telethon solo existe en producción — dev captura señales con un
+# Telegram Trigger normal (el usuario es admin del grupo de pruebas),
+# no con la cuenta de usuario vía Telethon (ver DEV_SETUP.md sección 5
+# y la regla de "nodos de entrada nunca se sincronizan" en CLAUDE.md).
+if [[ "$MODE" == "dev" ]]; then
+  EXPECTED_SERVICES=(n8n postgres dashboard caddy)
+else
+  EXPECTED_SERVICES=(n8n postgres telethon dashboard caddy)
+fi
 for svc in "${EXPECTED_SERVICES[@]}"; do
   cid="$(docker compose $( [[ "$MODE" == "dev" ]] && echo "-f docker-compose.dev.yml" ) ps -q "$svc" 2>/dev/null)"
   if [[ -z "$cid" ]]; then
@@ -157,8 +165,9 @@ echo
 # --- 5. Telethon — sigue corriendo y escuchando (solo logs, no manda ------
 #        nada) --------------------------------------------------------------
 echo "-- Telethon --"
-TEL_CID="$(docker compose $( [[ "$MODE" == "dev" ]] && echo "-f docker-compose.dev.yml" ) ps -q telethon 2>/dev/null)"
-if [[ -z "$TEL_CID" ]]; then
+if [[ "$MODE" == "dev" ]]; then
+  echo "  (no aplica en dev — captura por Telegram Trigger, no Telethon)"
+elif TEL_CID="$(docker compose ps -q telethon 2>/dev/null)" && [[ -z "$TEL_CID" ]]; then
   fail "telethon: contenedor no encontrado"
 else
   recent_errors="$(docker logs "$TEL_CID" --since 30m 2>&1 | grep -ci "error\|traceback" || true)"

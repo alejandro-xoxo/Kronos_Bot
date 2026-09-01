@@ -79,7 +79,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status,\n  (SELECT (SELECT COUNT(DISTINCT s2.message_id) FROM signals s2 WHERE s2.signal_timestamp::date = s.signal_timestamp::date AND s2.message_id <= s.message_id)::text || split_part(s.signal_uid, '-', 2) FROM signals s WHERE s.id = $1) AS daily_label;",
         "options": {
           "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
         }
@@ -102,7 +102,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH updated AS (\n  UPDATE signals SET status = 'REJECTED_BY_USER', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status;",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'REJECTED_BY_USER', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT\n  (SELECT COUNT(*) FROM updated) AS updated_count,\n  (SELECT status FROM signals WHERE id = $1) AS current_status,\n  (SELECT (SELECT COUNT(DISTINCT s2.message_id) FROM signals s2 WHERE s2.signal_timestamp::date = s.signal_timestamp::date AND s2.message_id <= s.message_id)::text || split_part(s.signal_uid, '-', 2) FROM signals s WHERE s.id = $1) AS daily_label;",
         "options": {
           "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
         }
@@ -241,9 +241,9 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-        "text": "=✅ Señal #{{ $('Parsear callback').item.json.signalId }} confirmada. Se procederá con la ejecución.",
+        "text": "=<tg-emoji emoji-id=\"5213287958798410406\">✅</tg-emoji> <b>Señal confirmada</b>\n\nSeñal <b>{{ $json.daily_label }}</b>\n\n<i>Se procederá con la ejecución.</i>",
         "additionalFields": {
-          "parse_mode": "none"
+          "parse_mode": "HTML"
         }
       },
       "id": "1a1b1c1d-0012-4a1a-8a1a-000000000012",
@@ -268,9 +268,9 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-        "text": "=❌ Señal #{{ $('Parsear callback').item.json.signalId }} rechazada. No se ejecutará.",
+        "text": "=<tg-emoji emoji-id=\"5980953710157632545\">❌</tg-emoji> <b>Señal rechazada</b>\n\nSeñal <b>{{ $json.daily_label }}</b>\n\n<i>No se ejecutará.</i>",
         "additionalFields": {
-          "parse_mode": "none"
+          "parse_mode": "HTML"
         }
       },
       "id": "1a1b1c1d-0013-4a1a-8a1a-000000000013",
@@ -347,7 +347,7 @@
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "",
+          "value": "cIuuUkKc49hSE2Dc",
           "mode": "list",
           "cachedResultName": "Kronos Dev 04 - Ejecución en MT4"
         },
@@ -498,6 +498,6 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "active": false,
+  "active": true,
   "pinData": {}
 }

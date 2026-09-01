@@ -35,7 +35,7 @@
         "operation": "executeQuery",
         "query": "SELECT id, signal_uid, instrument, direction, execution_type, entry_price, sl, tp FROM signals WHERE id = $1;",
         "options": {
-          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+          "queryReplacement": "={{ [$json.signalId] }}"
         }
       },
       "id": "3c3d3e3f-0001-4a1a-8a1a-000000000031",
