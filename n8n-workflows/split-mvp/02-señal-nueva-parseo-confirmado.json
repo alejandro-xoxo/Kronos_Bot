@@ -33,7 +33,7 @@
       "notesInFlow": true,
       "credentials": {
         "postgres": {
-          "id": "7BHAPu1rIT8bxv9u",
+          "id": "7LVMx0eYAvNwAFfQ",
           "name": "Postgres account"
         }
       },
@@ -42,7 +42,7 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-        "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Parsear señal (regex)').item.json.instrument }}\nDirección: {{ $('Parsear señal (regex)').item.json.direction }}\nTipo: {{ $('Parsear señal (regex)').item.json.execution_type }}\nEntrada: {{ $('Parsear señal (regex)').item.json.entry_price }}\nTP: {{ $('Parsear señal (regex)').item.json.tp }}\nSL: {{ $('Parsear señal (regex)').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
+        "text": "=🆕 <b>Nueva señal detectada</b>\n\n📌 Instrumento: <b>{{ $('Recibido de otro workflow').item.json.instrument }}</b>\n📈 Dirección: <b>{{ $('Recibido de otro workflow').item.json.direction }}</b>\n⚙️ Tipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\n🎯 Entrada: <b>{{ $('Recibido de otro workflow').item.json.entry_price }}</b>\n✅ TP: <b>{{ $('Recibido de otro workflow').item.json.tp }}</b>\n🛑 SL: <b>{{ $('Recibido de otro workflow').item.json.sl }}</b>\n\n⏳ Estado: <i>pendiente de confirmación</i>\n🔍 Interpretado por: regex",
         "replyMarkup": "inlineKeyboard",
         "inlineKeyboard": {
           "rows": [
@@ -68,7 +68,7 @@
         },
         "additionalFields": {
           "appendAttribution": false,
-          "parse_mode": "none"
+          "parse_mode": "HTML"
         }
       },
       "id": "d6926da1-b0d0-4ba8-93ce-e268cbdb0e6f",
@@ -83,11 +83,207 @@
       "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
       "credentials": {
         "telegramApi": {
-          "id": "W4XHaBNANAtKf4Ih",
+          "id": "mbd7KXzuERWzRPII",
           "name": "Telegram account"
         }
       },
       "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = (NOW() AT TIME ZONE 'America/Bogota')::date\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM (NOW() AT TIME ZONE 'America/Bogota')::date)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
+      },
+      "id": "b2c3d4e5-6f70-4a81-9b0c-1d2e3f4a5b6c",
+      "name": "Chequear ganancia del día (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1450,
+        -220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7LVMx0eYAvNwAFfQ",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Fase 2 (PROTOCOLOS_KRONOS_BOT.md sección 12.3) — circuit breaker diario. day_start_capital/day_start_date se resetean automáticamente cuando cambia la fecha (nuevo día = nueva base 0%)."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-daily-gain-limit",
+              "leftValue": "={{ Number($json.day_start_capital) > 0 ? (Number($json.capital_real) - Number($json.day_start_capital)) / Number($json.day_start_capital) : 0 }}",
+              "rightValue": 0.06,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c3d4e5f6-7081-4a92-9c1d-2e3f4a5b6c7d",
+      "name": "¿Ganancia del día <6%?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1350,
+        -220
+      ],
+      "notes": "Circuit breaker Fase 2: si la cuenta ya subió ≥6% respecto al capital del inicio del día, no se auto-confirma nada más hasta el día siguiente — cae a la rama manual (botones Confirmar/Rechazar)."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*)::int AS open_count FROM signals WHERE status = 'OPEN';"
+      },
+      "id": "c1a2b3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Contar operaciones abiertas (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1150,
+        -320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7LVMx0eYAvNwAFfQ",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Fase 2 — cuenta cuántas señales están OPEN ahora mismo para decidir si hay lugar para auto-confirmar la nueva."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-auto-confirm-limit",
+              "leftValue": "={{ Number($json.open_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d2b3c4e5-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+      "name": "¿Hay lugar para auto-confirmar? (<1 OPEN)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        -320
+      ],
+      "notes": "Fase 2, regla oficial (PROTOCOLOS_KRONOS_BOT.md sección 12.3): tope de 1 operación OPEN simultánea, usando el lote completo disponible. Si ya hay 1 o más, cae a la rama manual de siempre."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET status = 'CONFIRMED', updated_at = NOW()\n  WHERE id = $1 AND status = 'PENDING_CONFIRMATION'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count;",
+        "options": {
+          "queryReplacement": "={{ [$('Insertar señal (Postgres)').item.json.id] }}"
+        }
+      },
+      "id": "e3c4d5f6-7a8b-4c9d-0e1f-2a3b4c5d6e7f",
+      "name": "Auto-confirmar: CONFIRMED (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1150,
+        -220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7LVMx0eYAvNwAFfQ",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Mismo patrón idempotente WHERE status='PENDING_CONFIRMATION' que usa el flujo manual (workflow 03) — no reprocesa si por alguna carrera la señal ya cambió de estado."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🤖 <b>Señal auto-confirmada</b> ({{ $('Contar operaciones abiertas (Postgres)').item.json.open_count }}/1 operaciones abiertas)\n\n📌 Instrumento: <b>{{ $('Recibido de otro workflow').item.json.instrument }}</b>\n📈 Dirección: <b>{{ $('Recibido de otro workflow').item.json.direction }}</b>\n⚙️ Tipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\n🎯 Entrada: <b>{{ $('Recibido de otro workflow').item.json.entry_price }}</b>\n✅ TP: <b>{{ $('Recibido de otro workflow').item.json.tp }}</b>\n🛑 SL: <b>{{ $('Recibido de otro workflow').item.json.sl }}</b>\n\n⚡ <i>Se ejecuta sin esperar confirmación manual.</i>",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "f4d5e6a7-8b9c-4d0e-1f2a-3b4c5d6e7f8a",
+      "name": "Avisar en chat: Auto-confirmada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        -220
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "mbd7KXzuERWzRPII",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "e24bd77e-556b-4c70-b3d6-ee8dce0a136c"
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "8KIJztUvYzj2FhCr",
+          "mode": "list",
+          "cachedResultName": "Kronos 04 - Ejecución en MT4"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "a5e6f7b8-9c0d-4e1f-2a3b-4c5d6e7f8a9b",
+      "name": "Ejecutar: Kronos 04 - Ejecución en MT4 (auto)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -650,
+        -220
+      ],
+      "notes": "Mismo patrón fire-and-forget que usa el workflow 03 para la confirmación manual."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fix 2026-08-31: el trigger de workflow 04 (Recibido de otro workflow)\n// necesita el campo \"id\" del signal en el item que recibe (inputSource:\n// passthrough). Antes de este nodo, el item que llegaba era la respuesta\n// de la API de Telegram (sin id de la señal) -> Obtener señal confirmada\n// no encontraba nada y la orden nunca se escribía en mt4-bridge/orders/pending/.\nreturn [{ json: { id: $('Insertar señal (Postgres)').item.json.id } }];"
+      },
+      "id": "33476ffb-da65-48ea-95c2-615a49249c3b",
+      "name": "Preparar id para ejecución (auto)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        -220
+      ]
     }
   ],
   "connections": {
@@ -95,7 +291,7 @@
       "main": [
         [
           {
-            "node": "Notificar Telegram",
+            "node": "Chequear ganancia del día (Postgres)",
             "type": "main",
             "index": 0
           }
@@ -112,11 +308,102 @@
           }
         ]
       ]
+    },
+    "Chequear ganancia del día (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "¿Ganancia del día <6%?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contar operaciones abiertas (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "¿Hay lugar para auto-confirmar? (<1 OPEN)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay lugar para auto-confirmar? (<1 OPEN)": {
+      "main": [
+        [
+          {
+            "node": "Auto-confirmar: CONFIRMED (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notificar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-confirmar: CONFIRMED (Postgres)": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Auto-confirmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar en chat: Auto-confirmada": {
+      "main": [
+        [
+          {
+            "node": "Preparar id para ejecución (auto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Ganancia del día <6%?": {
+      "main": [
+        [
+          {
+            "node": "Contar operaciones abiertas (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notificar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar id para ejecución (auto)": {
+      "main": [
+        [
+          {
+            "node": "Ejecutar: Kronos 04 - Ejecución en MT4 (auto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1"
   },
-  "active": false,
+  "active": true,
   "pinData": {}
 }
