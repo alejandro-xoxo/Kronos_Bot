@@ -1,0 +1,163 @@
+{
+  "name": "Kronos Dev 09 - Sync capital_real",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 9. Sync capital_real (cada 5s)\nLee orders/status.json (que el EA reescribe en cada ciclo) y actualiza settings.capital_real — hueco pendiente desde STATUS.md punto 17: el EA reporta el balance real pero nada lo escribía en Postgres.",
+        "height": 200,
+        "width": 700,
+        "color": 5
+      },
+      "id": "a1b2c3d4-0009-4a1a-9a1a-000000000901",
+      "name": "Nota: 9. Sync capital_real",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1600,
+        3000
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0009-4a1a-9a1a-000000000902",
+      "name": "Trigger: sync capital_real",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1600,
+        3150
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $env.MT4_ORDERS_DIR }}/status.json",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0009-4a1a-9a1a-000000000903",
+      "name": "Leer estado de cuenta (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -1350,
+        3150
+      ],
+      "notes": "A diferencia de results/*.json (Etapa 5), este archivo NO se borra — el EA lo reescribe en cada ciclo de WritePositionsStatus(). Si no existe todavía (EA nunca corrió), el nodo devuelve 0 items y el ciclo simplemente no hace nada."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — sync de settings.capital_real y daily_pnl.capital_end_of_day\n// (STATUS.md punto 17; revertido 2026-08-31: el crédito del bróker\n// cuenta como capital real, no se excluye — decisión explícita del\n// usuario, misma sesión que fijó capital_real = AccountBalance() +\n// AccountCredit() el 2026-08-28. La versión anterior de este nodo\n// guardaba capital_end_of_day SIN crédito (account.balance puro) para\n// no mezclar unidades con capital_inicial_plan; en vez de eso ahora se\n// actualizó capital_inicial_plan a la misma unidad con crédito (ver\n// nota de despliegue en db/schema.sql) y se usa capital_real en ambos\n// lados. Mismo patrón filesystem-v2 que el resto de nodos\n// readWriteFile de este proyecto (getBinaryDataBuffer, no\n// item.binary.data.data en base64).\nconst items = $input.all();\nif (items.length === 0) return [];\n\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst parsed = JSON.parse(buffer.toString('utf-8'));\nconst account = parsed && parsed.account ? parsed.account : {};\nconst capitalReal = Number(account.capital_real);\n\nif (!isFinite(capitalReal)) return [];\n\nreturn [{ json: { capital_real: capitalReal } }];\n"
+      },
+      "id": "a1b2c3d4-0009-4a1a-9a1a-000000000904",
+      "name": "Parsear capital_real",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1100,
+        3150
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE settings SET capital_real = $1, updated_at = NOW()\nWHERE id = (SELECT id FROM settings ORDER BY id DESC LIMIT 1);",
+        "options": {
+          "queryReplacement": "={{ [$json.capital_real] }}"
+        }
+      },
+      "id": "a1b2c3d4-0009-4a1a-9a1a-000000000905",
+      "name": "Actualizar capital_real (Postgres)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -850,
+        3150
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Solo UPDATE de settings.capital_real — asume que ya existe al menos 1 fila en settings (mismo supuesto que 'Obtener capital real (settings)' en el workflow 04). No dispara ninguna notificación: es sync silencioso, cada 5s, sin costo real (UPDATE sobre 1 fila). El capital_end_of_day de daily_pnl (sin crédito, ver nota del nodo 'Parsear capital_real') se actualiza en el nodo siguiente, en paralelo."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO daily_pnl (date, capital_end_of_day, updated_at)\nVALUES ((NOW() AT TIME ZONE 'America/Bogota')::date, $1, NOW())\nON CONFLICT (date) DO UPDATE SET\n    capital_end_of_day = EXCLUDED.capital_end_of_day,\n    updated_at = NOW()\nWHERE $1 IS NOT NULL;",
+        "options": {
+          "queryReplacement": "={{ [$json.capital_real] }}"
+        }
+      },
+      "id": "a1b2c3d4-0009-4a1a-9a1a-000000000906",
+      "name": "Actualizar capital_end_of_day (daily_pnl)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -850,
+        3300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Guarda capital_end_of_day CON crédito (capital_real, igual al valor que se escribe en settings.capital_real en el nodo hermano) — decisión explícita del usuario 2026-08-31: el crédito cuenta como capital real. capital_inicial_plan (settings) se actualizó a la misma unidad para que sigan siendo comparables. El WHERE $1 IS NOT NULL hace que el UPSERT sea no-op si status.json no trae account.capital_real por algún motivo — no pisa un valor bueno con NULL. Fecha calculada con (NOW() AT TIME ZONE 'America/Bogota')::date en vez de CURRENT_DATE (bug real detectado 2026-09-01: el contenedor de Postgres corre en UTC, así que CURRENT_DATE saltaba al día siguiente 5 horas antes de medianoche en Colombia — una ganancia de hoy quedaba registrada como si fuera de mañana)."
+    }
+  ],
+  "connections": {
+    "Trigger: sync capital_real": {
+      "main": [
+        [
+          {
+            "node": "Leer estado de cuenta (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer estado de cuenta (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Parsear capital_real",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear capital_real": {
+      "main": [
+        [
+          {
+            "node": "Actualizar capital_real (Postgres)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Actualizar capital_end_of_day (daily_pnl)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}
