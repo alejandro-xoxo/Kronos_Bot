@@ -7,6 +7,16 @@
 > contexto general y reglas de trabajo, `CLAUDE.md`; para el detalle de
 > alcance de v1 (qué incluye y qué queda afuera a propósito),
 > `docs/versions/v1.md`.
+>
+> **Actualización 2026-09-01 — ver `docs/versions/v2.md` sección "v2.6
+> — Día de endurecimiento"** para el detalle completo de la sesión más
+> reciente: 8 bugs reales de producción encontrados y corregidos
+> (varios silenciosos), Error Handler + Watchdog por Telegram + backup
+> diario de Postgres + `scripts/healthcheck.sh` agregados, circuit
+> breaker editable desde el panel (`v2.5`) mergeado, y sincronización
+> de `main`/`Kronos_Bot-prod`/`split-dev` con lo que realmente corre en
+> cada instancia. Pendiente: recompilar el EA en MetaEditor (el fix ya
+> está en el `.mq4`, falta el `.ex4`).
 
 ## Experimento de auto-confirmación con límite y lotaje sobre capital total (2026-08-28)
 
