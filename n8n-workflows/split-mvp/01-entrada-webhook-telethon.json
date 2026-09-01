@@ -1,315 +1,315 @@
 {
- "name": "Kronos 01 - Entrada (Webhook Telethon)",
- "nodes": [
-  {
-   "parameters": {
-    "content": "## 1. Captura y parseo de señales nuevas\nWebhook Telethon -> valida secreto -> parsea con regex -> inserta en Postgres -> notifica por Telegram.",
-    "height": 420,
-    "width": 1700,
-    "color": 4
-   },
-   "id": "685ad544-da77-4351-882c-404682051120",
-   "name": "Nota: 1. Captura y parseo",
-   "type": "n8n-nodes-base.stickyNote",
-   "typeVersion": 1,
-   "position": [
-    -2680,
-    -260
-   ]
-  },
-  {
-   "parameters": {
-    "httpMethod": "POST",
-    "path": "kronos-telethon-signal",
-    "options": {
-     "responseData": "{\"status\":\"received\"}"
-    }
-   },
-   "id": "f7d71ece-930a-4342-a823-d025309d9e90",
-   "name": "Webhook Telethon",
-   "type": "n8n-nodes-base.webhook",
-   "typeVersion": 2,
-   "position": [
-    -2600,
-    0
-   ],
-   "webhookId": "kronos-telethon-signal"
-  },
-  {
-   "parameters": {
-    "conditions": {
-     "options": {
-      "caseSensitive": true,
-      "leftValue": "",
-      "typeValidation": "strict",
-      "version": 1
-     },
-     "conditions": [
-      {
-       "id": "secret-check",
-       "leftValue": "={{ $json.headers['x-kronos-secret'] }}",
-       "rightValue": "={{ $env.KRONOS_WEBHOOK_SECRET }}",
-       "operator": {
-        "type": "string",
-        "operation": "equals"
-       }
-      }
-     ],
-     "combinator": "and"
-    },
-    "options": {}
-   },
-   "id": "ab5942a9-bc5f-4904-8231-10dda967902a",
-   "name": "¿Secreto de webhook válido?",
-   "type": "n8n-nodes-base.if",
-   "typeVersion": 2,
-   "position": [
-    -2350,
-    0
-   ],
-   "notes": "Rechaza silenciosamente (sin bajar por la rama false) cualquier POST al webhook que no traiga el header X-Kronos-Secret correcto — evita que alguien que descubra la URL pública inyecte señales falsas. El webhook igual responde 'received' al instante (responseMode oculta la validación)."
-  },
-  {
-   "parameters": {
-    "jsCode": "// Kronos Bot — Nodo Function (n8n): parser regex de señales nuevas\n// Fuente de reglas: PROTOCOLOS_KRONOS_BOT.md (secciones 4.1, 4.2, 4.3)\n//\n// Entrada esperada: el nodo Webhook de n8n anida el payload real\n// dentro de un campo \"body\" (item.json.body.text, item.json.body.\n// timestamp, etc.), no en el nivel raíz de item.json. Por eso se lee\n// todo desde `body` en vez de `payload` directo — de lo contrario\n// ningún mensaje matchea nunca (bug real detectado en producción).\n// Campos esperados dentro de body: message_id, chat_id, sender,\n// text, timestamp, reply_to_message_id\n//\n// Este nodo SOLO detecta y parsea señales nuevas de formato fijo.\n// No calcula lotaje, no inserta en la base de datos, no envía\n// notificaciones — eso lo hacen otros nodos del workflow.\n\nconst MAX_AGE_MINUTES = 5;\n// Sin tope de sub-señales (protocolo sección 4.2 regla 6, actualizada):\n// se genera una sub-señal por cada TP que traiga el mensaje, sin límite.\nfunction subSignalSuffix(index) {\n  // A, B, C... Z, AA, AB... para no depender de un array fijo de 26.\n  let n = index, s = '';\n  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);\n  return s;\n}\n\n// Formato fijo esperado:\n//   INSTRUMENTO BUY|SELL [LIMIT] PRECIO TP VALOR [TP VALOR ...] SL VALOR\n// El label \"TP\" se repite una vez por cada take profit, sin número pegado\n// (no existe \"TP1\"/\"TP2\" en los mensajes reales del grupo). Puede venir\n// en una sola línea o con saltos de línea entre campos — el código\n// colapsa los saltos de línea en espacios antes de aplicar el regex.\n// Ejemplos reales:\n//   \"XAUUSD BUY 4372  TP 4376  SL 4347\"\n//   \"XAUUSD SELL 4388\\nTP 4386\\nTP 4385\\nTP 4380\\nTP 4370\\nSL 4414\"\n// Sin ancla $ al final: los mensajes reales a veces traen texto\n// adicional después del SL (emojis, comentarios). \\b asegura que el\n// valor de SL termine en límite de palabra, sin exigir fin de string.\nconst SIGNAL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+(\\d+(?:\\.\\d+)?))?(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\s+SL:?\\s+(\\d+(?:\\.\\d+)?)\\b/i;\n\n// Regex secundario: mismo formato pero sin exigir SL. Se usa solo para\n// distinguir \"señal con SL faltante\" (sección 4.2 regla 5 — no se\n// inventa el SL, la señal no se ejecuta hasta tenerlo) de un mensaje\n// que directamente no es una señal nueva.\nconst SIGNAL_WITHOUT_SL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\b/i;\n\n// Extrae TODOS los TP presentes en el texto, en orden de aparición.\n// Cada uno genera su propia sub-señal, sin tope (protocolo sección\n// 4.2 regla 6, actualizada).\nconst TP_GLOBAL_REGEX = /TP:?\\s+(\\d+(?:\\.\\d+)?)/gi;\n\nfunction parseTimestamp(rawTimestamp) {\n  if (typeof rawTimestamp === 'number') {\n    // Segundos unix -> ms si el valor es demasiado pequeño para ser ms\n    return new Date(rawTimestamp < 1e12 ? rawTimestamp * 1000 : rawTimestamp);\n  }\n  return new Date(rawTimestamp);\n}\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  // El Webhook de n8n envuelve el payload real en `body`.\n  const body = item.json.body || item.json;\n  const rawText = (body.text || '').trim().replace(/\\s+/g, ' ');\n\n  const match = rawText.match(SIGNAL_REGEX);\n\n  if (!match) {\n    // No coincide con el formato completo de señal nueva. Puede ser\n    // una instrucción de seguimiento, un mensaje no relacionado, o\n    // una señal real con el SL faltante — se distinguen para no\n    // perder de vista este último caso (protocolo sección 4.2 regla 5).\n    const partialMatch = rawText.match(SIGNAL_WITHOUT_SL_REGEX);\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: partialMatch ? 'MISSING_SL' : 'NO_MATCH_FIXED_FORMAT',\n      },\n    });\n    continue;\n  }\n\n  const [, instrument, direction, limitFlag, entryPrice, , , sl] = match;\n\n  const signalDate = parseTimestamp(body.timestamp);\n  if (isNaN(signalDate.getTime())) {\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: 'INVALID_TIMESTAMP',\n      },\n    });\n    continue;\n  }\n\n  const ageMinutes = (Date.now() - signalDate.getTime()) / 60000;\n\n  if (ageMinutes > MAX_AGE_MINUTES) {\n    // Regla de antigüedad (sección 4.3): binaria, sin excepciones.\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'EXPIRED',\n        interpreted_by: 'REGEX',\n      },\n    });\n    continue;\n  }\n\n  // Una sub-señal independiente por cada TP del mensaje, sin tope\n  // (protocolo sección 4.2 regla 6, actualizada). Comparten todo\n  // excepto el TP y el signal_uid.\n  const tpValues = [...rawText.matchAll(TP_GLOBAL_REGEX)]\n    .map((m) => parseFloat(m[1]));\n\n  for (let i = 0; i < tpValues.length; i++) {\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'PENDING_CONFIRMATION',\n        interpreted_by: 'REGEX',\n        signal_uid: `${body.message_id}-${subSignalSuffix(i)}`,\n        instrument: instrument.toUpperCase(),\n        direction: direction.toUpperCase(),\n        execution_type: limitFlag ? 'LIMIT' : 'MARKET',\n        entry_price: parseFloat(entryPrice),\n        tp: tpValues[i], // TP propio de esta sub-señal\n        sl: parseFloat(sl),\n        raw_text: rawText,\n      },\n    });\n  }\n}\n\nreturn results;"
-   },
-   "id": "f27bd27e-dee9-43ec-a430-7feeab94b31e",
-   "name": "Parsear señal (regex)",
-   "type": "n8n-nodes-base.code",
-   "typeVersion": 2,
-   "position": [
-    -2100,
-    0
-   ]
-  },
-  {
-   "parameters": {
-    "conditions": {
-     "options": {
-      "caseSensitive": true,
-      "leftValue": "",
-      "typeValidation": "strict",
-      "version": 1
-     },
-     "conditions": [
-      {
-       "id": "c1",
-       "leftValue": "={{ $json.matched }}",
-       "rightValue": true,
-       "operator": {
-        "type": "boolean",
-        "operation": "true",
-        "singleValue": true
-       }
+  "name": "Kronos 01 - Entrada (Webhook Telethon)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 1. Captura y parseo de señales nuevas\nWebhook Telethon -> valida secreto -> parsea con regex -> inserta en Postgres -> notifica por Telegram.",
+        "height": 420,
+        "width": 1700,
+        "color": 4
       },
-      {
-       "id": "c2",
-       "leftValue": "={{ $json.status }}",
-       "rightValue": "PENDING_CONFIRMATION",
-       "operator": {
-        "type": "string",
-        "operation": "equals"
-       }
-      }
-     ],
-     "combinator": "and"
+      "id": "685ad544-da77-4351-882c-404682051120",
+      "name": "Nota: 1. Captura y parseo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2680,
+        -260
+      ]
     },
-    "options": {}
-   },
-   "id": "6e5eea28-70f8-47f7-9d7c-6a234aabadb2",
-   "name": "¿Señal válida?",
-   "type": "n8n-nodes-base.if",
-   "typeVersion": 2,
-   "position": [
-    -1850,
-    0
-   ]
-  },
-  {
-   "parameters": {
-    "source": "database",
-    "workflowId": {
-     "__rl": true,
-     "value": "EiozKB436D4FYoI3",
-     "mode": "list",
-     "cachedResultName": "Kronos 02 - Señal nueva (parseo confirmado)"
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "kronos-telethon-signal",
+        "options": {
+          "responseData": "{\"status\":\"received\"}"
+        }
+      },
+      "id": "f7d71ece-930a-4342-a823-d025309d9e90",
+      "name": "Webhook Telethon",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2600,
+        0
+      ],
+      "webhookId": "kronos-telethon-signal"
     },
-    "mode": "each",
-    "options": {
-     "waitForSubWorkflow": false
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "secret-check",
+              "leftValue": "={{ $json.headers['x-kronos-secret'] }}",
+              "rightValue": "={{ $env.KRONOS_WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ab5942a9-bc5f-4904-8231-10dda967902a",
+      "name": "¿Secreto de webhook válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2350,
+        0
+      ],
+      "notes": "Rechaza silenciosamente (sin bajar por la rama false) cualquier POST al webhook que no traiga el header X-Kronos-Secret correcto — evita que alguien que descubra la URL pública inyecte señales falsas. El webhook igual responde 'received' al instante (responseMode oculta la validación)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Nodo Function (n8n): parser regex de señales nuevas\n// Fuente de reglas: PROTOCOLOS_KRONOS_BOT.md (secciones 4.1, 4.2, 4.3)\n//\n// Entrada esperada: el nodo Webhook de n8n anida el payload real\n// dentro de un campo \"body\" (item.json.body.text, item.json.body.\n// timestamp, etc.), no en el nivel raíz de item.json. Por eso se lee\n// todo desde `body` en vez de `payload` directo — de lo contrario\n// ningún mensaje matchea nunca (bug real detectado en producción).\n// Campos esperados dentro de body: message_id, chat_id, sender,\n// text, timestamp, reply_to_message_id\n//\n// Este nodo SOLO detecta y parsea señales nuevas de formato fijo.\n// No calcula lotaje, no inserta en la base de datos, no envía\n// notificaciones — eso lo hacen otros nodos del workflow.\n\nconst MAX_AGE_MINUTES = 5;\n// Sin tope de sub-señales (protocolo sección 4.2 regla 6, actualizada):\n// se genera una sub-señal por cada TP que traiga el mensaje, sin límite.\nfunction subSignalSuffix(index) {\n  // A, B, C... Z, AA, AB... para no depender de un array fijo de 26.\n  let n = index, s = '';\n  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);\n  return s;\n}\n\n// Formato fijo esperado:\n//   INSTRUMENTO BUY|SELL [LIMIT] PRECIO TP VALOR [TP VALOR ...] SL VALOR\n// El label \"TP\" se repite una vez por cada take profit, sin número pegado\n// (no existe \"TP1\"/\"TP2\" en los mensajes reales del grupo). Puede venir\n// en una sola línea o con saltos de línea entre campos — el código\n// colapsa los saltos de línea en espacios antes de aplicar el regex.\n// Ejemplos reales:\n//   \"XAUUSD BUY 4372  TP 4376  SL 4347\"\n//   \"XAUUSD SELL 4388\\nTP 4386\\nTP 4385\\nTP 4380\\nTP 4370\\nSL 4414\"\n// Sin ancla $ al final: los mensajes reales a veces traen texto\n// adicional después del SL (emojis, comentarios). \\b asegura que el\n// valor de SL termine en límite de palabra, sin exigir fin de string.\nconst SIGNAL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+(\\d+(?:\\.\\d+)?))?(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\s+SL:?\\s+(\\d+(?:\\.\\d+)?)\\b/i;\n\n// Regex secundario: mismo formato pero sin exigir SL. Se usa solo para\n// distinguir \"señal con SL faltante\" (sección 4.2 regla 5 — no se\n// inventa el SL, la señal no se ejecuta hasta tenerlo) de un mensaje\n// que directamente no es una señal nueva.\nconst SIGNAL_WITHOUT_SL_REGEX = /^([A-Z]{3,10})\\s+(BUY|SELL)\\s+(LIMIT\\s+)?(\\d+(?:\\.\\d+)?)\\s+TP:?\\s+(\\d+(?:\\.\\d+)?)(?:\\s+TP:?\\s+\\d+(?:\\.\\d+)?)*\\b/i;\n\n// Extrae TODOS los TP presentes en el texto, en orden de aparición.\n// Cada uno genera su propia sub-señal, sin tope (protocolo sección\n// 4.2 regla 6, actualizada).\nconst TP_GLOBAL_REGEX = /TP:?\\s+(\\d+(?:\\.\\d+)?)/gi;\n\nfunction parseTimestamp(rawTimestamp) {\n  if (typeof rawTimestamp === 'number') {\n    // Segundos unix -> ms si el valor es demasiado pequeño para ser ms\n    return new Date(rawTimestamp < 1e12 ? rawTimestamp * 1000 : rawTimestamp);\n  }\n  return new Date(rawTimestamp);\n}\n\nconst results = [];\n\nfor (const item of $input.all()) {\n  // El Webhook de n8n envuelve el payload real en `body`.\n  const body = item.json.body || item.json;\n  const rawText = (body.text || '').trim().replace(/\\s+/g, ' ');\n\n  const match = rawText.match(SIGNAL_REGEX);\n\n  if (!match) {\n    // No coincide con el formato completo de señal nueva. Puede ser\n    // una instrucción de seguimiento, un mensaje no relacionado, o\n    // una señal real con el SL faltante — se distinguen para no\n    // perder de vista este último caso (protocolo sección 4.2 regla 5).\n    const partialMatch = rawText.match(SIGNAL_WITHOUT_SL_REGEX);\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: partialMatch ? 'MISSING_SL' : 'NO_MATCH_FIXED_FORMAT',\n      },\n    });\n    continue;\n  }\n\n  const [, instrument, direction, limitFlag, entryPrice, , , sl] = match;\n\n  const signalDate = parseTimestamp(body.timestamp);\n  if (isNaN(signalDate.getTime())) {\n    results.push({\n      json: {\n        ...body,\n        matched: false,\n        reason: 'INVALID_TIMESTAMP',\n      },\n    });\n    continue;\n  }\n\n  const ageMinutes = (Date.now() - signalDate.getTime()) / 60000;\n\n  if (ageMinutes > MAX_AGE_MINUTES) {\n    // Regla de antigüedad (sección 4.3): binaria, sin excepciones.\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'EXPIRED',\n        interpreted_by: 'REGEX',\n      },\n    });\n    continue;\n  }\n\n  // Una sub-señal independiente por cada TP del mensaje, sin tope\n  // (protocolo sección 4.2 regla 6, actualizada). Comparten todo\n  // excepto el TP y el signal_uid.\n  const tpValues = [...rawText.matchAll(TP_GLOBAL_REGEX)]\n    .map((m) => parseFloat(m[1]));\n\n  for (let i = 0; i < tpValues.length; i++) {\n    results.push({\n      json: {\n        ...body,\n        matched: true,\n        status: 'PENDING_CONFIRMATION',\n        interpreted_by: 'REGEX',\n        signal_uid: `${body.message_id}-${subSignalSuffix(i)}`,\n        instrument: instrument.toUpperCase(),\n        direction: direction.toUpperCase(),\n        execution_type: limitFlag ? 'LIMIT' : 'MARKET',\n        entry_price: parseFloat(entryPrice),\n        tp: tpValues[i], // TP propio de esta sub-señal\n        sl: parseFloat(sl),\n        raw_text: rawText,\n      },\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "f27bd27e-dee9-43ec-a430-7feeab94b31e",
+      "name": "Parsear señal (regex)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.matched }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "PENDING_CONFIRMATION",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6e5eea28-70f8-47f7-9d7c-6a234aabadb2",
+      "name": "¿Señal válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1850,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "EiozKB436D4FYoI3",
+          "mode": "list",
+          "cachedResultName": "Kronos 02 - Señal nueva (parseo confirmado)"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "8b1e2ef6-bc14-4e3c-8a63-3db9283d340e",
+      "name": "Ejecutar: Kronos 02 - Señal nueva (parseo confirmado)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -1550,
+        0
+      ],
+      "notes": "TODO tras importar en n8n: reseleccionar el workflow destino en 'workflowId' (recien creado, no tiene ID hasta importarlo). waitForSubWorkflow=false a proposito: fire-and-forget, no bloquea ni comparte cola con el workflow destino.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "wabC0aOMrV2se0PE",
+          "mode": "list",
+          "cachedResultName": "Kronos 07 - Seguimiento (Gemini)"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "b5639667-7463-4424-8a56-5c44b1251687",
+      "name": "Ejecutar: Kronos 07 - Seguimiento (Gemini)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -1550,
+        150
+      ],
+      "notes": "TODO tras importar en n8n: reseleccionar el workflow destino en 'workflowId' (recien creado, no tiene ID hasta importarlo). waitForSubWorkflow=false a proposito: fire-and-forget, no bloquea ni comparte cola con el workflow destino.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-es-recap",
+              "leftValue": "={{ ($json.body && $json.body.text || '').toUpperCase().includes('RECAP DEL') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-es-recap-del-dia",
+      "name": "¿Es recap del día?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -450,
+        180
+      ],
+      "notes": "2026-08-30, pedido explícito del usuario: el resumen diario (workflow 08) ya no se dispara por horario fijo (n8n usa America/New_York por defecto y llegaba a una hora distinta a la esperada) — se dispara cuando el caller postea su propio recap del día en el grupo VIP ('🔖RECAP DEL DÍA🔖...'). El contenido del mensaje enviado sigue siendo el propio (daily_pnl), no se parsea el texto del caller."
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "SdCEFv7cOGKJYQdN",
+          "mode": "list",
+          "cachedResultName": "Kronos 08 - Resumen diario"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "exec-kronos-08-desde-recap",
+      "name": "Ejecutar: Kronos 08 - Resumen diario (por recap)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -200,
+        180
+      ],
+      "notes": "Fire-and-forget, mismo patrón que el resto de Execute Workflow de este proyecto."
     }
-   },
-   "id": "8b1e2ef6-bc14-4e3c-8a63-3db9283d340e",
-   "name": "Ejecutar: Kronos 02 - Señal nueva (parseo confirmado)",
-   "type": "n8n-nodes-base.executeWorkflow",
-   "typeVersion": 1.2,
-   "position": [
-    -1550,
-    0
-   ],
-   "notes": "TODO tras importar en n8n: reseleccionar el workflow destino en 'workflowId' (recien creado, no tiene ID hasta importarlo). waitForSubWorkflow=false a proposito: fire-and-forget, no bloquea ni comparte cola con el workflow destino.",
-   "notesInFlow": true
-  },
-  {
-   "parameters": {
-    "source": "database",
-    "workflowId": {
-     "__rl": true,
-     "value": "wabC0aOMrV2se0PE",
-     "mode": "list",
-     "cachedResultName": "Kronos 07 - Seguimiento (Gemini)"
+  ],
+  "connections": {
+    "Webhook Telethon": {
+      "main": [
+        [
+          {
+            "node": "¿Secreto de webhook válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "mode": "each",
-    "options": {
-     "waitForSubWorkflow": false
+    "Parsear señal (regex)": {
+      "main": [
+        [
+          {
+            "node": "¿Señal válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Señal válida?": {
+      "main": [
+        [
+          {
+            "node": "Ejecutar: Kronos 02 - Señal nueva (parseo confirmado)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ejecutar: Kronos 07 - Seguimiento (Gemini)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Secreto de webhook válido?": {
+      "main": [
+        [
+          {
+            "node": "¿Es recap del día?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "¿Es recap del día?": {
+      "main": [
+        [
+          {
+            "node": "Ejecutar: Kronos 08 - Resumen diario (por recap)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parsear señal (regex)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "id": "b5639667-7463-4424-8a56-5c44b1251687",
-   "name": "Ejecutar: Kronos 07 - Seguimiento (Gemini)",
-   "type": "n8n-nodes-base.executeWorkflow",
-   "typeVersion": 1.2,
-   "position": [
-    -1550,
-    150
-   ],
-   "notes": "TODO tras importar en n8n: reseleccionar el workflow destino en 'workflowId' (recien creado, no tiene ID hasta importarlo). waitForSubWorkflow=false a proposito: fire-and-forget, no bloquea ni comparte cola con el workflow destino.",
-   "notesInFlow": true
   },
-  {
-   "parameters": {
-    "conditions": {
-     "options": {
-      "caseSensitive": true,
-      "leftValue": "",
-      "typeValidation": "strict",
-      "version": 1
-     },
-     "conditions": [
-      {
-       "id": "cond-es-recap",
-       "leftValue": "={{ ($json.text || '').toUpperCase().includes('RECAP DEL') }}",
-       "rightValue": true,
-       "operator": {
-        "type": "boolean",
-        "operation": "true",
-        "singleValue": true
-       }
-      }
-     ],
-     "combinator": "and"
-    },
-    "options": {}
-   },
-   "id": "if-es-recap-del-dia",
-   "name": "¿Es recap del día?",
-   "type": "n8n-nodes-base.if",
-   "typeVersion": 2,
-   "position": [
-    -450,
-    180
-   ],
-   "notes": "2026-08-30, pedido explícito del usuario: el resumen diario (workflow 08) ya no se dispara por horario fijo (n8n usa America/New_York por defecto y llegaba a una hora distinta a la esperada) — se dispara cuando el caller postea su propio recap del día en el grupo VIP ('🔖RECAP DEL DÍA🔖...'). El contenido del mensaje enviado sigue siendo el propio (daily_pnl), no se parsea el texto del caller."
+  "settings": {
+    "executionOrder": "v1"
   },
-  {
-   "parameters": {
-    "source": "database",
-    "workflowId": {
-     "__rl": true,
-     "value": "SdCEFv7cOGKJYQdN",
-     "mode": "list",
-     "cachedResultName": "Kronos 08 - Resumen diario"
-    },
-    "mode": "each",
-    "options": {
-     "waitForSubWorkflow": false
-    }
-   },
-   "id": "exec-kronos-08-desde-recap",
-   "name": "Ejecutar: Kronos 08 - Resumen diario (por recap)",
-   "type": "n8n-nodes-base.executeWorkflow",
-   "typeVersion": 1.2,
-   "position": [
-    -200,
-    180
-   ],
-   "notes": "Fire-and-forget, mismo patrón que el resto de Execute Workflow de este proyecto."
-  }
- ],
- "connections": {
-  "Webhook Telethon": {
-   "main": [
-    [
-     {
-      "node": "¿Secreto de webhook válido?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Parsear señal (regex)": {
-   "main": [
-    [
-     {
-      "node": "¿Señal válida?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "¿Señal válida?": {
-   "main": [
-    [
-     {
-      "node": "Ejecutar: Kronos 02 - Señal nueva (parseo confirmado)",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Ejecutar: Kronos 07 - Seguimiento (Gemini)",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "¿Secreto de webhook válido?": {
-   "main": [
-    [
-     {
-      "node": "¿Es recap del día?",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    []
-   ]
-  },
-  "¿Es recap del día?": {
-   "main": [
-    [
-     {
-      "node": "Ejecutar: Kronos 08 - Resumen diario (por recap)",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Parsear señal (regex)",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "executionOrder": "v1"
- },
- "active": false,
- "pinData": {}
+  "active": true,
+  "pinData": {}
 }
