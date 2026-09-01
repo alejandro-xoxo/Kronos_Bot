@@ -1,229 +1,229 @@
 {
- "name": "Kronos 05 - Scheduler resultados MT4",
- "nodes": [
-  {
-   "parameters": {
-    "rule": {
-     "interval": [
-      {
-       "field": "seconds",
-       "secondsInterval": 5
-      }
-     ]
-    }
-   },
-   "id": "5c5d5e5f-0001-4a1a-8a1a-000000000041",
-   "name": "Trigger: leer resultados MT4",
-   "type": "n8n-nodes-base.scheduleTrigger",
-   "typeVersion": 1.2,
-   "position": [
-    -1600,
-    2700
-   ]
-  },
-  {
-   "parameters": {
-    "operation": "read",
-    "fileSelector": "={{ $env.MT4_ORDERS_DIR }}/results/*.json",
-    "options": {}
-   },
-   "id": "5c5d5e5f-0002-4a1a-8a1a-000000000042",
-   "name": "Leer resultados (MT4)",
-   "type": "n8n-nodes-base.readWriteFile",
-   "typeVersion": 1,
-   "position": [
-    -1350,
-    2700
-   ],
-   "notes": "Lee mt4-bridge/orders/results/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
-  },
-  {
-   "parameters": {
-    "jsCode": "// Kronos Bot — Etapa 5 (puente MT4): parsea cada resultado leído de\n// mt4-bridge/orders/results/{signal_id}.json (formato en\n// mt4-bridge/FORMATO_ARCHIVOS.md sección 2).\n// El nodo 'Leer resultados (MT4)' guarda el binario en modo\n// filesystem-v2 (no viene en base64 dentro de item.binary.data.data),\n// por eso se usa this.helpers.getBinaryDataBuffer para leer el\n// contenido real del archivo.\nconst results = [];\nconst items = $input.all();\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const binaryMeta = item.binary.data;\n  const fullPath = `${binaryMeta.directory}/${binaryMeta.fileName}`;\n  const buffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const parsed = JSON.parse(buffer.toString('utf-8'));\n\n  results.push({\n    json: {\n      signal_id: parsed.signal_id,\n      success: parsed.success,\n      ticket: parsed.ticket,\n      executed_price: parsed.executed_price,\n      error_code: parsed.error_code,\n      error_message: parsed.error_message,\n      fileName: fullPath,\n    },\n  });\n}\n\nreturn results;"
-   },
-   "id": "5c5d5e5f-0003-4a1a-8a1a-000000000043",
-   "name": "Parsear resultado (MT4)",
-   "type": "n8n-nodes-base.code",
-   "typeVersion": 2,
-   "position": [
-    -1100,
-    2700
-   ]
-  },
-  {
-   "parameters": {
-    "operation": "executeQuery",
-    "query": "WITH updated AS (\n  UPDATE signals SET\n    status = CASE WHEN $2::boolean THEN 'OPEN' ELSE 'PENDING_MANUAL' END,\n    mt4_ticket = $3, updated_at = NOW()\n  WHERE id = $1 AND status = 'CONFIRMED'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, (SELECT signal_uid FROM signals WHERE id = $1) AS signal_uid, (SELECT day_number FROM signals WHERE id = $1) AS day_number;",
-    "options": {
-     "queryReplacement": "={{ [$json.signal_id, $json.success, $json.ticket] }}"
-    }
-   },
-   "id": "5c5d5e5f-0004-4a1a-8a1a-000000000044",
-   "name": "Actualizar status: OPEN/PENDING_MANUAL",
-   "type": "n8n-nodes-base.postgres",
-   "typeVersion": 2.5,
-   "position": [
-    -850,
-    2700
-   ],
-   "credentials": {
-    "postgres": {
-     "id": "7BHAPu1rIT8bxv9u",
-     "name": "Postgres account"
-    }
-   },
-   "notes": "UPDATE idempotente (mismo patrón que 'Actualizar status: CONFIRMED'): solo actualiza si status='CONFIRMED', evita reprocesar."
-  },
-  {
-   "parameters": {
-    "conditions": {
-     "options": {
-      "caseSensitive": true,
-      "leftValue": "",
-      "typeValidation": "strict",
-      "version": 1
-     },
-     "conditions": [
-      {
-       "id": "cond-updated-exec",
-       "leftValue": "={{ Number($json.updated_count) }}",
-       "rightValue": 1,
-       "operator": {
-        "type": "number",
-        "operation": "equals"
-       }
-      }
-     ],
-     "combinator": "and"
+  "name": "Kronos 05 - Scheduler resultados MT4",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "5c5d5e5f-0001-4a1a-8a1a-000000000041",
+      "name": "Trigger: leer resultados MT4",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1600,
+        2700
+      ]
     },
-    "options": {}
-   },
-   "id": "5c5d5e5f-0005-4a1a-8a1a-000000000045",
-   "name": "¿Se actualizó ahora?",
-   "type": "n8n-nodes-base.if",
-   "typeVersion": 2,
-   "position": [
-    -600,
-    2700
-   ]
-  },
-  {
-   "parameters": {
-    "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-    "text": "={{ $('Parsear resultado (MT4)').item.json.success ? '✅ Señal #' + $('Actualizar status: OPEN/PENDING_MANUAL').item.json.day_number + ' ejecutada — ' + $('Parsear resultado (MT4)').item.json.executed_price : '⚠️ Señal #' + $('Actualizar status: OPEN/PENDING_MANUAL').item.json.day_number + ' no se pudo ejecutar — ' + $('Parsear resultado (MT4)').item.json.error_message }}",
-    "additionalFields": {
-     "parse_mode": "HTML"
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $env.MT4_ORDERS_DIR }}/results/*.json",
+        "options": {}
+      },
+      "id": "5c5d5e5f-0002-4a1a-8a1a-000000000042",
+      "name": "Leer resultados (MT4)",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -1350,
+        2700
+      ],
+      "notes": "Lee mt4-bridge/orders/results/*.json (glob). Devuelve 0 items si no hay ninguno — no falla."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Etapa 5 (puente MT4): parsea cada resultado leído de\n// mt4-bridge/orders/results/{signal_id}.json (formato en\n// mt4-bridge/FORMATO_ARCHIVOS.md sección 2).\n// El nodo 'Leer resultados (MT4)' guarda el binario en modo\n// filesystem-v2 (no viene en base64 dentro de item.binary.data.data),\n// por eso se usa this.helpers.getBinaryDataBuffer para leer el\n// contenido real del archivo.\nconst results = [];\nconst items = $input.all();\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const binaryMeta = item.binary.data;\n  const fullPath = `${binaryMeta.directory}/${binaryMeta.fileName}`;\n  const buffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const parsed = JSON.parse(buffer.toString('utf-8'));\n\n  results.push({\n    json: {\n      signal_id: parsed.signal_id,\n      success: parsed.success,\n      ticket: parsed.ticket,\n      executed_price: parsed.executed_price,\n      error_code: parsed.error_code,\n      error_message: parsed.error_message,\n      fileName: fullPath,\n    },\n  });\n}\n\nreturn results;"
+      },
+      "id": "5c5d5e5f-0003-4a1a-8a1a-000000000043",
+      "name": "Parsear resultado (MT4)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1100,
+        2700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE signals SET\n    status = CASE WHEN $2::boolean THEN 'OPEN' ELSE 'PENDING_MANUAL' END,\n    mt4_ticket = $3, updated_at = NOW()\n  WHERE id = $1 AND status = 'CONFIRMED'\n  RETURNING id\n)\nSELECT (SELECT COUNT(*) FROM updated) AS updated_count, (SELECT signal_uid FROM signals WHERE id = $1) AS signal_uid;",
+        "options": {
+          "queryReplacement": "={{ [$json.signal_id, $json.success, $json.ticket] }}"
+        }
+      },
+      "id": "5c5d5e5f-0004-4a1a-8a1a-000000000044",
+      "name": "Actualizar status: OPEN/PENDING_MANUAL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -850,
+        2700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "7BHAPu1rIT8bxv9u",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "UPDATE idempotente (mismo patrón que 'Actualizar status: CONFIRMED'): solo actualiza si status='CONFIRMED', evita reprocesar."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-updated-exec",
+              "leftValue": "={{ Number($json.updated_count) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5c5d5e5f-0005-4a1a-8a1a-000000000045",
+      "name": "¿Se actualizó ahora?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        2700
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "={{ $('Parsear resultado (MT4)').item.json.success ? '✅ Señal #' + $('Parsear resultado (MT4)').item.json.signal_id + ' ejecutada — ticket ' + $('Parsear resultado (MT4)').item.json.ticket + ', precio ' + $('Parsear resultado (MT4)').item.json.executed_price : '⚠️ Señal #' + $('Parsear resultado (MT4)').item.json.signal_id + ' no se pudo ejecutar: ' + $('Parsear resultado (MT4)').item.json.error_message }}",
+        "additionalFields": {
+          "parse_mode": "none"
+        }
+      },
+      "id": "5c5d5e5f-0006-4a1a-8a1a-000000000046",
+      "name": "Avisar en chat: Resultado MT4",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -350,
+        2600
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "W4XHaBNANAtKf4Ih",
+          "name": "Telegram account"
+        }
+      },
+      "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kronos Bot — Etapa 5 (puente MT4): borra el archivo de\n// mt4-bridge/orders/results/{signal_id}.json ya procesado.\n// Se ejecuta siempre (haya notificado o no), igual que el EA nunca\n// reprocesa pending/. fileName se recupera del nodo 'Parsear\n// resultado (MT4)' porque el nodo Postgres intermedio reemplaza\n// item.json por las columnas devueltas por la query.\nconst fs = require('fs');\n\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const paired = items[i].pairedItem;\n  const idx = Array.isArray(paired) ? paired[0].item : paired.item;\n  const fileName = $('Parsear resultado (MT4)').all()[idx].json.fileName;\n  await fs.promises.unlink(fileName);\n}\n\nreturn items;"
+      },
+      "id": "5c5d5e5f-0007-4a1a-8a1a-000000000047",
+      "name": "Borrar archivo de resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        2700
+      ],
+      "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml."
     }
-   },
-   "id": "5c5d5e5f-0006-4a1a-8a1a-000000000046",
-   "name": "Avisar en chat: Resultado MT4",
-   "type": "n8n-nodes-base.telegram",
-   "typeVersion": 1.2,
-   "position": [
-    -350,
-    2600
-   ],
-   "credentials": {
-    "telegramApi": {
-     "id": "W4XHaBNANAtKf4Ih",
-     "name": "Telegram account"
+  ],
+  "connections": {
+    "Trigger: leer resultados MT4": {
+      "main": [
+        [
+          {
+            "node": "Leer resultados (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer resultados (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Parsear resultado (MT4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear resultado (MT4)": {
+      "main": [
+        [
+          {
+            "node": "Actualizar status: OPEN/PENDING_MANUAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar status: OPEN/PENDING_MANUAL": {
+      "main": [
+        [
+          {
+            "node": "¿Se actualizó ahora?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Se actualizó ahora?": {
+      "main": [
+        [
+          {
+            "node": "Avisar en chat: Resultado MT4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Borrar archivo de resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar en chat: Resultado MT4": {
+      "main": [
+        [
+          {
+            "node": "Borrar archivo de resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
-   },
-   "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
   },
-  {
-   "parameters": {
-    "jsCode": "// Kronos Bot — Etapa 5 (puente MT4): borra el archivo de\n// mt4-bridge/orders/results/{signal_id}.json ya procesado.\n// Se ejecuta siempre (haya notificado o no), igual que el EA nunca\n// reprocesa pending/. fileName se recupera del nodo 'Parsear\n// resultado (MT4)' porque el nodo Postgres intermedio reemplaza\n// item.json por las columnas devueltas por la query.\nconst fs = require('fs');\n\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const paired = items[i].pairedItem;\n  const idx = Array.isArray(paired) ? paired[0].item : paired.item;\n  const fileName = $('Parsear resultado (MT4)').all()[idx].json.fileName;\n  await fs.promises.unlink(fileName);\n}\n\nreturn items;"
-   },
-   "id": "5c5d5e5f-0007-4a1a-8a1a-000000000047",
-   "name": "Borrar archivo de resultado",
-   "type": "n8n-nodes-base.code",
-   "typeVersion": 2,
-   "position": [
-    -100,
-    2700
-   ],
-   "notes": "Requiere NODE_FUNCTION_ALLOW_BUILTIN=fs en el servicio n8n de docker-compose.yml."
-  }
- ],
- "connections": {
-  "Trigger: leer resultados MT4": {
-   "main": [
-    [
-     {
-      "node": "Leer resultados (MT4)",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
+  "settings": {
+    "executionOrder": "v1"
   },
-  "Leer resultados (MT4)": {
-   "main": [
-    [
-     {
-      "node": "Parsear resultado (MT4)",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Parsear resultado (MT4)": {
-   "main": [
-    [
-     {
-      "node": "Actualizar status: OPEN/PENDING_MANUAL",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Actualizar status: OPEN/PENDING_MANUAL": {
-   "main": [
-    [
-     {
-      "node": "¿Se actualizó ahora?",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "¿Se actualizó ahora?": {
-   "main": [
-    [
-     {
-      "node": "Avisar en chat: Resultado MT4",
-      "type": "main",
-      "index": 0
-     }
-    ],
-    [
-     {
-      "node": "Borrar archivo de resultado",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Avisar en chat: Resultado MT4": {
-   "main": [
-    [
-     {
-      "node": "Borrar archivo de resultado",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  }
- },
- "settings": {
-  "executionOrder": "v1"
- },
- "active": false,
- "pinData": {}
+  "active": false,
+  "pinData": {}
 }

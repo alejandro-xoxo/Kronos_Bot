@@ -25,7 +25,6 @@
   // sync. Si el fetch falla (ej. demo estática en GitHub Pages, sin
   // backend), sigue funcionando 100% en localStorage como siempre.
   let backendConnected = false;
-  let lastCapitalReal = null;
 
   function guardar() {
     Store.set('inicio', state.inicio);
@@ -61,7 +60,7 @@
         diaPlan: Cal.diffDias(state.inicio, r.fecha) + 1,
         capital: capital, delta: delta,
         pctPeriodo: pctPeriodo, pctAcum: pctAcum,
-        opAcum: nOp, _fromBackend: !!r._fromBackend
+        opAcum: nOp
       };
     });
   }
@@ -160,17 +159,16 @@
       c(f.nota);
 
       const tdDel = document.createElement('td');
-      const btn = document.createElement('button');
-      btn.className = 'del';
-      btn.type = 'button';
-      btn.textContent = '×';
-      btn.title = f._fromBackend
-        ? 'Registro real (daily_pnl) — no se puede borrar'
-        : 'Eliminar registro';
-      btn.setAttribute('aria-label', 'Eliminar registro del ' + Fmt.fecha(f.fecha));
-      if (f._fromBackend) btn.style.opacity = '0.35';
-      btn.addEventListener('click', function () { eliminar(f.id); });
-      tdDel.appendChild(btn);
+      if (!backendConnected) {
+        const btn = document.createElement('button');
+        btn.className = 'del';
+        btn.type = 'button';
+        btn.textContent = '×';
+        btn.title = 'Eliminar registro';
+        btn.setAttribute('aria-label', 'Eliminar registro del ' + Fmt.fecha(f.fecha));
+        btn.addEventListener('click', function () { eliminar(f.id); });
+        tdDel.appendChild(btn);
+      }
       tr.appendChild(tdDel);
 
       tbody.appendChild(tr);
@@ -212,31 +210,20 @@
     pintarKPIs(filas);
     pintarTabla(filas);
     pintarGrafico(filas);
-    // pintarKPIs() recién calculó "Capital actual" reconstruido desde
-    // el histórico (daily_pnl) — si ya tenemos el balance real en vivo
-    // (sync periódico, ver syncFromBackend), lo reaplicamos encima acá
-    // mismo. Sin esto, cada vez que se vuelve a esta sección (o
-    // cualquier acción dispara render()) el KPI se pisaba con el valor
-    // reconstruido y perdía el balance real (bug reportado 2026-08-30:
-    // "al cambiar de página se cambia el capital, no refleja el real").
-    if (lastCapitalReal != null) pintarCapitalReal(lastCapitalReal);
     // Sincroniza el calendario si existe
     if (window.CalTrader) CalTrader.render();
     return filas;
   }
 
   function eliminar(id) {
-    const registro = state.registros.find(function (r) { return r.id === id; });
-    if (registro && registro._fromBackend) {
-      flash($('msg-crecimiento'), 'Este registro viene de una señal cerrada real — no se puede borrar (va a volver a aparecer en el próximo sync).', 'error');
-      return;
-    }
+    if (backendConnected) return; // ver nota de backendConnected más arriba
     state.registros = state.registros.filter(function (r) { return r.id !== id; });
     guardar();
     render();
   }
 
   function agregar() {
+    if (backendConnected) return; // ver nota de backendConnected más arriba
     const fecha = $('reg-fecha').value || hoyISO();
     const tipo = $('reg-tipo').value;
     const valorRaw = $('reg-valor').value;
@@ -324,7 +311,6 @@
      syncFromBackend(). No toca la tabla/gráfico/calendario, que siguen
      mostrando el histórico día a día tal cual está en daily_pnl. */
   function pintarCapitalReal(actual) {
-    lastCapitalReal = actual;
     const base = Number(state.inicial) || 0;
     const m = state.moneda;
     const ganancia = actual - base;
@@ -339,17 +325,19 @@
     p.className = Fmt.signClass(pct);
   }
 
-  /* Avisa que hay backend conectado — ya NO deshabilita nada (decisión
-     explícita del usuario, 2026-08-30: quiere poder seguir agregando/
-     editando registros a mano incluso con datos reales sincronizados).
-     Los registros que vienen de daily_pnl quedan marcados con
-     _fromBackend (ver syncFromBackend) para que no se puedan borrar
-     desde la UI y para que el próximo sync los pueda refrescar sin
-     tocar los que el usuario cargó a mano. */
-  function avisarConexionBackend() {
+  /* Deshabilita la carga manual de registros/capital inicial: cuando hay
+     backend, esos valores los genera Kronos_Bot solo (daily_pnl +
+     capital_inicial_plan en settings, ver db/schema.sql), y cualquier
+     edición manual se perdería en el próximo sync. */
+  function disableManualEntry() {
+    ['capital-inicial', 'reg-fecha', 'reg-tipo', 'reg-valor', 'reg-operable',
+     'reg-nota', 'btn-add', 'btn-reset'].forEach(function (id) {
+      const el = $(id);
+      if (el) el.disabled = true;
+    });
     flash(
       $('msg-crecimiento'),
-      'Conectado a Kronos_Bot — las señales cerradas se agregan solas al historial; podés seguir agregando o corrigiendo registros a mano, no se pisan entre sí.',
+      'Conectado a Kronos_Bot — el capital inicial y los registros se generan automáticamente desde las señales cerradas, no se cargan a mano.',
       'ok'
     );
   }
@@ -359,14 +347,7 @@
      demo estática en GitHub Pages, sin backend detrás), no hace nada y
      el módulo sigue funcionando 100% con localStorage como hasta ahora —
      mismo comportamiento híbrido descrito en
-     PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md.
-
-     Merge, no reemplazo: los registros manuales que el usuario ya
-     cargó (sin _fromBackend) se conservan tal cual; los que vienen del
-     backend se refrescan por completo en cada sync (se sacan los
-     _fromBackend viejos y se ponen los nuevos), así una señal que
-     todavía no había cerrado la vez anterior aparece sin duplicar
-     nada. */
+     PVG_kronos/docs/INTEGRACION_KRONOS_BOT.md. */
   function syncFromBackend() {
     if (typeof fetch !== 'function') return;
     fetch('/api/registros')
@@ -374,24 +355,17 @@
       .then(function (data) {
         if (!data || !Array.isArray(data.registros)) return;
         backendConnected = true;
-        if (data.capital_inicial_plan != null && Store.get('inicial', null) == null) {
-          // Solo la primera vez (si el usuario nunca configuró un
-          // capital inicial propio) — no pisar un valor que el
-          // usuario ya haya elegido a mano en una sesión anterior.
+        if (data.capital_inicial_plan != null) {
           state.inicial = Number(data.capital_inicial_plan);
           $('capital-inicial').value = state.inicial;
           Store.set('inicial', state.inicial);
         }
-        const manuales = state.registros.filter(function (r) { return !r._fromBackend; });
-        const reales = data.registros.map(function (r) {
-          return Object.assign({}, r, { _fromBackend: true });
-        });
-        state.registros = manuales.concat(reales);
+        state.registros = data.registros;
         // calendar.js lee 'registros'/'inicial' directo de Store, no del
         // estado en memoria de este módulo — hay que persistirlos acá
         // para que el Calendario también refleje los datos reales.
         Store.set('registros', state.registros);
-        avisarConexionBackend();
+        disableManualEntry();
         render();
         // "Capital actual" con el balance real en vivo (capital_real,
         // sincronizado cada 5s desde el EA — ver
@@ -492,12 +466,6 @@
 
     render();
     syncFromBackend();
-    // Refresco automático (2026-08-30, pedido explícito del usuario):
-    // sin esto, un cierre real en MT4 no aparecía en Crecimiento/
-    // Calendario hasta recargar la página a mano. syncFromBackend() ya
-    // mergea (no pisa) los registros manuales — ver nota en esa
-    // función — así que repetirlo en un intervalo es seguro.
-    setInterval(syncFromBackend, 30000);
   }
 
   window.Growth = { init: init, render: render };
