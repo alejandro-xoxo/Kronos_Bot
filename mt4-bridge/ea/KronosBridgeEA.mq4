@@ -309,6 +309,46 @@ void OnTimer()
 }
 
 //+------------------------------------------------------------------+
+//| Busca si ya existe una orden (abierta, pendiente, o en el         |
+//| historial de hoy) con este signal_uid en el comentario — ver nota |
+//| "Punto de robustez 5" en ProcessSingleFile. Recorre órdenes/       |
+//| posiciones activas (MODE_TRADES) y el historial del día en curso  |
+//| (MODE_HISTORY, acotado a hoy para no recorrer toda la cuenta en   |
+//| cada ciclo de OnTimer).                                           |
+//+------------------------------------------------------------------+
+bool SignalAlreadyExecuted(string signalUid)
+{
+   string needle = "KronosBot:" + signalUid;
+
+   int totalTrades = OrdersTotal();
+   for(int i = 0; i < totalTrades; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderComment() == needle)
+         return true;
+   }
+
+   datetime todayStart = StringToTime(TimeToString(TimeGMT(), TIME_DATE));
+   int totalHistory = OrdersHistoryTotal();
+   for(int j = totalHistory - 1; j >= 0; j--)
+   {
+      if(!OrderSelect(j, SELECT_BY_POS, MODE_HISTORY))
+         continue;
+      if(OrderOpenTime() < todayStart)
+         break; // historial ordenado por antigüedad — nada más viejo que hoy importa
+      if(OrderMagicNumber() != InpMagicNumber)
+         continue;
+      if(OrderComment() == needle)
+         return true;
+   }
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
 //| Detecta posiciones de este EA (InpMagicNumber) que aparecen en el|
 //| historial como cerradas y todavía no fueron reportadas — escribe |
 //| orders/closed/<ticket>.json con el motivo inferido (TP_REACHED / |
@@ -448,6 +488,24 @@ void ProcessSingleFile(string fileName)
    PendingOrder order;
    string parseError = "";
    bool parsedOk = ParseOrderJson(content, order, parseError);
+
+   // Punto de robustez 5 (agregado 2026-09-01, incidente real: la misma
+   // señal se ejecutó 3 veces — 3 tickets idénticos, ~1s de diferencia —
+   // pese al claim por FileMove de arriba. No se determinó la causa raíz
+   // exacta del re-claim, así que esto es una red de seguridad adicional
+   // e independiente: antes de mandar OrderSend, busca si YA existe una
+   // orden (abierta, pendiente, o en el historial de hoy) con el mismo
+   // signal_uid en el comentario ("KronosBot:" + signal_uid, ver
+   // ExecuteOrder). Si ya existe, no vuelve a ejecutar — sin importar
+   // por qué se intentó procesar el mismo signal_uid dos veces.
+   if(parsedOk && SignalAlreadyExecuted(order.signal_uid))
+   {
+      Print("Kronos EA: signal_id=", order.signal_id, " (", order.signal_uid,
+            ") ya tiene una orden ejecutada — se descarta este duplicado sin volver a operar.");
+      WriteResult(order.signal_id, false, 0, 0.0, -4, "DUPLICATE_SIGNAL_UID: ya existe una orden para " + order.signal_uid);
+      FileDelete(claimedPath, FILE_COMMON);
+      return;
+   }
 
    int signalIdForResult = parsedOk ? order.signal_id : FallbackSignalIdFromFilename(fileName);
 
