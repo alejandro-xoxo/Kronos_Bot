@@ -24,7 +24,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT\n  COALESCE(d.wins, 0) + COALESCE(d.losses, 0) AS total,\n  COALESCE(d.wins, 0) AS wins,\n  COALESCE(d.losses, 0) AS losses,\n  COALESCE(d.profit_loss, 0) AS total_pl,\n  ROUND(CASE WHEN COALESCE(d.wins, 0) + COALESCE(d.losses, 0) > 0\n             THEN 100.0 * COALESCE(d.wins, 0) / (COALESCE(d.wins, 0) + COALESCE(d.losses, 0))\n             ELSE 0 END, 1) AS win_rate,\n  COALESCE(d.instruments, 'ninguno') AS instruments\nFROM (SELECT 1) AS dummy\nLEFT JOIN daily_pnl d ON d.date = CURRENT_DATE;",
+        "query": "SELECT\n  COALESCE(d.wins, 0) + COALESCE(d.losses, 0) AS total,\n  COALESCE(d.wins, 0) AS wins,\n  COALESCE(d.losses, 0) AS losses,\n  COALESCE(d.profit_loss, 0) AS total_pl,\n  ROUND(CASE WHEN COALESCE(d.wins, 0) + COALESCE(d.losses, 0) > 0\n             THEN 100.0 * COALESCE(d.wins, 0) / (COALESCE(d.wins, 0) + COALESCE(d.losses, 0))\n             ELSE 0 END, 1) AS win_rate,\n  COALESCE(d.instruments, 'ninguno') AS instruments\nFROM (SELECT 1) AS dummy\nLEFT JOIN daily_pnl d ON d.date = (NOW() AT TIME ZONE 'America/Bogota')::date;",
         "options": {}
       },
       "id": "ee2023a5-6aba-4656-87f5-63ee5d1782e4",

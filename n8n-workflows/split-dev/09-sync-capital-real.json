@@ -55,7 +55,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Kronos Bot — sync de settings.capital_real (STATUS.md punto 17).\n// orders/status.json lo reescribe el EA en cada ciclo de\n// WritePositionsStatus() con account.capital_real = AccountBalance()\n// completo (decisión explícita del usuario, 2026-08-28: incluye\n// crédito del bróker). Mismo patrón filesystem-v2 que el resto de\n// nodos readWriteFile de este proyecto (getBinaryDataBuffer, no\n// item.binary.data.data en base64).\nconst items = $input.all();\nif (items.length === 0) return [];\n\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst parsed = JSON.parse(buffer.toString('utf-8'));\nconst capitalReal = parsed && parsed.account ? Number(parsed.account.capital_real) : NaN;\n\nif (!isFinite(capitalReal)) return [];\n\nreturn [{ json: { capital_real: capitalReal } }];\n"
+        "jsCode": "// Kronos Bot — sync de settings.capital_real y daily_pnl.capital_end_of_day\n// (STATUS.md punto 17; revertido 2026-08-31: el crédito del bróker\n// cuenta como capital real, no se excluye — decisión explícita del\n// usuario, misma sesión que fijó capital_real = AccountBalance() +\n// AccountCredit() el 2026-08-28. La versión anterior de este nodo\n// guardaba capital_end_of_day SIN crédito (account.balance puro) para\n// no mezclar unidades con capital_inicial_plan; en vez de eso ahora se\n// actualizó capital_inicial_plan a la misma unidad con crédito (ver\n// nota de despliegue en db/schema.sql) y se usa capital_real en ambos\n// lados. Mismo patrón filesystem-v2 que el resto de nodos\n// readWriteFile de este proyecto (getBinaryDataBuffer, no\n// item.binary.data.data en base64).\nconst items = $input.all();\nif (items.length === 0) return [];\n\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst parsed = JSON.parse(buffer.toString('utf-8'));\nconst account = parsed && parsed.account ? parsed.account : {};\nconst capitalReal = Number(account.capital_real);\n\nif (!isFinite(capitalReal)) return [];\n\nreturn [{ json: { capital_real: capitalReal } }];\n"
       },
       "id": "a1b2c3d4-0009-4a1a-9a1a-000000000904",
       "name": "Parsear capital_real",
@@ -88,7 +88,31 @@
           "name": "Postgres account"
         }
       },
-      "notes": "Solo UPDATE — asume que ya existe al menos 1 fila en settings (mismo supuesto que 'Obtener capital real (settings)' en el workflow 04). No dispara ninguna notificación: es sync silencioso, cada 5s, sin costo real (UPDATE sobre 1 fila)."
+      "notes": "Solo UPDATE de settings.capital_real — asume que ya existe al menos 1 fila en settings (mismo supuesto que 'Obtener capital real (settings)' en el workflow 04). No dispara ninguna notificación: es sync silencioso, cada 5s, sin costo real (UPDATE sobre 1 fila). El capital_end_of_day de daily_pnl (sin crédito, ver nota del nodo 'Parsear capital_real') se actualiza en el nodo siguiente, en paralelo."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO daily_pnl (date, capital_end_of_day, updated_at)\nVALUES ((NOW() AT TIME ZONE 'America/Bogota')::date, $1, NOW())\nON CONFLICT (date) DO UPDATE SET\n    capital_end_of_day = EXCLUDED.capital_end_of_day,\n    updated_at = NOW()\nWHERE $1 IS NOT NULL;",
+        "options": {
+          "queryReplacement": "={{ [$json.capital_real] }}"
+        }
+      },
+      "id": "a1b2c3d4-0009-4a1a-9a1a-000000000906",
+      "name": "Actualizar capital_end_of_day (daily_pnl)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -850,
+        3300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "vlp8K6c3mIwlQfkI",
+          "name": "Postgres account"
+        }
+      },
+      "notes": "Guarda capital_end_of_day CON crédito (capital_real, igual al valor que se escribe en settings.capital_real en el nodo hermano) — decisión explícita del usuario 2026-08-31: el crédito cuenta como capital real. capital_inicial_plan (settings) se actualizó a la misma unidad para que sigan siendo comparables. El WHERE $1 IS NOT NULL hace que el UPSERT sea no-op si status.json no trae account.capital_real por algún motivo — no pisa un valor bueno con NULL. Fecha calculada con (NOW() AT TIME ZONE 'America/Bogota')::date en vez de CURRENT_DATE (bug real detectado 2026-09-01: el contenedor de Postgres corre en UTC, así que CURRENT_DATE saltaba al día siguiente 5 horas antes de medianoche en Colombia — una ganancia de hoy quedaba registrada como si fuera de mañana)."
     }
   ],
   "connections": {
@@ -119,6 +143,11 @@
         [
           {
             "node": "Actualizar capital_real (Postgres)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Actualizar capital_end_of_day (daily_pnl)",
             "type": "main",
             "index": 0
           }

@@ -365,10 +365,14 @@ def api_registros():
     # (ver update_daily_pnl en db/schema.sql) cuando una señal cierra.
     #
     # El shape de salida coincide con el que espera growth.js de PVG_kronos:
-    # {id, fecha, tipo: 'capital', valor, operable, nota}. "valor" es el
-    # capital reconstruido ese día = capital_inicial_plan + suma acumulada
-    # de profit_loss hasta esa fecha (inclusive) — no el profit_loss crudo,
-    # para no requerir que el frontend sepa componer el capital él mismo.
+    # {id, fecha, tipo: 'capital', valor, operable, nota}. "valor" prioriza
+    # daily_pnl.capital_end_of_day (agregado 2026-08-31: snapshot real de
+    # la cuenta — balance + crédito, sincronizado cada 5s, incluye
+    # operaciones manuales) cuando existe; si no (días previos a ese
+    # cambio), cae al cálculo viejo = capital_inicial_plan + suma
+    # acumulada de profit_loss hasta esa fecha (solo cierres del bot) —
+    # no el profit_loss crudo, para no requerir que el frontend sepa
+    # componer el capital él mismo.
     conn = None
     try:
         conn = get_db_connection()
@@ -386,7 +390,10 @@ def api_registros():
                 SELECT
                     date AS fecha,
                     operable,
-                    %s + SUM(profit_loss) OVER (ORDER BY date ASC) AS valor
+                    COALESCE(
+                        capital_end_of_day,
+                        %s + SUM(profit_loss) OVER (ORDER BY date ASC)
+                    ) AS valor
                 FROM daily_pnl
                 ORDER BY date ASC
                 """,
@@ -411,17 +418,27 @@ def api_registros():
         for idx, r in enumerate(rows)
     ]
 
-    # capital_real (aparte de "valor" en cada registro): el balance real
-    # en vivo de la cuenta, sincronizado cada 5s desde orders/status.json
-    # (ver n8n-workflows/split-dev/09-sync-capital-real.json). Los
-    # registros reconstruyen el histórico día a día a partir de señales
-    # ya cerradas; capital_real es la verdad actual de la cuenta, que
-    # puede ir un paso adelante del último registro si hay operaciones
-    # abiertas o cambios de balance no capturados todavía en daily_pnl.
+    # capital_real (aparte de "valor" en cada registro): growth.js lo usa
+    # para sobreescribir el KPI "Capital actual" con el balance en vivo,
+    # comparado contra capital_inicial_plan (ver pintarCapitalReal en
+    # growth.js). Revertido 2026-08-31 (decisión explícita del usuario,
+    # misma sesión): el crédito del bróker cuenta como capital real, no
+    # se excluye — capital_inicial_plan y daily_pnl.capital_end_of_day
+    # se actualizaron a la misma unidad que settings.capital_real
+    # (AccountBalance() + AccountCredit(), ver CLAUDE.md), así que ya no
+    # hace falta mantener dos valores en unidades distintas. Se usa el
+    # último daily_pnl.capital_end_of_day (mismo valor con crédito que
+    # ya alimenta "valor" en cada registro, sincronizado cada 5s — ver
+    # n8n-workflows/split-dev/09-sync-capital-real.json) en vez del
+    # crudo de settings, para reflejar el snapshot diario ya persistido;
+    # si todavía no hay ninguna fila en daily_pnl (proyecto recién
+    # iniciado), cae a settings.capital_real crudo, en la misma unidad.
+    capital_real_display = rows[-1]["valor"] if rows else capital_real
+
     return jsonify({
         "registros": registros,
         "capital_inicial_plan": capital_inicial,
-        "capital_real": capital_real,
+        "capital_real": capital_real_display,
     }), 200
 
 

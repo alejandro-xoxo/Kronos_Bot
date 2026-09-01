@@ -42,7 +42,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = CURRENT_DATE\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM CURRENT_DATE)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
+        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date,\n         (NOW() AT TIME ZONE 'America/Bogota')::date AS hoy_bogota\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = cur.hoy_bogota\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM cur.hoy_bogota)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
       },
       "id": "b2c3d4e5-6f70-4a81-9b0c-1d2e3f4a5b6c",
       "name": "Chequear ganancia del día (Postgres)",
@@ -58,7 +58,7 @@
           "name": "Postgres account"
         }
       },
-      "notes": "SOLO STACK DEV — circuit breaker diario (decisión explícita del usuario, 2026-08-28). day_start_capital/day_start_date se resetean automáticamente cuando cambia la fecha (nuevo día = nueva base 0%). Requiere que settings tenga las columnas day_start_capital/day_start_date — ver nota de despliegue en db/schema.sql si la base ya existía antes de este cambio."
+      "notes": "SOLO STACK DEV — circuit breaker diario (decisión explícita del usuario, 2026-08-28). day_start_capital/day_start_date se resetean automáticamente cuando cambia la fecha (nuevo día = nueva base 0%). Requiere que settings tenga las columnas day_start_capital/day_start_date — ver nota de despliegue en db/schema.sql si la base ya existía antes de este cambio. La fecha se calcula con (NOW() AT TIME ZONE 'America/Bogota')::date, no CURRENT_DATE (bug real detectado 2026-09-01: el contenedor de Postgres corre en UTC, así que el reset ocurría 5 horas antes de medianoche en Colombia)."
     },
     {
       "parameters": {
