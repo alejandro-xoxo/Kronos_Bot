@@ -46,7 +46,7 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-        "text": "={{ '<b>📊 Resumen del día</b>\\n<i>' + $now.format('yyyy-MM-dd') + '</i>\\n\\nOperaciones cerradas: <b>' + $json.total + '</b>\\n\\n<tg-emoji emoji-id=\"5213287958798410406\">✅</tg-emoji> Ganadoras: <b>' + $json.wins + '</b>\\n<tg-emoji emoji-id=\"5980953710157632545\">❌</tg-emoji> Perdedoras: <b>' + $json.losses + '</b>\\n<tg-emoji emoji-id=\"5278526648008850775\">🥇</tg-emoji> Win rate: <b>' + $json.win_rate + '%</b>\\n\\n💰 Resultado neto (bot): <b>' + $json.total_pl + '</b>\\n\\n👾 Del bot: <b>' + $json.ganancia_bot + '</b>\\n🐒 Manual/otro: <b>' + $json.ganancia_manual + '</b>\\n📈 Total del día: <b>' + $json.ganancia_total + '</b>\\n\\n<i>Instrumentos: ' + $json.instruments + '</i>' }}",
+        "text": "={{ '<b>🌌 Resumen del día</b>\\n<i>' + $now.format('yyyy-MM-dd') + '</i>\\n\\nOperaciones cerradas: <b>' + $json.total + '</b>\\n\\n⭐ Ganadoras: <b>' + $json.wins + '</b>\\n☄️ Perdedoras: <b>' + $json.losses + '</b>\\n🚀 Win rate: <b>' + $json.win_rate + '%</b>\\n\\n👾 Ganancia bot: <b>' + $json.ganancia_bot + '</b>\\n🧑‍🚀 Ganancia manual: <b>' + $json.ganancia_manual + '</b>\\n🌠 Total del día: <b>' + $json.ganancia_total + '</b>\\n\\n<i>🪐 Instrumentos: ' + $json.instruments + '</i>' }}",
         "additionalFields": {
           "parse_mode": "HTML"
         }
