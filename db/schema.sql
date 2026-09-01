@@ -58,6 +58,15 @@ CREATE TABLE IF NOT EXISTS signals (
     close_price            REAL,
     profit_loss             REAL,
 
+    -- Número de señal DEL DÍA (2026-08-30, pedido explícito del
+    -- usuario para los mensajes de Telegram: "#3" debe ser la 3ra
+    -- señal de HOY, no el id total de la tabla desde que arrancó la
+    -- base). Se fija una sola vez al insertar (trigger
+    -- set_signal_day_number más abajo) y no se recalcula después, para
+    -- que una señal abierta hoy y cerrada mañana siga mostrando el
+    -- número del día en que se originó.
+    day_number            INTEGER NOT NULL DEFAULT 0,
+
     created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -66,6 +75,24 @@ CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
 CREATE INDEX IF NOT EXISTS idx_signals_instrument_status ON signals(instrument, status);
 CREATE INDEX IF NOT EXISTS idx_signals_message_id ON signals(message_id);
 CREATE INDEX IF NOT EXISTS idx_signals_mt4_ticket ON signals(mt4_ticket);
+
+-- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar la
+-- columna a mano con:
+--   ALTER TABLE signals ADD COLUMN IF NOT EXISTS day_number INTEGER NOT NULL DEFAULT 0;
+CREATE OR REPLACE FUNCTION set_signal_day_number() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.day_number := (
+        SELECT COUNT(*) + 1 FROM signals
+        WHERE created_at::date = NEW.created_at::date
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_set_signal_day_number ON signals;
+CREATE TRIGGER trg_set_signal_day_number
+    BEFORE INSERT ON signals
+    FOR EACH ROW EXECUTE FUNCTION set_signal_day_number();
 
 -- =========================================================
 -- Tabla: signal_modifications
@@ -123,17 +150,18 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- explícita del usuario 2026-08-28), no editado a mano en operación
 -- normal.
 --
--- day_start_capital / day_start_date (agregado 2026-08-28, SOLO
--- usado por la auto-confirmación experimental de split-dev): capital
--- registrado al inicio del día en curso, para calcular la ganancia
--- del día como (capital_real - day_start_capital) / day_start_capital.
--- Se resetea automáticamente cuando day_start_date != la fecha actual
--- en horario de Colombia — no CURRENT_DATE crudo (bug real detectado
--- 2026-09-01: el contenedor de Postgres corre en UTC, así que
--- CURRENT_DATE saltaba de día 5 horas antes de medianoche en
+-- day_start_capital / day_start_date (agregado 2026-08-28, circuit
+-- breaker de auto-confirmación): capital registrado al inicio del día
+-- en curso, para calcular la ganancia del día como (capital_real -
+-- day_start_capital) / day_start_capital. Desplegado también a
+-- producción el 2026-08-30 (split-mvp/02-señal-nueva-parseo-confirmado.json),
+-- no solo dev. Se resetea automáticamente cuando day_start_date != la
+-- fecha actual en horario de Colombia — no CURRENT_DATE crudo (bug
+-- real detectado 2026-09-01: el contenedor de Postgres corre en UTC,
+-- así que CURRENT_DATE saltaba de día 5 horas antes de medianoche en
 -- Colombia; corregido calculando la fecha con
--- (NOW() AT TIME ZONE 'America/Bogota')::date en el workflow, ver
--- split-dev/02-señal-nueva-parseo-confirmado.json).
+-- (NOW() AT TIME ZONE 'America/Bogota')::date en ambos workflows,
+-- split-dev/02 y split-mvp/02).
 -- NOTA DE DESPLIEGUE: en una base ya existente (creada antes de este
 -- cambio) hay que agregar las columnas a mano con:
 --   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_capital REAL;
@@ -145,14 +173,14 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- ya existe (mismo patrón conocido que el resto de columnas nuevas
 -- del proyecto, ver punto 21 de STATUS.md).
 -- =========================================================
--- capital_inicial_plan (agregado 2026-08-28): ancla manual, de una
--- sola vez, del capital con el que arrancó el plan de trading — mismo
--- concepto que "Capital inicial" en la sección Crecimiento de
--- PVG_kronos. A diferencia de capital_real, este SÍ requiere una
--- edición manual inicial (no lo reporta el EA); se usa en
--- GET /api/registros (dashboard/main.py) para reconstruir el capital
--- de cada día como capital_inicial_plan + suma acumulada de
--- daily_pnl.profit_loss hasta esa fecha.
+-- capital_inicial_plan (v2.3, agregado 2026-08-30): ancla manual, de
+-- una sola vez, del capital con el que arrancó el plan de trading —
+-- usado por GET /api/registros (dashboard/main.py) para reconstruir
+-- el capital de cada día del panel Crecimiento/Calendario de
+-- PVG_kronos. A diferencia de capital_real, este SÍ requiere carga
+-- manual (no lo reporta el EA).
+-- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar a mano:
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS capital_inicial_plan REAL;
 -- Revertido 2026-08-31 (decisión explícita del usuario, misma sesión
 -- que capital_real): el crédito del bróker cuenta como capital real,
 -- no se excluye de este ancla — reversa una decisión de más temprano
@@ -168,6 +196,24 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- "Capital actual"/porcentaje de ganancia de PVG_kronos queda
 -- comparando unidades distintas (ancla sin crédito vs. capital en
 -- vivo con crédito) hasta que se corrija a mano.
+-- day_start_capital / day_start_date (agregado 2026-08-30, Fase 2 —
+-- auto-confirmación, PROTOCOLOS_KRONOS_BOT.md sección 12.3): capital
+-- registrado al inicio del día en curso, para calcular la ganancia del
+-- día como (capital_real - day_start_capital) / day_start_capital y
+-- aplicar el circuit breaker de 6%. **También desplegado a producción**
+-- (n8n-workflows/split-mvp/02-señal-nueva-parseo-confirmado.json), no
+-- solo dev — a diferencia de lo que decían notas anteriores de esta
+-- sesión. Se resetea automáticamente cuando day_start_date != la fecha
+-- actual en horario de Colombia — no CURRENT_DATE crudo (bug real
+-- detectado 2026-09-01, corregido en ambos: split-dev/02 y
+-- split-mvp/02, usando (NOW() AT TIME ZONE 'America/Bogota')::date;
+-- ver nota completa junto a day_start_date más arriba en este archivo).
+-- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar las
+-- columnas a mano con:
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_capital REAL;
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_date DATE;
+-- (mismo patrón que el resto de columnas nuevas del proyecto — este
+-- CREATE TABLE con IF NOT EXISTS no las agrega a una tabla existente).
 CREATE TABLE IF NOT EXISTS settings (
     id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
