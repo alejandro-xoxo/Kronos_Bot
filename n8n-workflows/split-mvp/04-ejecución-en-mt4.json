@@ -35,7 +35,7 @@
         "operation": "executeQuery",
         "query": "SELECT id, signal_uid, instrument, direction, execution_type, entry_price, sl, tp FROM signals WHERE id = $1;",
         "options": {
-          "queryReplacement": "={{ [$('Parsear callback').item.json.signalId] }}"
+          "queryReplacement": "={{ [$('Recibido de otro workflow').item.json.id] }}"
         }
       },
       "id": "3c3d3e3f-0001-4a1a-8a1a-000000000031",
@@ -48,7 +48,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7BHAPu1rIT8bxv9u",
+          "id": "7LVMx0eYAvNwAFfQ",
           "name": "Postgres account"
         }
       },
@@ -70,11 +70,11 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7BHAPu1rIT8bxv9u",
+          "id": "7LVMx0eYAvNwAFfQ",
           "name": "Postgres account"
         }
       },
-      "notes": "capital_real lo reporta el EA como AccountBalance() completo (incluye crédito del bróker, decisión explícita del usuario 2026-08-28) y n8n lo guarda en settings. Se lee justo antes de armar la orden para calcular el lotaje contra el capital ACTUAL, no uno viejo (PROTOCOLOS_KRONOS_BOT.md sección 5.1/5.2)."
+      "notes": "capital_real lo reporta el EA (AccountBalance() - AccountCredit()) y n8n lo guarda en settings. Se lee justo antes de armar la orden para calcular el lotaje contra el capital ACTUAL, no uno viejo (PROTOCOLOS_KRONOS_BOT.md sección 5.1/5.2)."
     },
     {
       "parameters": {
@@ -157,6 +157,6 @@
     "executionOrder": "v1",
     "errorWorkflow": "89d91CRDt3j4Xxy1"
   },
-  "active": false,
+  "active": true,
   "pinData": {}
 }
