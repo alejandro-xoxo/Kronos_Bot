@@ -19,7 +19,7 @@ n8n (orquestador central: lógica, IA, base de datos, notificaciones)
         ↓
 EA puente en MT4 (ejecución real en cuenta VT Markets)
         ↓
-Retroalimentación de cierre → n8n → Base de datos + Google Sheets
+Retroalimentación de cierre → n8n → Base de datos + PVG_kronos (dashboard)
 ```
 
 Todo corre en el EliteBook (CachyOS/Arch), con Docker para n8n + Telethon, y Wine/Bottles para MT4.
@@ -206,7 +206,7 @@ señal nueva se rechaza por falta de lotaje (ver 5.4).
 - Cuando una operación cierra (TP, SL, cierre manual, o cierre por condición de carrera de precio), su slot se libera inmediatamente y queda disponible para la siguiente señal que llegue.
 - Si los 3 slots están ocupados (o si `capital_real` no alcanza para ningún slot, `N = 0`) y llega una señal nueva → **se rechaza automáticamente**:
   - **No se inserta ningún registro en la tabla `signals`.**
-  - Se registra únicamente en la hoja "Rechazadas" de Google Sheets.
+  - No queda registrada en ningún lado más que la notificación de Telegram (Google Sheets fue descartado por completo, decisión explícita del usuario, ver `STATUS.md`; no hay reemplazo de registro de rechazos todavía).
   - Se envía notificación por Telegram informando el rechazo por falta de lotaje disponible.
 
 ---
@@ -375,7 +375,10 @@ Actualiza:
     ↓
 Libera el slot de lotaje que ocupaba esa operación (sección 5.4)
     ↓
-Registra el resultado final en Google Sheets (hoja "Señales")
+Registra el resultado final en `daily_pnl` (consumido por PVG_kronos,
+sección Crecimiento/Calendario del dashboard — ver `GET /api/registros`
+en `dashboard/main.py`; Google Sheets fue descartado por completo,
+decisión explícita del usuario, ver `STATUS.md`)
     ↓
 Notifica el resultado al usuario por Telegram
 ```
@@ -397,7 +400,7 @@ Notifica el resultado al usuario por Telegram
 | `EXPIRED` | Descartada por exceder los 5 minutos de antigüedad |
 | `PENDING_MANUAL` | No se pudo interpretar ni por regex ni por IA; requiere revisión manual |
 
-**Nota:** las señales rechazadas por falta de lotaje disponible (sección 5.4) **no generan un registro en esta tabla** — solo quedan en el log de Google Sheets.
+**Nota:** las señales rechazadas por falta de lotaje disponible (sección 5.4) **no generan un registro en esta tabla** — hoy no quedan registradas en ningún lado más que la notificación de Telegram (Google Sheets fue descartado por completo).
 
 ---
 
@@ -406,11 +409,11 @@ Notifica el resultado al usuario por Telegram
 | Evento | Canal | Contenido |
 |---|---|---|
 | Nueva señal válida, esperando confirmación | Telegram | Datos completos + botones Confirmar/Rechazar |
-| Señal rechazada por falta de lotaje | Telegram + Sheets | Motivo del rechazo |
+| Señal rechazada por falta de lotaje | Telegram | Motivo del rechazo |
 | Fallo total de interpretación (IA + regex) | Telegram (urgente) | Texto original del mensaje |
 | Modificación exitosa | Telegram | Confirmación con ticket y valor aplicado |
 | Modificación fallida tras 2 intentos | Telegram (con opciones + timeout 30s) | Precio actual, precio objetivo, instrucción original |
-| Cierre de operación (cualquier motivo) | Telegram + Sheets | Resultado final ($/pips) |
+| Cierre de operación (cualquier motivo) | Telegram + `daily_pnl` (PVG_kronos) | Resultado final ($/pips) |
 | Señal no identificable (sin reply válido y sin contexto claro) | Telegram | Marcada como PENDING_MANUAL |
 
 ---
