@@ -914,7 +914,8 @@ tbody tr.row-noop td:first-child{ box-shadow: inset 2px 0 0 rgba(182, 190, 205, 
 
 .ctrl-actions{ display: flex; gap: 8px }
 .ctrl-actions .btn{ flex: 1; min-height: 44px }
-.ctrl-status{ margin: 10px 0 0; font-size: 12px; color: var(--txt-mute); min-height: 1em }
+.ctrl-status{ margin: 10px 0 0; font-size: 12px; color: var(--txt-mute); min-height: 1em; display: flex; align-items: center; gap: 6px }
+.ctrl-status svg{ width: 14px; height: 14px; flex-shrink: 0 }
 
 /* --------------------------------------------------------------------------
    Responsive

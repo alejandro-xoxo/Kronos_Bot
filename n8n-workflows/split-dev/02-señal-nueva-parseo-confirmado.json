@@ -1,11 +1,11 @@
 {
-  "name": "Kronos 02 - Señal nueva (parseo confirmado)",
+  "name": "Kronos Dev 02 - Señal nueva (parseo confirmado)",
   "nodes": [
     {
       "parameters": {
         "inputSource": "passthrough"
       },
-      "id": "2db36409-2c2d-4e01-ab4a-6ded6bd440af",
+      "id": "484eef4c-84fd-4847-ac18-77ce4453f6d5",
       "name": "Recibido de otro workflow",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -33,7 +33,7 @@
       "notesInFlow": true,
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "vlp8K6c3mIwlQfkI",
           "name": "Postgres account"
         }
       },
@@ -41,58 +41,8 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-        "text": "=🆕 <b>Nueva señal detectada</b>\n\n📌 Instrumento: <b>{{ $('Recibido de otro workflow').item.json.instrument }}</b>\n📈 Dirección: <b>{{ $('Recibido de otro workflow').item.json.direction }}</b>\n⚙️ Tipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\n🎯 Entrada: <b>{{ $('Recibido de otro workflow').item.json.entry_price }}</b>\n✅ TP: <b>{{ $('Recibido de otro workflow').item.json.tp }}</b>\n🛑 SL: <b>{{ $('Recibido de otro workflow').item.json.sl }}</b>\n\n⏳ Estado: <i>pendiente de confirmación</i>\n🔍 Interpretado por: regex",
-        "replyMarkup": "inlineKeyboard",
-        "inlineKeyboard": {
-          "rows": [
-            {
-              "row": {
-                "buttons": [
-                  {
-                    "text": "✅ Confirmar",
-                    "additionalFields": {
-                      "callback_data": "=confirm:{{ $json.id }}"
-                    }
-                  },
-                  {
-                    "text": "❌ Rechazar",
-                    "additionalFields": {
-                      "callback_data": "=reject:{{ $json.id }}"
-                    }
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        "additionalFields": {
-          "appendAttribution": false,
-          "parse_mode": "HTML"
-        }
-      },
-      "id": "d6926da1-b0d0-4ba8-93ce-e268cbdb0e6f",
-      "name": "Notificar Telegram",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        -1350,
-        -120
-      ],
-      "notesInFlow": true,
-      "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
-      "credentials": {
-        "telegramApi": {
-          "id": "mbd7KXzuERWzRPII",
-          "name": "Telegram account"
-        }
-      },
-      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
-    },
-    {
-      "parameters": {
         "operation": "executeQuery",
-        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = (NOW() AT TIME ZONE 'America/Bogota')::date\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM (NOW() AT TIME ZONE 'America/Bogota')::date)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
+        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date,\n         (NOW() AT TIME ZONE 'America/Bogota')::date AS hoy_bogota\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = cur.hoy_bogota\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM cur.hoy_bogota)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
       },
       "id": "b2c3d4e5-6f70-4a81-9b0c-1d2e3f4a5b6c",
       "name": "Chequear ganancia del día (Postgres)",
@@ -104,11 +54,11 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "vlp8K6c3mIwlQfkI",
           "name": "Postgres account"
         }
       },
-      "notes": "Fase 2 (PROTOCOLOS_KRONOS_BOT.md sección 12.3) — circuit breaker diario. day_start_capital/day_start_date se resetean automáticamente cuando cambia la fecha (nuevo día = nueva base 0%)."
+      "notes": "SOLO STACK DEV — circuit breaker diario (decisión explícita del usuario, 2026-08-28). day_start_capital/day_start_date se resetean automáticamente cuando cambia la fecha (nuevo día = nueva base 0%). Requiere que settings tenga las columnas day_start_capital/day_start_date — ver nota de despliegue en db/schema.sql si la base ya existía antes de este cambio. La fecha se calcula con (NOW() AT TIME ZONE 'America/Bogota')::date, no CURRENT_DATE (bug real detectado 2026-09-01: el contenedor de Postgres corre en UTC, así que el reset ocurría 5 horas antes de medianoche en Colombia)."
     },
     {
       "parameters": {
@@ -142,7 +92,7 @@
         -1350,
         -220
       ],
-      "notes": "Circuit breaker Fase 2: si la cuenta ya subió ≥6% respecto al capital del inicio del día, no se auto-confirma nada más hasta el día siguiente — cae a la rama manual (botones Confirmar/Rechazar)."
+      "notes": "SOLO STACK DEV. Circuit breaker: si la cuenta ya subió ≥6% respecto al capital del inicio del día, no se auto-confirma nada más hasta el día siguiente — cae directo a la rama manual (botones Confirmar/Rechazar), sin pasar por el chequeo de operaciones OPEN."
     },
     {
       "parameters": {
@@ -159,11 +109,11 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "vlp8K6c3mIwlQfkI",
           "name": "Postgres account"
         }
       },
-      "notes": "Fase 2 — cuenta cuántas señales están OPEN ahora mismo para decidir si hay lugar para auto-confirmar la nueva."
+      "notes": "SOLO STACK DEV — experimento de auto-confirmación (decisión explícita del usuario, 2026-08-28, ver STATUS.md). Cuenta cuántas señales están OPEN ahora mismo para decidir si hay lugar para auto-confirmar la nueva."
     },
     {
       "parameters": {
@@ -197,7 +147,7 @@
         -900,
         -320
       ],
-      "notes": "Fase 2, regla oficial (PROTOCOLOS_KRONOS_BOT.md sección 12.3): tope de 1 operación OPEN simultánea, usando el lote completo disponible. Si ya hay 1 o más, cae a la rama manual de siempre."
+      "notes": "SOLO STACK DEV. Actualizado 2026-08-29: tope de 1 operación OPEN simultánea (regla oficial de Fase 2, PROTOCOLOS_KRONOS_BOT.md sección 12.3 — antes era un experimento con tope de 2, sin regla formal) — si ya hay 1 o más, cae a la rama manual de siempre (botones Confirmar/Rechazar)."
     },
     {
       "parameters": {
@@ -217,7 +167,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "vlp8K6c3mIwlQfkI",
           "name": "Postgres account"
         }
       },
@@ -226,14 +176,14 @@
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
-        "text": "=🤖 <b>Señal auto-confirmada</b> ({{ $('Contar operaciones abiertas (Postgres)').item.json.open_count }}/1 operaciones abiertas)\n\n📌 Instrumento: <b>{{ $('Recibido de otro workflow').item.json.instrument }}</b>\n📈 Dirección: <b>{{ $('Recibido de otro workflow').item.json.direction }}</b>\n⚙️ Tipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\n🎯 Entrada: <b>{{ $('Recibido de otro workflow').item.json.entry_price }}</b>\n✅ TP: <b>{{ $('Recibido de otro workflow').item.json.tp }}</b>\n🛑 SL: <b>{{ $('Recibido de otro workflow').item.json.sl }}</b>\n\n⚡ <i>Se ejecuta sin esperar confirmación manual.</i>",
+        "text": "=🤖 Señal auto-confirmada (DEV, {{ $('Contar operaciones abiertas (Postgres)').item.json.open_count }}/1 operaciones abiertas)\n\nInstrumento: {{ $('Recibido de otro workflow').item.json.instrument }}\nDirección: {{ $('Recibido de otro workflow').item.json.direction }}\nTipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\nEntrada: {{ $('Recibido de otro workflow').item.json.entry_price }}\nTP: {{ $('Recibido de otro workflow').item.json.tp }}\nSL: {{ $('Recibido de otro workflow').item.json.sl }}\n\nSe procederá con la ejecución sin esperar confirmación manual.",
         "additionalFields": {
           "appendAttribution": false,
-          "parse_mode": "HTML"
+          "parse_mode": "none"
         }
       },
       "id": "f4d5e6a7-8b9c-4d0e-1f2a-3b4c5d6e7f8a",
-      "name": "Avisar en chat: Auto-confirmada",
+      "name": "Avisar en chat: Auto-confirmada (dev)",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
@@ -242,20 +192,19 @@
       ],
       "credentials": {
         "telegramApi": {
-          "id": "mbd7KXzuERWzRPII",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      },
-      "webhookId": "e24bd77e-556b-4c70-b3d6-ee8dce0a136c"
+      }
     },
     {
       "parameters": {
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "8KIJztUvYzj2FhCr",
+          "value": "cIuuUkKc49hSE2Dc",
           "mode": "list",
-          "cachedResultName": "Kronos 04 - Ejecución en MT4"
+          "cachedResultName": "Kronos Dev 04 - Ejecución en MT4"
         },
         "mode": "each",
         "options": {
@@ -263,27 +212,65 @@
         }
       },
       "id": "a5e6f7b8-9c0d-4e1f-2a3b-4c5d6e7f8a9b",
-      "name": "Ejecutar: Kronos 04 - Ejecución en MT4 (auto)",
+      "name": "Ejecutar: Kronos Dev 04 - Ejecución en MT4 (auto)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
         -650,
         -220
       ],
-      "notes": "Mismo patrón fire-and-forget que usa el workflow 03 para la confirmación manual."
+      "notes": "TODO tras importar en n8n: reseleccionar el workflow destino en 'workflowId'. Mismo patrón fire-and-forget que usa el workflow 03 para la confirmación manual.",
+      "notesInFlow": true
     },
     {
       "parameters": {
-        "jsCode": "// Fix 2026-08-31: el trigger de workflow 04 (Recibido de otro workflow)\n// necesita el campo \"id\" del signal en el item que recibe (inputSource:\n// passthrough). Antes de este nodo, el item que llegaba era la respuesta\n// de la API de Telegram (sin id de la señal) -> Obtener señal confirmada\n// no encontraba nada y la orden nunca se escribía en mt4-bridge/orders/pending/.\nreturn [{ json: { id: $('Insertar señal (Postgres)').item.json.id } }];"
+        "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
+        "text": "=🆕 Nueva señal detectada\n\nInstrumento: {{ $('Recibido de otro workflow').item.json.instrument }}\nDirección: {{ $('Recibido de otro workflow').item.json.direction }}\nTipo: {{ $('Recibido de otro workflow').item.json.execution_type }}\nEntrada: {{ $('Recibido de otro workflow').item.json.entry_price }}\nTP: {{ $('Recibido de otro workflow').item.json.tp }}\nSL: {{ $('Recibido de otro workflow').item.json.sl }}\n\nEstado: PENDING_CONFIRMATION\nInterpretado por: REGEX",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Confirmar",
+                    "additionalFields": {
+                      "callback_data": "=confirm:{{ $('Insertar señal (Postgres)').item.json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Rechazar",
+                    "additionalFields": {
+                      "callback_data": "=reject:{{ $('Insertar señal (Postgres)').item.json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
       },
-      "id": "33476ffb-da65-48ea-95c2-615a49249c3b",
-      "name": "Preparar id para ejecución (auto)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "d6926da1-b0d0-4ba8-93ce-e268cbdb0e6f",
+      "name": "Notificar Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [
-        -700,
-        -220
-      ]
+        -1150,
+        -20
+      ],
+      "notesInFlow": true,
+      "webhookId": "56f4115f-f06e-4d08-ba8d-2144e8feff15",
+      "credentials": {
+        "telegramApi": {
+          "id": "Ic6A007NlBaY2ucv",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo). callback_data ahora referencia $('Insertar señal (Postgres)').item.json.id en vez de $json.id, porque este nodo ya no recibe directo la salida del INSERT (se intercaló el chequeo de ganancia diaria y el conteo de operaciones abiertas para la rama de auto-confirmación). Recibe items desde DOS ramas manuales distintas: ganancia del día ≥6% (circuit breaker) o ya hay 2 operaciones OPEN — en ambos casos cae a confirmación manual normal."
     }
   ],
   "connections": {
@@ -298,22 +285,29 @@
         ]
       ]
     },
-    "Recibido de otro workflow": {
+    "Chequear ganancia del día (Postgres)": {
       "main": [
         [
           {
-            "node": "Insertar señal (Postgres)",
+            "node": "¿Ganancia del día <6%?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Chequear ganancia del día (Postgres)": {
+    "¿Ganancia del día <6%?": {
       "main": [
         [
           {
-            "node": "¿Ganancia del día <6%?",
+            "node": "Contar operaciones abiertas (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notificar Telegram",
             "type": "main",
             "index": 0
           }
@@ -353,47 +347,29 @@
       "main": [
         [
           {
-            "node": "Avisar en chat: Auto-confirmada",
+            "node": "Avisar en chat: Auto-confirmada (dev)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Avisar en chat: Auto-confirmada": {
+    "Avisar en chat: Auto-confirmada (dev)": {
       "main": [
         [
           {
-            "node": "Preparar id para ejecución (auto)",
+            "node": "Ejecutar: Kronos Dev 04 - Ejecución en MT4 (auto)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "¿Ganancia del día <6%?": {
+    "Recibido de otro workflow": {
       "main": [
         [
           {
-            "node": "Contar operaciones abiertas (Postgres)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Notificar Telegram",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Preparar id para ejecución (auto)": {
-      "main": [
-        [
-          {
-            "node": "Ejecutar: Kronos 04 - Ejecución en MT4 (auto)",
+            "node": "Insertar señal (Postgres)",
             "type": "main",
             "index": 0
           }
@@ -404,6 +380,6 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "active": true,
+  "active": false,
   "pinData": {}
 }

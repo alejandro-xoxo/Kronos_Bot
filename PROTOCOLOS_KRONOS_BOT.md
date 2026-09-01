@@ -146,17 +146,17 @@ Sin techo superior definido.
 
 ### 5.3. División en slots (máximo 3 operaciones simultáneas)
 
-**Estado: OBSOLETA (2026-08-30) — Fase 2 (sección 12.3) fija el tope
+**Estado: OBSOLETA (2026-08-29) — Fase 2 (sección 12.3) fija el tope
 en 1 operación simultánea**, usando el lotaje completo disponible sin
 repartir. No hay "competencia por slot" posible con tope de 1; esta
 sección queda como referencia histórica del diseño de 3 slots, no
 como diseño vigente. Si el tope de 1 se revisa más adelante, evaluar
 si esta sección se retoma o se rediseña de nuevo.
 
-**Historial (diseño previo a Fase 2):** **DISEÑADO, NO IMPLEMENTADO (rediseño confirmado
-2026-08-21, reemplaza la versión anterior de esta sección que
-usaba un split 80/20 con tope de 2 slots — esa versión queda
-descartada, no es una alternativa).** Esta sección describe una
+**Historial (diseño previo a Fase 2):** **DISEÑADO, NO IMPLEMENTADO
+(rediseño confirmado 2026-08-21, reemplaza la versión anterior de esta
+sección que usaba un split 80/20 con tope de 2 slots — esa versión
+queda descartada, no es una alternativa).** Esta sección describe una
 división posterior de `lote_total` (5.2) entre hasta 3 operaciones
 simultáneas compitiendo por el mismo capital. No está conectada al
 flujo real: hoy cada sub-señal usa el `lote_total` completo de 5.2 sin
@@ -221,7 +221,7 @@ señal nueva se rechaza por falta de lotaje (ver 5.4).
 
 ### 7.1. Confirmación de señales nuevas — manual o automática según Fase 2 (sección 12.3)
 
-**Actualizado 2026-08-30**: con Fase 2 declarada, una señal nueva se
+**Actualizado 2026-08-29**: con Fase 2 declarada, una señal nueva se
 auto-confirma si cumple las condiciones de la sección 12.3 (0
 operaciones `OPEN` y ganancia del día <6%); si no las cumple, cae a
 confirmación manual como en Fase 1.
@@ -422,7 +422,7 @@ Notifica el resultado al usuario por Telegram
 
 1. **No se inventan datos.** Ningún campo (precio, SL, TP, lote) se completa con suposiciones; si falta información crítica, la señal no se ejecuta hasta tenerla.
 2. **Actualizado 2026-08-28 — el capital real SÍ incluye el crédito del bróker**, por decisión explícita del usuario (ver sección 5.1). Se calcula automáticamente en el EA como `AccountBalance()` completo.
-3. **Actualizado 2026-08-30, decisión explícita del usuario — Fase 2
+3. **Actualizado 2026-08-29, decisión explícita del usuario — Fase 2
    de este protocolo (100% automático) declarada iniciada.** (Numeración
    propia de este documento — Fase 1/Fase 2 semi-auto/100%-auto — no
    confundir con la numeración de fases 0-8 de `CLAUDE.md`, donde este
@@ -440,7 +440,11 @@ Notifica el resultado al usuario por Telegram
      auto-confirmar hasta el día siguiente (cae a confirmación
      manual). Las posiciones ya abiertas no se tocan.
 
-   Las modificaciones sobre operaciones ya aprobadas siguen
+   Aplicación **incremental** a producción real, empezando por el
+   stack dev (ver `STATUS.md` e historial de versiones `v2.x`) — la
+   declaración de fase no implica que ya esté activo en la cuenta
+   real, solo que dejó de ser una excepción no autorizada. Las
+   modificaciones sobre operaciones ya aprobadas siguen
    ejecutándose sin intervención, como en Fase 1.
 4. **Ningún loop de reintento es infinito.** Todo mecanismo de reintento automático tiene un tope máximo definido (2 intentos + 1 post-timeout) y termina en notificación al usuario si falla.
 5. **Las credenciales (.env) nunca se versionan en git** y deben rotarse inmediatamente si se exponen accidentalmente.

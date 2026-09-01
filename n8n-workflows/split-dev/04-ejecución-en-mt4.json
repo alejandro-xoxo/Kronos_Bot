@@ -1,11 +1,11 @@
 {
-  "name": "Kronos 04 - Ejecución en MT4",
+  "name": "Kronos Dev 04 - Ejecución en MT4",
   "nodes": [
     {
       "parameters": {
         "inputSource": "passthrough"
       },
-      "id": "1fd19cc3-bdbf-49ce-b70f-06fc1c24e708",
+      "id": "2f6630a8-7ee7-4f5c-a6ce-b252e5136b6b",
       "name": "Recibido de otro workflow",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -48,7 +48,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7BHAPu1rIT8bxv9u",
+          "id": "vlp8K6c3mIwlQfkI",
           "name": "Postgres account"
         }
       },
@@ -70,7 +70,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7BHAPu1rIT8bxv9u",
+          "id": "vlp8K6c3mIwlQfkI",
           "name": "Postgres account"
         }
       },

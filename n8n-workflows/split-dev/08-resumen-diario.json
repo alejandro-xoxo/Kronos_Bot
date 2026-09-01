@@ -1,6 +1,26 @@
 {
-  "name": "Kronos 08 - Resumen diario",
+  "name": "Kronos Dev 08 - Resumen diario",
   "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 11 * * *"
+            }
+          ]
+        }
+      },
+      "id": "98f9731b-3579-4fd5-bb32-c42fffe2f450",
+      "name": "Trigger: 11am resumen diario",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        0
+      ]
+    },
     {
       "parameters": {
         "operation": "executeQuery",
@@ -17,7 +37,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "vlp8K6c3mIwlQfkI",
           "name": "Postgres account"
         }
       },
@@ -28,8 +48,7 @@
         "chatId": "={{ $env.TELEGRAM_USER_CHAT_ID }}",
         "text": "={{ '<b>📊 Resumen del día</b>\\n<i>' + $now.format('yyyy-MM-dd') + '</i>\\n\\nOperaciones cerradas: <b>' + $json.total + '</b>\\n\\n<tg-emoji emoji-id=\"5213287958798410406\">✅</tg-emoji> Ganadoras: <b>' + $json.wins + '</b>\\n<tg-emoji emoji-id=\"5980953710157632545\">❌</tg-emoji> Perdedoras: <b>' + $json.losses + '</b>\\n<tg-emoji emoji-id=\"5278526648008850775\">🥇</tg-emoji> Win rate: <b>' + $json.win_rate + '%</b>\\n\\n💰 Resultado neto: <b>' + $json.total_pl + '</b>\\n\\n<i>Instrumentos: ' + $json.instruments + '</i>' }}",
         "additionalFields": {
-          "parse_mode": "HTML",
-          "appendAttribution": false
+          "parse_mode": "HTML"
         }
       },
       "id": "cda9f6a6-7a86-4ecd-b051-fecf1ad4684d",
@@ -42,11 +61,11 @@
       ],
       "credentials": {
         "telegramApi": {
-          "id": "mbd7KXzuERWzRPII",
+          "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
       },
-      "webhookId": "5ae828eb-7de4-4a59-ba8d-7466013551e8"
+      "webhookId": "a50497a6-8c09-44c4-a1f1-b9839b98ae35"
     },
     {
       "parameters": {
@@ -79,6 +98,17 @@
     }
   ],
   "connections": {
+    "Trigger: 11am resumen diario": {
+      "main": [
+        [
+          {
+            "node": "Resumen del día (Postgres)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Resumen del día (Postgres)": {
       "main": [
         [
@@ -103,6 +133,6 @@
     }
   },
   "settings": {},
-  "active": true,
+  "active": false,
   "pinData": {}
 }
