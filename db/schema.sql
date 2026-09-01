@@ -127,8 +127,13 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- usado por la auto-confirmación experimental de split-dev): capital
 -- registrado al inicio del día en curso, para calcular la ganancia
 -- del día como (capital_real - day_start_capital) / day_start_capital.
--- Se resetea automáticamente cuando day_start_date != CURRENT_DATE
--- (ver workflow split-dev/02-señal-nueva-parseo-confirmado.json).
+-- Se resetea automáticamente cuando day_start_date != la fecha actual
+-- en horario de Colombia — no CURRENT_DATE crudo (bug real detectado
+-- 2026-09-01: el contenedor de Postgres corre en UTC, así que
+-- CURRENT_DATE saltaba de día 5 horas antes de medianoche en
+-- Colombia; corregido calculando la fecha con
+-- (NOW() AT TIME ZONE 'America/Bogota')::date en el workflow, ver
+-- split-dev/02-señal-nueva-parseo-confirmado.json).
 -- NOTA DE DESPLIEGUE: en una base ya existente (creada antes de este
 -- cambio) hay que agregar las columnas a mano con:
 --   ALTER TABLE settings ADD COLUMN IF NOT EXISTS day_start_capital REAL;
@@ -148,6 +153,21 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- GET /api/registros (dashboard/main.py) para reconstruir el capital
 -- de cada día como capital_inicial_plan + suma acumulada de
 -- daily_pnl.profit_loss hasta esa fecha.
+-- Revertido 2026-08-31 (decisión explícita del usuario, misma sesión
+-- que capital_real): el crédito del bróker cuenta como capital real,
+-- no se excluye de este ancla — reversa una decisión de más temprano
+-- ese mismo día que lo fijaba SIN crédito para no mezclar unidades
+-- con capital_end_of_day (ver nota de esa columna, más abajo, y
+-- n8n-workflows/split-dev/09-sync-capital-real.json). Requiere un
+-- UPDATE manual, una sola vez, para llevar el valor existente (fijado
+-- sin crédito) a la misma unidad que capital_real:
+--   UPDATE settings SET capital_inicial_plan = capital_real
+--   WHERE id = (SELECT id FROM settings ORDER BY id DESC LIMIT 1);
+-- (o el valor manual que corresponda si capital_inicial_plan no debe
+-- ser exactamente el capital_real de hoy). Sin este UPDATE, el KPI
+-- "Capital actual"/porcentaje de ganancia de PVG_kronos queda
+-- comparando unidades distintas (ancla sin crédito vs. capital en
+-- vivo con crédito) hasta que se corrija a mano.
 CREATE TABLE IF NOT EXISTS settings (
     id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
@@ -251,6 +271,36 @@ CREATE TRIGGER trg_purge_old_signals
 -- 11am las lea, esas operaciones desaparecen del recap sin aviso.
 -- daily_pnl no tiene ese problema porque captura en el momento del
 -- cierre, no al final del día.
+-- capital_end_of_day (agregado 2026-08-31): snapshot del capital real
+-- de la cuenta para ese día, CON crédito del bróker (account.capital_real
+-- de orders/status.json = AccountBalance() + AccountCredit(), mismo
+-- valor que settings.capital_real), actualizado automáticamente cada
+-- 5s por n8n-workflows/split-dev/09-sync-capital-real.json (solo dev
+-- por ahora — no hay equivalente en split-mvp/producción todavía).
+-- Revertido el mismo día 2026-08-31 (decisión explícita del usuario):
+-- una versión anterior de esta columna, en esta misma sesión, guardaba
+-- el snapshot SIN crédito (account.balance) para que fuera comparable
+-- con capital_inicial_plan (que en ese momento tampoco lo incluía) —
+-- el usuario pidió expresamente lo contrario: el crédito cuenta como
+-- capital real de trabajo, así que capital_end_of_day vuelve a usar
+-- capital_real completo, y capital_inicial_plan se actualiza a la
+-- misma unidad (ver nota de esa columna, más arriba, con el UPDATE
+-- manual de una sola vez necesario). A diferencia de profit_loss (que
+-- solo suma cierres de señales del bot vía el trigger de abajo), este
+-- campo captura el capital real completo de la cuenta — incluye
+-- operaciones abiertas manualmente en MT4, que nunca pasan por
+-- `signals` y por lo tanto nunca disparan el trigger.
+-- /api/registros (dashboard/main.py) prioriza este campo sobre el
+-- profit_loss acumulado cuando está disponible, para que el gráfico
+-- de Crecimiento refleje el capital real, no solo lo operado por el
+-- bot. NULL en días anteriores a este cambio, o si status.json no
+-- trae account.capital_real por algún motivo — esos casos siguen
+-- calculándose con el método viejo (capital_inicial_plan + suma de
+-- profit_loss), sin romper el histórico ya existente.
+--
+-- NOTA DE DESPLIEGUE: si `daily_pnl` ya existía sin esta columna
+-- (creada en una sesión anterior a este cambio), agregar a mano:
+--   ALTER TABLE daily_pnl ADD COLUMN IF NOT EXISTS capital_end_of_day REAL;
 CREATE TABLE IF NOT EXISTS daily_pnl (
     date                DATE PRIMARY KEY,
     profit_loss          REAL NOT NULL DEFAULT 0,
@@ -258,57 +308,19 @@ CREATE TABLE IF NOT EXISTS daily_pnl (
     losses                INTEGER NOT NULL DEFAULT 0,
     instruments            TEXT,
     operable              BOOLEAN NOT NULL DEFAULT TRUE,
+    capital_end_of_day    REAL,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- =========================================================
--- Trigger: update_daily_pnl
--- Se dispara cuando una señal transiciona a un status de cierre real
--- (TP_REACHED, SL_REACHED, CLOSED_MANUAL, CLOSED_BY_PRICE_RACE) y
--- trae close_timestamp. Sólo cuenta el cambio de status hacia un
--- cierre (OLD.status IS DISTINCT FROM NEW.status), nunca re-suma un
--- UPDATE posterior sobre una señal que ya estaba cerrada.
--- =========================================================
-CREATE OR REPLACE FUNCTION update_daily_pnl() RETURNS trigger AS $$
-DECLARE
-    v_close_date DATE;
-    v_is_win INTEGER;
-    v_is_loss INTEGER;
-BEGIN
-    IF NEW.status IN ('TP_REACHED', 'SL_REACHED', 'CLOSED_MANUAL', 'CLOSED_BY_PRICE_RACE')
-       AND OLD.status IS DISTINCT FROM NEW.status
-       AND NEW.close_timestamp IS NOT NULL THEN
-        v_close_date := NEW.close_timestamp::date;
-        -- Mismo criterio que ya usaba la versión en vivo del workflow
-        -- 08 contra `signals`: ganadora si profit_loss > 0, perdedora
-        -- en cualquier otro caso (incluye 0, empate cuenta como no-win).
-        v_is_win := CASE WHEN COALESCE(NEW.profit_loss, 0) > 0 THEN 1 ELSE 0 END;
-        v_is_loss := CASE WHEN COALESCE(NEW.profit_loss, 0) > 0 THEN 0 ELSE 1 END;
-
-        INSERT INTO daily_pnl (date, profit_loss, wins, losses, instruments, operable, updated_at)
-        VALUES (v_close_date, COALESCE(NEW.profit_loss, 0), v_is_win, v_is_loss, NEW.instrument, TRUE, NOW())
-        ON CONFLICT (date) DO UPDATE SET
-            profit_loss = daily_pnl.profit_loss + COALESCE(EXCLUDED.profit_loss, 0),
-            wins = daily_pnl.wins + EXCLUDED.wins,
-            losses = daily_pnl.losses + EXCLUDED.losses,
-            instruments = (
-                SELECT string_agg(DISTINCT instr, ', ' ORDER BY instr)
-                FROM unnest(
-                    string_to_array(COALESCE(daily_pnl.instruments, ''), ', ')
-                    || string_to_array(COALESCE(EXCLUDED.instruments, ''), ', ')
-                ) AS instr
-                WHERE instr <> ''
-            ),
-            operable = TRUE,
-            updated_at = NOW();
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_update_daily_pnl ON signals;
-CREATE TRIGGER trg_update_daily_pnl
-    AFTER UPDATE ON signals
-    FOR EACH ROW
-    EXECUTE FUNCTION update_daily_pnl();
+-- Eliminado 2026-08-31 (decisión explícita del usuario): existía un
+-- trigger update_daily_pnl/trg_update_daily_pnl que autocompletaba
+-- profit_loss/wins/losses/instruments en daily_pnl al cerrar una
+-- señal, usando NEW.close_timestamp::date para elegir el día. Se sacó
+-- porque generaba registros en la fecha equivocada (se detectó el
+-- 2026-08-31: cierres de hoy quedaban registrados el domingo) — la
+-- causa de fondo (desfase de timezone/valor de close_timestamp entre
+-- lo que escribe n8n y la fecha real del cierre) no se investigó a
+-- fondo porque el usuario prefiere cargar wins/losses/profit_loss a
+-- mano en PVG en vez de confiar en el auto-registro. capital_end_of_day
+-- (arriba) sigue siendo automático vía el sync de capital_real — esto
+-- solo afecta profit_loss/wins/losses/instruments.
