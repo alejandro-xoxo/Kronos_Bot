@@ -220,7 +220,10 @@
           "id": "W4XHaBNANAtKf4Ih",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -242,7 +245,10 @@
           "id": "W4XHaBNANAtKf4Ih",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -266,7 +272,10 @@
           "id": "W4XHaBNANAtKf4Ih",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -290,7 +299,10 @@
           "id": "W4XHaBNANAtKf4Ih",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -312,7 +324,10 @@
           "id": "W4XHaBNANAtKf4Ih",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -334,14 +349,17 @@
           "id": "W4XHaBNANAtKf4Ih",
           "name": "Telegram account"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
         "source": "database",
         "workflowId": {
           "__rl": true,
-          "value": "",
+          "value": "8KIJztUvYzj2FhCr",
           "mode": "list",
           "cachedResultName": "Kronos 04 - Ejecución en MT4"
         },
@@ -358,7 +376,7 @@
         -1300,
         660
       ],
-      "notes": "TODO tras importar en n8n: reseleccionar el workflow destino en 'workflowId' (recien creado, no tiene ID hasta importarlo). waitForSubWorkflow=false a proposito: fire-and-forget, no bloquea ni comparte cola con el workflow destino.",
+      "notes": "Fix 2026-09-01: workflowId estaba vacío desde el import inicial (placeholder de la nota de abajo, nunca se resolvió) — el botón 'Confirmar' manual nunca disparaba la ejecución real en MT4. Se fija al ID real de 'Kronos 04 - Ejecución en MT4' (8KIJztUvYzj2FhCr). Bug independiente de los de hoy, encontrado al re-subir este workflow. waitForSubWorkflow=false a propósito: fire-and-forget, no bloquea ni comparte cola con el workflow destino.",
       "notesInFlow": true
     }
   ],
@@ -490,7 +508,8 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "89d91CRDt3j4Xxy1"
   },
   "active": false,
   "pinData": {}

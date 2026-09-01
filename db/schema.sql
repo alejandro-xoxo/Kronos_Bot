@@ -39,6 +39,27 @@ CREATE TABLE IF NOT EXISTS signals (
     lot_assigned         REAL NOT NULL DEFAULT 0.01,
 
     -- Estado del ciclo de vida (sección 10)
+    -- CANCELLED_SIBLING_TP (agregado 2026-09-01, decisión explícita del
+    -- usuario): cuando una sub-señal llega a TP_REACHED, las sub-señales
+    -- hermanas del mismo message_id que TODAVÍA estén en
+    -- PENDING_CONFIRMATION o CONFIRMED (sin llegar a OPEN) se cancelan
+    -- automáticamente — ver n8n-workflows/split-mvp|split-dev/
+    -- 06-scheduler-cierres-mt4.json, nodo "Cancelar sub-señales hermanas
+    -- (Postgres)". Distinto de REJECTED_BY_USER (rechazo manual por
+    -- botón). Excepción puntual a PROTOCOLOS_KRONOS_BOT.md sección 4.2
+    -- regla 6 ("confirmar o rechazar una no afecta a las demás"), que
+    -- seguía siendo la regla general antes de este cambio — ver nota
+    -- actualizada en esa sección.
+    -- NOTA DE DESPLIEGUE: en una base ya existente, el CHECK constraint
+    -- no se actualiza solo — hay que correr a mano:
+    --   ALTER TABLE signals DROP CONSTRAINT signals_status_check;
+    --   ALTER TABLE signals ADD CONSTRAINT signals_status_check
+    --     CHECK (status IN ('PENDING_CONFIRMATION','CONFIRMED',
+    --       'REJECTED_BY_USER','OPEN','TP_REACHED','SL_REACHED',
+    --       'CLOSED_MANUAL','CLOSED_BY_PRICE_RACE','EXPIRED',
+    --       'PENDING_MANUAL','CANCELLED_SIBLING_TP'));
+    -- (el nombre exacto del constraint puede variar — verificar con
+    -- \d signals antes de correr el DROP).
     status                TEXT NOT NULL CHECK (status IN (
         'PENDING_CONFIRMATION',
         'CONFIRMED',
@@ -49,7 +70,8 @@ CREATE TABLE IF NOT EXISTS signals (
         'CLOSED_MANUAL',
         'CLOSED_BY_PRICE_RACE',
         'EXPIRED',
-        'PENDING_MANUAL'
+        'PENDING_MANUAL',
+        'CANCELLED_SIBLING_TP'
     )) DEFAULT 'PENDING_CONFIRMATION',
 
     -- Ejecución y cierre (sección 9)
@@ -168,12 +190,29 @@ CREATE INDEX IF NOT EXISTS idx_signal_modifications_status ON signal_modificatio
 -- "Capital actual"/porcentaje de ganancia de PVG_kronos queda
 -- comparando unidades distintas (ancla sin crédito vs. capital en
 -- vivo con crédito) hasta que se corrija a mano.
+--
+-- circuit_breaker_pct (agregado 2026-09-01): umbral de ganancia
+-- diaria (fracción, ej. 0.06 = 6%) del circuit breaker de Fase 2
+-- (PROTOCOLOS_KRONOS_BOT.md sección 12.3) — antes hardcodeado como
+-- 0.06 en el nodo "¿Ganancia del día <6%?" de
+-- n8n-workflows/split-mvp|split-dev/02-señal-nueva-parseo-confirmado.json.
+-- Editable desde el panel de control del dashboard
+-- (GET/POST /api/circuit-breaker en dashboard/main.py). El nodo lee
+-- este valor con COALESCE(circuit_breaker_pct, 0.06) para que una
+-- base ya existente sin el UPDATE inicial siga operando con el 6%
+-- de siempre.
+-- NOTA DE DESPLIEGUE: en una base ya existente hay que agregar la
+-- columna a mano con:
+--   ALTER TABLE settings ADD COLUMN IF NOT EXISTS circuit_breaker_pct REAL;
+--   UPDATE settings SET circuit_breaker_pct = 0.06
+--   WHERE id = (SELECT id FROM settings ORDER BY id DESC LIMIT 1);
 CREATE TABLE IF NOT EXISTS settings (
     id                  SERIAL PRIMARY KEY,
     capital_real         REAL NOT NULL,
     day_start_capital     REAL,
     day_start_date        DATE,
     capital_inicial_plan   REAL,
+    circuit_breaker_pct    REAL,
     updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

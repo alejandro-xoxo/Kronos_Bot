@@ -438,6 +438,19 @@ input[type=range]:focus{ box-shadow: none }
 .hint{ margin: 13px 0 0; font-size: 12px; color: var(--txt-mute); line-height: 1.6 }
 .empty{ margin: 0; padding: 26px 0; font-size: 13px; color: var(--txt-mute); text-align: center }
 
+.cb-row{ display: flex; align-items: center; gap: 8px; margin-top: 12px }
+.cb-row input[type="number"]{
+  width: 80px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--txt);
+  font-size: 14px;
+}
+.cb-row input[type="number"]:focus{ outline: none; border-color: var(--azul) }
+.cb-suffix{ color: var(--txt-mute); font-size: 13px }
+
 /* --------------------------------------------------------------------------
    Tablas
    -------------------------------------------------------------------------- */
@@ -913,7 +926,16 @@ tbody tr.row-noop td:first-child{ box-shadow: inset 2px 0 0 rgba(182, 190, 205, 
 .ctrl-meta-item strong.neg{ color: var(--baja) }
 
 .ctrl-actions{ display: flex; gap: 8px }
-.ctrl-actions .btn{ flex: 1; min-height: 44px }
+.ctrl-actions .btn{
+  flex: 1;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.ctrl-actions .btn svg{ width: 16px; height: 16px; flex-shrink: 0 }
 .ctrl-status{ margin: 10px 0 0; font-size: 12px; color: var(--txt-mute); min-height: 1em; display: flex; align-items: center; gap: 6px }
 .ctrl-status svg{ width: 14px; height: 14px; flex-shrink: 0 }
 
@@ -932,6 +954,9 @@ tbody tr.row-noop td:first-child{ box-shadow: inset 2px 0 0 rgba(182, 190, 205, 
   .dayband__stats > div{ flex: 1 1 calc(50% - 5px); min-width: 0; padding: 10px 12px }
   .dow__item{ flex: 1 1 calc(33.333% - 5px); justify-content: center; padding: 9px 6px }
   .ctrl-meta{ grid-template-columns: repeat(2, 1fr) }
+  .ctrl-actions{ gap: 6px }
+  .ctrl-actions .btn{ padding: 10px 6px; font-size: 12px; min-height: 40px }
+  .ctrl-actions .btn svg{ width: 14px; height: 14px }
   .chart-wrap{ height: 250px }
   /* En móvil el fondo se atenúa levemente más: equilibrio entre visual e inmersión */
   .bg-imagen{ filter: brightness(.78) saturate(.82) blur(2px) }

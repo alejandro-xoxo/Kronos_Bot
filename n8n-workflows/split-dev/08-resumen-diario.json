@@ -65,7 +65,10 @@
           "name": "Telegram account"
         }
       },
-      "webhookId": "a50497a6-8c09-44c4-a1f1-b9839b98ae35"
+      "webhookId": "a50497a6-8c09-44c4-a1f1-b9839b98ae35",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {

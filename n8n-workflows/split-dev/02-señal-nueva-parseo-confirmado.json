@@ -42,7 +42,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date,\n         (NOW() AT TIME ZONE 'America/Bogota')::date AS hoy_bogota\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = cur.hoy_bogota\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM cur.hoy_bogota)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
+        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date,\n         (NOW() AT TIME ZONE 'America/Bogota')::date AS hoy_bogota\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = cur.hoy_bogota\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM cur.hoy_bogota)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital,\n  COALESCE(cur.circuit_breaker_pct, 0.06) AS circuit_breaker_pct\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
       },
       "id": "b2c3d4e5-6f70-4a81-9b0c-1d2e3f4a5b6c",
       "name": "Chequear ganancia del día (Postgres)",
@@ -73,7 +73,7 @@
             {
               "id": "cond-daily-gain-limit",
               "leftValue": "={{ Number($json.day_start_capital) > 0 ? (Number($json.capital_real) - Number($json.day_start_capital)) / Number($json.day_start_capital) : 0 }}",
-              "rightValue": 0.06,
+              "rightValue": "={{ Number($json.circuit_breaker_pct) }}",
               "operator": {
                 "type": "number",
                 "operation": "lt"
@@ -195,7 +195,11 @@
           "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -270,7 +274,10 @@
           "name": "Telegram account"
         }
       },
-      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo). callback_data ahora referencia $('Insertar señal (Postgres)').item.json.id en vez de $json.id, porque este nodo ya no recibe directo la salida del INSERT (se intercaló el chequeo de ganancia diaria y el conteo de operaciones abiertas para la rama de auto-confirmación). Recibe items desde DOS ramas manuales distintas: ganancia del día ≥6% (circuit breaker) o ya hay 2 operaciones OPEN — en ambos casos cae a confirmación manual normal."
+      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo). callback_data ahora referencia $('Insertar señal (Postgres)').item.json.id en vez de $json.id, porque este nodo ya no recibe directo la salida del INSERT (se intercaló el chequeo de ganancia diaria y el conteo de operaciones abiertas para la rama de auto-confirmación). Recibe items desde DOS ramas manuales distintas: ganancia del día ≥6% (circuit breaker) o ya hay 2 operaciones OPEN — en ambos casos cae a confirmación manual normal.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     }
   ],
   "connections": {

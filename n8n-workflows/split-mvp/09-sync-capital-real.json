@@ -84,7 +84,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "7BHAPu1rIT8bxv9u",
           "name": "Postgres account"
         }
       },
@@ -108,7 +108,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "7BHAPu1rIT8bxv9u",
           "name": "Postgres account"
         }
       },
@@ -162,7 +162,8 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "89d91CRDt3j4Xxy1"
   },
   "active": true,
   "pinData": null

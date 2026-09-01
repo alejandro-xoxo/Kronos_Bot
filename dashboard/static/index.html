@@ -317,6 +317,19 @@
   </div>
 
   <div class="section-title-row">
+    <h2 class="section-title">Circuit breaker diario</h2>
+  </div>
+  <div class="card">
+    <p class="hint" style="margin-top:0">Ganancia del día a partir de la cual se corta la auto-confirmación de señales (cae a confirmación manual hasta el día siguiente).</p>
+    <div class="cb-row">
+      <input type="number" id="control-cb-input" min="0.5" max="50" step="0.1" inputmode="decimal">
+      <span class="cb-suffix">%</span>
+      <button class="btn" id="control-cb-save">Guardar</button>
+    </div>
+    <p class="ctrl-status" id="control-cb-status"></p>
+  </div>
+
+  <div class="section-title-row">
     <h2 class="section-title">Posiciones abiertas</h2>
     <span class="section-count" id="control-count">—</span>
   </div>

@@ -129,7 +129,10 @@
           "name": "Telegram account"
         }
       },
-      "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a"
+      "webhookId": "eeef20c2-4499-45f5-b1dc-a2972d4c970a",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -222,7 +225,8 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "89d91CRDt3j4Xxy1"
   },
   "active": false,
   "pinData": {}

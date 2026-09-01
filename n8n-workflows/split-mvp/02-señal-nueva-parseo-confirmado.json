@@ -33,7 +33,7 @@
       "notesInFlow": true,
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "7BHAPu1rIT8bxv9u",
           "name": "Postgres account"
         }
       },
@@ -87,12 +87,15 @@
           "name": "Telegram account"
         }
       },
-      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo)."
+      "notes": "chatId lee la variable de entorno TELEGRAM_USER_CHAT_ID (chat privado del usuario, no el grupo).",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = (NOW() AT TIME ZONE 'America/Bogota')::date\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM (NOW() AT TIME ZONE 'America/Bogota')::date)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
+        "query": "WITH cur AS (\n  SELECT id, capital_real, day_start_capital, day_start_date, circuit_breaker_pct\n  FROM settings ORDER BY id DESC LIMIT 1\n),\nupd AS (\n  UPDATE settings s\n  SET day_start_capital = cur.capital_real, day_start_date = (NOW() AT TIME ZONE 'America/Bogota')::date\n  FROM cur\n  WHERE s.id = cur.id\n    AND (cur.day_start_date IS DISTINCT FROM (NOW() AT TIME ZONE 'America/Bogota')::date)\n  RETURNING s.id, s.capital_real, s.day_start_capital\n)\nSELECT\n  cur.capital_real AS capital_real,\n  COALESCE(upd.day_start_capital, cur.day_start_capital, cur.capital_real) AS day_start_capital,\n  COALESCE(cur.circuit_breaker_pct, 0.06) AS circuit_breaker_pct\nFROM cur\nLEFT JOIN upd ON upd.id = cur.id;"
       },
       "id": "b2c3d4e5-6f70-4a81-9b0c-1d2e3f4a5b6c",
       "name": "Chequear ganancia del día (Postgres)",
@@ -104,7 +107,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "7BHAPu1rIT8bxv9u",
           "name": "Postgres account"
         }
       },
@@ -123,7 +126,7 @@
             {
               "id": "cond-daily-gain-limit",
               "leftValue": "={{ Number($json.day_start_capital) > 0 ? (Number($json.capital_real) - Number($json.day_start_capital)) / Number($json.day_start_capital) : 0 }}",
-              "rightValue": 0.06,
+              "rightValue": "={{ Number($json.circuit_breaker_pct) }}",
               "operator": {
                 "type": "number",
                 "operation": "lt"
@@ -159,7 +162,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "7BHAPu1rIT8bxv9u",
           "name": "Postgres account"
         }
       },
@@ -217,7 +220,7 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "7LVMx0eYAvNwAFfQ",
+          "id": "7BHAPu1rIT8bxv9u",
           "name": "Postgres account"
         }
       },
@@ -246,7 +249,11 @@
           "name": "Telegram account"
         }
       },
-      "webhookId": "e24bd77e-556b-4c70-b3d6-ee8dce0a136c"
+      "webhookId": "e24bd77e-556b-4c70-b3d6-ee8dce0a136c",
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -402,7 +409,8 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "errorWorkflow": "89d91CRDt3j4Xxy1"
   },
   "active": true,
   "pinData": {}
