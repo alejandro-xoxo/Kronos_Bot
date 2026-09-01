@@ -195,7 +195,8 @@
           "id": "Ic6A007NlBaY2ucv",
           "name": "Telegram account"
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {

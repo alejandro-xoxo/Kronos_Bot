@@ -246,7 +246,8 @@
           "name": "Telegram account"
         }
       },
-      "webhookId": "e24bd77e-556b-4c70-b3d6-ee8dce0a136c"
+      "webhookId": "e24bd77e-556b-4c70-b3d6-ee8dce0a136c",
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
